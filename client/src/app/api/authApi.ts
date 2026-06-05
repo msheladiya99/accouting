@@ -36,15 +36,15 @@ export const ROLE_VISIBLE_PATHS: Record<Role, string[]> = {
     "/", "/financial-year", "/ledger-master",
     "/opening-balances", "/bank-cash-book", "/bank-import",
     "/journal-voucher", "/balance-sheet", "/trial-balance",
-    "/pl-statement", "/reports", "/export", "/user-management", "/settings",
+    "/pl-statement", "/export", "/user-management", "/settings",
   ],
   Accountant: [
     "/", "/ledger-master", "/bank-cash-book", "/bank-import",
     "/journal-voucher", "/balance-sheet", "/trial-balance",
-    "/pl-statement", "/reports", "/export", "/settings",
+    "/pl-statement", "/export", "/settings",
   ],
   Viewer: [
-    "/", "/balance-sheet", "/trial-balance", "/pl-statement", "/reports", "/settings",
+    "/", "/balance-sheet", "/trial-balance", "/pl-statement", "/settings",
   ],
 };
 

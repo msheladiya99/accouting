@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import AdminLayout from "../layouts/AdminLayout";
 import Dashboard from "../pages/Dashboard";
 import CompanySetup from "../pages/CompanySetup";
@@ -10,7 +10,6 @@ import JournalVoucher from "../pages/JournalVoucher";
 import BalanceSheet from "../pages/BalanceSheet";
 import TrialBalance from "../pages/TrialBalance";
 import PLStatement from "../pages/PLStatement";
-import Reports from "../pages/Reports";
 import Export from "../pages/Export";
 import LedgerMaster from "../pages/LedgerMaster";
 import Login from "../pages/Login";
@@ -36,10 +35,13 @@ export const router = createBrowserRouter([
       { path: "balance-sheet", Component: BalanceSheet },
       { path: "trial-balance", Component: TrialBalance },
       { path: "pl-statement", Component: PLStatement },
-      { path: "reports", Component: Reports },
       { path: "export", Component: Export },
       { path: "user-management", Component: UserManagement },
       { path: "settings", Component: Settings },
+      // Catch-all: redirect any unknown path to dashboard
+      { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
+  // Top-level catch-all
+  { path: "*", element: <Navigate to="/" replace /> },
 ]);

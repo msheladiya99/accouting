@@ -109,7 +109,17 @@ export async function computeBalanceSheet(): Promise<BalanceSheetData> {
   for (const row of rows) {
     const netDr = row.closingDr;
     const netCr = row.closingCr;
-    const parentCategory = groupParentsMap[row.group] || "Assets";
+    let parentCategory = groupParentsMap[row.group] || "Assets";
+
+    // Classify Profit & Loss A/c dynamically based on net balance: debit balance (loss) is an Asset, credit balance (profit) is Capital
+    if (row.group === "Profit & Loss A/c") {
+      const netCrDr = netCr - netDr;
+      if (netCrDr >= 0) {
+        parentCategory = "Capital";
+      } else {
+        parentCategory = "Assets";
+      }
+    }
 
     if (parentCategory === "Assets") {
       const amount = netDr - netCr;
@@ -131,6 +141,27 @@ export async function computeBalanceSheet(): Promise<BalanceSheetData> {
   }
 
   const netProfit = totalRevenue - totalExpense;
+
+  // Inject current-year Net Profit (Liabilities/Capital side) or Net Loss (Assets side)
+  if (netProfit > 0.001) {
+    const targetGroup = "Capital";
+    if (!capitalMap.has(targetGroup)) {
+      capitalMap.set(targetGroup, []);
+    }
+    capitalMap.get(targetGroup)!.push({
+      ledgerName: "Net Profit (Current Year)",
+      amount: netProfit,
+    });
+  } else if (netProfit < -0.001) {
+    const targetGroup = "Profit & Loss A/c";
+    if (!assetMap.has(targetGroup)) {
+      assetMap.set(targetGroup, []);
+    }
+    assetMap.get(targetGroup)!.push({
+      ledgerName: "Net Loss (Current Year)",
+      amount: Math.abs(netProfit),
+    });
+  }
 
   // Dynamically add any missing groups to order arrays
   const dynamicAssetOrder = [...ASSET_ORDER];
@@ -172,19 +203,11 @@ export async function computeBalanceSheet(): Promise<BalanceSheetData> {
   // ── Build Liabilities + Capital Section ───────────────────────────────────
   const liabCapGroups: BSGroup[] = [];
 
-  // Capital first (including Net Profit as a synthetic ledger)
   for (const g of dynamicLiabCapOrder) {
-    if (g === "Capital" && capitalMap.has("Capital")) {
-      const ledgers = capitalMap.get("Capital")!.sort((a, b) => a.ledgerName.localeCompare(b.ledgerName));
-      // Inject Net Profit / Loss as a ledger entry
-      if (Math.abs(netProfit) > 0.001) {
-        ledgers.push({
-          ledgerName: netProfit >= 0 ? "Net Profit (Current Year)" : "Net Loss (Current Year)",
-          amount: netProfit,
-        });
-      }
+    if (capitalMap.has(g)) {
+      const ledgers = capitalMap.get(g)!.sort((a, b) => a.ledgerName.localeCompare(b.ledgerName));
       const total = ledgers.reduce((s, l) => s + l.amount, 0);
-      liabCapGroups.push({ groupKey: "Capital", groupName: GROUP_DISPLAY["Capital"], ledgers, total });
+      liabCapGroups.push({ groupKey: g, groupName: GROUP_DISPLAY[g] ?? g, ledgers, total });
     } else if (liabMap.has(g)) {
       const ledgers = liabMap.get(g)!.sort((a, b) => a.ledgerName.localeCompare(b.ledgerName));
       const total = ledgers.reduce((s, l) => s + l.amount, 0);

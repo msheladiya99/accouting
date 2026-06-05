@@ -1,110 +1,441 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  ChevronDown, ChevronRight, Download, Printer, TrendingUp,
-  TrendingDown, Scale, RefreshCw, CheckCircle2, AlertTriangle,
-  BookOpen, ArrowLeftRight, FileText,
+  Download, Printer, TrendingUp, TrendingDown, Scale, RefreshCw,
+  CheckCircle2, AlertTriangle, BookOpen, ArrowLeftRight, FileText, X
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeBalanceSheet, BalanceSheetData, BSGroup, BSLedger } from "../api/balanceSheetApi";
+import { computeTrialBalance, TrialRow } from "../api/trialBalanceApi";
+import { getAllEntries } from "../api/bankCashBookApi";
+import { getAllJournalEntries } from "../api/journalVoucherApi";
+import { getAllLedgers } from "../api/ledgerApi";
 
 const fmt = (v: number) =>
   `₹${Math.abs(v).toLocaleString("en-IN")}`;
 
-// ── Group colors ──────────────────────────────────────────────────────────────
-const ASSET_GROUP_COLORS: Record<string, { header: string; badge: string; ledger: string }> = {
-  "Fixed & Other Assets": { header: "bg-blue-600",    badge: "bg-blue-100 text-blue-700",    ledger: "text-blue-700"   },
-  "Bank Accounts":        { header: "bg-sky-600",     badge: "bg-sky-100 text-sky-700",      ledger: "text-sky-700"    },
-  "Cash & Petty Cash":    { header: "bg-cyan-600",    badge: "bg-cyan-100 text-cyan-700",    ledger: "text-cyan-700"   },
-  "Sundry Debtors":       { header: "bg-violet-600",  badge: "bg-violet-100 text-violet-700",ledger: "text-violet-700" },
+const fmtReport = (v: number) => {
+  const val = Math.abs(v);
+  return val.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
 };
 
-const LIAB_GROUP_COLORS: Record<string, { header: string; badge: string; ledger: string }> = {
-  "Capital & Reserves": { header: "bg-purple-600",  badge: "bg-purple-100 text-purple-700", ledger: "text-purple-700" },
-  "Liabilities":        { header: "bg-red-600",     badge: "bg-red-100 text-red-700",       ledger: "text-red-700"    },
-  "Sundry Creditors":   { header: "bg-pink-600",    badge: "bg-pink-100 text-pink-700",     ledger: "text-pink-700"   },
-};
+// ── Traditional report structures ─────────────────────────────────────────────
+const LIABILITIES_STRUCTURE = [
+  {
+    title: "CAPITAL",
+    groups: ["Capital Account", "Capital", "Capital & Reserves", "Profit & Loss A/c"]
+  },
+  {
+    title: "LOAN FUNDS",
+    subsections: [
+      { title: "SECURED LOANS", groups: ["Secured Loans", "Bank OCC a/c", "Loans (Liability)", "Secured Loans"] },
+      { title: "UNSECURED LOANS", groups: ["Unsecured Loans"] }
+    ]
+  },
+  {
+    title: "SUNDRY CREDITORS",
+    groups: ["Sundry Creditors", "Sundry Creditors - Material", "Sundry Creditors - Services", "Sundry Creditors"]
+  },
+  {
+    title: "PROVISIONS",
+    groups: ["Provisions", "Duties & Taxes", "Salary Expenses Payable", "Advances From Customers"]
+  }
+];
 
-const DEFAULT_COLOR = { header: "bg-slate-600", badge: "bg-slate-100 text-slate-700", ledger: "text-slate-700" };
+const ASSETS_STRUCTURE = [
+  {
+    title: "FIXED ASSETS",
+    groups: ["Fixed Assets", "Assets"]
+  },
+  {
+    title: "INVESTMENTS",
+    groups: ["Investments"]
+  },
+  {
+    title: "CURRENT ASSETS",
+    subsections: [
+      { title: "INVENTORY", groups: ["Stock-in-hand", "Stock-in-hand"] },
+      { title: "SUNDRY DEBTORS", groups: ["Sundry Debtors"] },
+      { title: "CASH AND BANK", groups: ["Cash-in-hand", "Bank Accounts (Banks)", "Cash", "Bank", "Cash Ledger A/C.", "Bank Accounts"] },
+      { title: "LOANS AND ADVANCES (ASSETS)", groups: ["Loans & Advances (Asset)", "Deposits (Asset)"] }
+    ]
+  },
+  {
+    title: "MISC EXPENSES (ASSETS)",
+    groups: ["Misc. Expenses (Asset)", "Profit & Loss A/c", "Suspense Account"]
+  }
+];
 
-// ── Ledger row ────────────────────────────────────────────────────────────────
-function LedgerRow({ ledger, colorClass }: { ledger: BSLedger; colorClass: string }) {
-  const isNegative = ledger.amount < 0;
-  return (
-    <div className="flex items-center justify-between py-2 px-4 pl-12 hover:bg-slate-50/70 transition-colors border-b border-slate-50 last:border-0">
-      <div className="flex items-center gap-2">
-        <span className="w-3 h-px bg-slate-200 inline-block" />
-        <span className="text-sm text-slate-600">{ledger.ledgerName}</span>
-        {isNegative && (
-          <span className="text-xs px-1.5 py-0.5 bg-red-50 text-red-500 rounded">Loss</span>
-        )}
-      </div>
-      <span className={`text-sm tabular-nums font-medium ${isNegative ? "text-red-500" : colorClass}`}>
-        {isNegative ? `(${fmt(ledger.amount)})` : fmt(ledger.amount)}
-      </span>
-    </div>
+// ── Helper to build structure ──────────────────────────────────────────────────
+function buildStructuredSection(structure: any, apiSection: any) {
+  const matchedGroupKeys = new Set<string>();
+
+  const result = structure.map((item: any) => {
+    if (item.groups) {
+      const matchedGroups = apiSection.groups.filter((g: any) =>
+        item.groups.some((name: string) => g.groupKey.toLowerCase() === name.toLowerCase())
+      );
+      matchedGroups.forEach((g: any) => matchedGroupKeys.add(g.groupKey.toLowerCase()));
+      if (matchedGroups.length === 0) return null;
+
+      const allLedgers = matchedGroups.flatMap((g: any) => g.ledgers);
+      const total = matchedGroups.reduce((sum: number, g: any) => sum + g.total, 0);
+
+      return {
+        title: item.title,
+        ledgers: allLedgers,
+        total,
+      };
+    } else if (item.subsections) {
+      const subResults = item.subsections.map((sub: any) => {
+        const matchedGroups = apiSection.groups.filter((g: any) =>
+          sub.groups.some((name: string) => g.groupKey.toLowerCase() === name.toLowerCase())
+        );
+        matchedGroups.forEach((g: any) => matchedGroupKeys.add(g.groupKey.toLowerCase()));
+        if (matchedGroups.length === 0) return null;
+
+        const allLedgers = matchedGroups.flatMap((g: any) => g.ledgers);
+        const total = matchedGroups.reduce((sum: number, g: any) => sum + g.total, 0);
+        return {
+          title: sub.title,
+          ledgers: allLedgers,
+          total,
+        };
+      }).filter(Boolean);
+
+      if (subResults.length === 0) return null;
+
+      const total = subResults.reduce((sum: number, sub: any) => sum + sub.total, 0);
+      return {
+        title: item.title,
+        subsections: subResults,
+        total,
+      };
+    }
+    return null;
+  }).filter(Boolean);
+
+  // Collect any unmatched user-created custom groups
+  const unmatched = apiSection.groups.filter((g: any) =>
+    !matchedGroupKeys.has(g.groupKey.toLowerCase())
   );
+
+  return { structured: result, unmatched };
 }
 
-// ── Group block (expand/collapse) ─────────────────────────────────────────────
-function GroupBlock({
-  group,
-  colors,
-  defaultOpen = true,
-}: {
-  group: BSGroup;
-  colors: { header: string; badge: string; ledger: string };
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
+interface ReportRow {
+  type: 'header' | 'subheader' | 'ledger';
+  label: string;
+  amount?: number;
+  depth: number;
+}
 
-  return (
-    <div className="border border-slate-100 rounded-xl overflow-hidden mb-3">
-      {/* Group header */}
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className={`w-full flex items-center justify-between px-4 py-3 ${colors.header} text-white hover:opacity-95 transition-opacity`}
-      >
-        <div className="flex items-center gap-2">
-          {open
-            ? <ChevronDown size={15} className="opacity-80" />
-            : <ChevronRight size={15} className="opacity-80" />}
-          <span className="text-sm font-semibold">{group.groupName}</span>
-          <span className="text-xs px-2 py-0.5 bg-white/20 rounded-full">
-            {group.ledgers.length} {group.ledgers.length === 1 ? "ledger" : "ledgers"}
-          </span>
-        </div>
-        <span className="text-sm font-bold tabular-nums">{fmt(group.total)}</span>
-      </button>
+function flattenSection(structuredItems: any[]): ReportRow[] {
+  const rows: ReportRow[] = [];
 
-      {/* Ledger rows */}
-      {open && (
-        <div className="bg-white divide-y divide-slate-50">
-          {group.ledgers.map((l) => (
-            <LedgerRow key={l.ledgerName} ledger={l} colorClass={colors.ledger} />
-          ))}
-          {/* Group subtotal */}
-          <div className={`flex items-center justify-between px-4 py-2.5 ${colors.badge}`}>
-            <span className="text-xs font-semibold uppercase tracking-wide">
-              Total {group.groupName}
-            </span>
-            <span className="text-sm font-bold tabular-nums">{fmt(group.total)}</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  function recurse(item: any, depth: number) {
+    if (!item) return;
+
+    if (item.subsections) {
+      rows.push({
+        type: 'header',
+        label: item.title,
+        depth: depth
+      });
+      item.subsections.forEach((sub: any) => {
+        recurse(sub, depth + 1);
+      });
+    } else if (item.ledgers) {
+      const hasSingleMatchingLedger = item.ledgers.length === 1 &&
+        (item.ledgers[0].ledgerName.toLowerCase() === item.title.toLowerCase() ||
+         item.title.toLowerCase() === 'capital');
+
+      if (hasSingleMatchingLedger) {
+        rows.push({
+          type: depth === 0 ? 'header' : 'subheader',
+          label: item.title,
+          amount: item.ledgers[0].amount,
+          depth: depth
+        });
+      } else {
+        rows.push({
+          type: depth === 0 ? 'header' : 'subheader',
+          label: item.title,
+          depth: depth
+        });
+        item.ledgers.forEach((l: any) => {
+          rows.push({
+            type: 'ledger',
+            label: l.ledgerName,
+            amount: l.amount,
+            depth: depth + 1
+          });
+        });
+      }
+    }
+  }
+
+  structuredItems.forEach((item) => recurse(item, 0));
+  return rows;
+}
+
+function flattenUnmatched(unmatchedGroups: any[]): ReportRow[] {
+  const rows: ReportRow[] = [];
+  unmatchedGroups.forEach((g: any) => {
+    rows.push({
+      type: 'header',
+      label: g.groupName,
+      depth: 0
+    });
+    g.ledgers.forEach((l: any) => {
+      rows.push({
+        type: 'ledger',
+        label: l.ledgerName,
+        amount: l.amount,
+        depth: 1
+      });
+    });
+  });
+  return rows;
+}
+
+// ── Extra Calculations for Trading & P&L and Capital Accounts ─────────────────
+interface CapitalTxn {
+  particulars: string;
+  amount: number;
+}
+
+interface PartnerCapitalAccount {
+  ledgerName: string;
+  debits: CapitalTxn[];
+  credits: CapitalTxn[];
+  total: number;
+}
+
+function computeTradingPL(rows: TrialRow[]) {
+  const openingStockRows: any[] = [];
+  const closingStockRows: any[] = [];
+  const purchaseRows: any[] = [];
+  const directExpRows: any[] = [];
+  const salesRows: any[] = [];
+  const indirectIncomeRows: any[] = [];
+  const indirectExpRows: any[] = [];
+  const depreciationRows: any[] = [];
+  const financialExpRows: any[] = [];
+
+  rows.forEach((r) => {
+    const groupName = r.group.toLowerCase();
+    const ledgerName = r.ledgerName.toLowerCase();
+    
+    const netDrCr = r.closingDr - r.closingCr;
+    const absVal = Math.abs(netDrCr);
+
+    if (groupName === "stock-in-hand" || groupName === "inventory") {
+      if (r.openingDr > 0) {
+        openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
+      }
+      if (r.closingDr > 0) {
+        closingStockRows.push({ name: r.ledgerName, amount: r.closingDr });
+      }
+    } else if (groupName === "purchase account" || groupName === "purchases") {
+      if (absVal > 0.001) {
+        purchaseRows.push({ name: r.ledgerName, amount: absVal });
+      }
+    } else if (groupName === "expenses (direct)" || groupName === "direct expenses") {
+      if (absVal > 0.001) {
+        directExpRows.push({ name: r.ledgerName, amount: absVal });
+      }
+    } else if (groupName === "sales account" || groupName === "sales") {
+      if (absVal > 0.001) {
+        salesRows.push({ name: r.ledgerName, amount: absVal });
+      }
+    } else if (
+      groupName === "income" || 
+      groupName === "income (trading)" || 
+      groupName === "income (other then sales)" ||
+      groupName === "indirect incomes"
+    ) {
+      if (absVal > 0.001) {
+        indirectIncomeRows.push({ name: r.ledgerName, amount: absVal });
+      }
+    } else {
+      if (absVal > 0.001) {
+        if (ledgerName.includes("depreciation")) {
+          depreciationRows.push({ name: r.ledgerName, amount: absVal });
+        } else if (
+          ledgerName.includes("bank charges") || 
+          ledgerName.includes("interest") || 
+          ledgerName.includes("loan a/c") ||
+          ledgerName.includes("cc a/c") ||
+          groupName.includes("financial")
+        ) {
+          financialExpRows.push({ name: r.ledgerName, amount: absVal });
+        } else {
+          indirectExpRows.push({ name: r.ledgerName, amount: absVal });
+        }
+      }
+    }
+  });
+
+  const totalOpeningStock = openingStockRows.reduce((s, x) => s + x.amount, 0);
+  const totalClosingStock = closingStockRows.reduce((s, x) => s + x.amount, 0);
+  const totalPurchases = purchaseRows.reduce((s, x) => s + x.amount, 0);
+  const totalDirectExp = directExpRows.reduce((s, x) => s + x.amount, 0);
+  const totalSales = salesRows.reduce((s, x) => s + x.amount, 0);
+  const totalIndirectIncome = indirectIncomeRows.reduce((s, x) => s + x.amount, 0);
+  const totalFinancialExp = financialExpRows.reduce((s, x) => s + x.amount, 0);
+  const totalDepreciation = depreciationRows.reduce((s, x) => s + x.amount, 0);
+  const totalIndirectExp = indirectExpRows.reduce((s, x) => s + x.amount, 0);
+
+  const tradingDebits = totalOpeningStock + totalPurchases + totalDirectExp;
+  const tradingCredits = totalSales + totalClosingStock;
+  const grossProfit = tradingCredits - tradingDebits;
+
+  const plCredits = (grossProfit > 0 ? grossProfit : 0) + totalIndirectIncome;
+  const plDebits = (grossProfit < 0 ? Math.abs(grossProfit) : 0) + totalFinancialExp + totalDepreciation + totalIndirectExp;
+  const netProfit = plCredits - plDebits;
+
+  return {
+    openingStockRows,
+    closingStockRows,
+    purchaseRows,
+    directExpRows,
+    salesRows,
+    indirectIncomeRows,
+    indirectExpRows,
+    depreciationRows,
+    financialExpRows,
+    totalOpeningStock,
+    totalClosingStock,
+    totalPurchases,
+    totalDirectExp,
+    totalSales,
+    totalIndirectIncome,
+    totalFinancialExp,
+    totalDepreciation,
+    totalIndirectExp,
+    grossProfit,
+    netProfit
+  };
+}
+
+function computePartnerCapital(
+  ledger: any,
+  bankEntries: any[],
+  journalEntries: any[]
+): PartnerCapitalAccount {
+  const name = ledger.ledgerName;
+  const openingBalance = ledger.openingCr - ledger.openingDr;
+
+  const debits: CapitalTxn[] = [];
+  const credits: CapitalTxn[] = [];
+
+  bankEntries.forEach((e) => {
+    if (e.contraAccountName === name) {
+      if (e.withdrawal > 0) {
+        debits.push({ particulars: e.particulars || "WITHDRAWAL", amount: e.withdrawal });
+      }
+      if (e.deposit > 0) {
+        credits.push({ particulars: e.particulars || "CAPITAL INTRODUCED", amount: e.deposit });
+      }
+    }
+  });
+
+  journalEntries.forEach((e) => {
+    if (e.debitAccount === name) {
+      debits.push({ particulars: e.narration || "WITHDRAWAL", amount: e.debitAmount });
+    }
+    if (e.creditAccount === name) {
+      credits.push({ particulars: e.narration || "CREDIT", amount: e.creditAmount });
+    }
+  });
+
+  const formattedDebits = debits.map((t) => {
+    let p = t.particulars.toUpperCase();
+    if (!p.startsWith("TO ")) p = "TO " + p;
+    return { particulars: p, amount: t.amount };
+  });
+
+  const formattedCredits = credits.map((t) => {
+    let p = t.particulars.toUpperCase();
+    if (!p.startsWith("BY ")) p = "BY " + p;
+    return { particulars: p, amount: t.amount };
+  });
+
+  const finalCredits = [
+    { particulars: "BY OPENING BALANCE", amount: Math.abs(openingBalance) },
+    ...formattedCredits
+  ];
+
+  const creditsSum = finalCredits.reduce((s, c) => s + c.amount, 0);
+  const debitsSum = formattedDebits.reduce((s, d) => s + d.amount, 0);
+  const closingBalance = creditsSum - debitsSum;
+
+  const finalDebits = [
+    ...formattedDebits,
+    { particulars: "TO CLOSING BALANCE", amount: closingBalance }
+  ];
+
+  return {
+    ledgerName: name.toUpperCase(),
+    debits: finalDebits,
+    credits: finalCredits,
+    total: Math.max(
+      finalDebits.reduce((s, d) => s + d.amount, 0),
+      finalCredits.reduce((s, c) => s + c.amount, 0)
+    )
+  };
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function BalanceSheet() {
-  const { selectedFY } = useApp();
+  const { selectedFY, company } = useApp();
   const financialYear = selectedFY?.label ?? "—";
 
   const [data, setData]       = useState<BalanceSheetData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>([]);
+  const [tradingPLData, setTradingPLData] = useState<any>(null);
+
+  useEffect(() => {
+    async function loadExtraData() {
+      try {
+        const [trialSummary, bEntries, jEntries, allLedgers] = await Promise.all([
+          computeTrialBalance(),
+          getAllEntries(),
+          getAllJournalEntries(),
+          getAllLedgers()
+        ]);
+
+        const tpl = computeTradingPL(trialSummary.rows);
+        setTradingPLData(tpl);
+
+        const capitalLedgerAccounts = allLedgers.filter(l => 
+          l.groupName.toLowerCase() === 'capital' || 
+          l.groupName.toLowerCase() === 'capital account' || 
+          l.groupName.toLowerCase() === 'capital & reserves'
+        );
+
+        const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
+          computePartnerCapital(ledger, bEntries, jEntries)
+        ));
+
+        setCapitalAccounts(accounts);
+      } catch (err) {
+        console.error("Failed to load extra report data:", err);
+      }
+    }
+
+    if (data) {
+      loadExtraData();
+    }
+  }, [data, selectedFY?._id]);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -126,6 +457,24 @@ export default function BalanceSheet() {
   const today = new Date().toLocaleDateString("en-IN", {
     day: "2-digit", month: "short", year: "numeric",
   });
+
+  // Compile structured sections
+  const liabStructured = data ? buildStructuredSection(LIABILITIES_STRUCTURE, data.liabCapSection) : null;
+  const assetsStructured = data ? buildStructuredSection(ASSETS_STRUCTURE, data.assetsSection) : null;
+
+  const leftRows = liabStructured
+    ? [
+        ...flattenSection(liabStructured.structured),
+        ...flattenUnmatched(liabStructured.unmatched)
+      ]
+    : [];
+
+  const rightRows = assetsStructured
+    ? [
+        ...flattenSection(assetsStructured.structured),
+        ...flattenUnmatched(assetsStructured.unmatched)
+      ]
+    : [];
 
   return (
     <div className="p-4 lg:p-6 space-y-5">
@@ -250,93 +599,483 @@ export default function BalanceSheet() {
             ))}
           </div>
 
-          {/* Two-column Balance Sheet */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-            {/* ── LEFT: Assets ─────────────────────────────────────────────── */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h2 className="text-base font-bold text-slate-800">Assets</h2>
-                  <p className="text-xs text-slate-500">What the company owns</p>
+          {/* 1. TRADING AND PROFIT AND LOSS ACCOUNT */}
+          {(() => {
+            const tpl = tradingPLData;
+            if (!tpl) {
+              return (
+                <div className="text-center py-12 text-slate-500 text-sm">
+                  No Trading & P&L data available or still computing...
                 </div>
-                <span className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded-full font-medium">
-                  {data.assetsSection.groups.length} groups
-                </span>
-              </div>
+              );
+            }
 
-              {data.assetsSection.groups.map((group) => (
-                <GroupBlock
-                  key={group.groupKey}
-                  group={group}
-                  colors={ASSET_GROUP_COLORS[group.groupName] ?? DEFAULT_COLOR}
-                  defaultOpen
-                />
-              ))}
+            const tradingLeft: any[] = [];
+            const tradingRight: any[] = [];
 
-              {/* Assets total footer */}
-              <div className="flex items-center justify-between py-3.5 px-4 bg-blue-600 text-white rounded-xl mt-2">
-                <span className="text-sm font-bold uppercase tracking-wide">Total Assets</span>
-                <span className="font-bold tabular-nums">{fmt(data.totalAssets)}</span>
-              </div>
-            </div>
+            // Trading Left (Debits)
+            if (tpl.totalOpeningStock > 0) {
+              tradingLeft.push({ label: "TO OPENING STOCK", isHeader: true, depth: 0 });
+              tpl.openingStockRows.forEach((r: any) => {
+                tradingLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+              });
+            }
+            if (tpl.totalPurchases > 0) {
+              tradingLeft.push({ label: "TO PURCHASE A/C", isHeader: true, depth: 0 });
+              tpl.purchaseRows.forEach((r: any) => {
+                tradingLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+              });
+            }
+            if (tpl.totalDirectExp > 0) {
+              tradingLeft.push({ label: "TO DIRECT EXPENSES", isHeader: true, depth: 0 });
+              tpl.directExpRows.forEach((r: any) => {
+                tradingLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+              });
+            }
+            if (tpl.grossProfit > 0) {
+              tradingLeft.push({ label: "TO GROSS PROFIT", amount: tpl.grossProfit, isBold: true, depth: 0 });
+            }
 
-            {/* ── RIGHT: Liabilities + Capital ─────────────────────────────── */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <h2 className="text-base font-bold text-slate-800">Liabilities & Capital</h2>
-                  <p className="text-xs text-slate-500">What the company owes + net worth</p>
+            // Trading Right (Credits)
+            if (tpl.totalSales > 0) {
+              tradingRight.push({ label: "BY SALES A/C", isHeader: true, depth: 0 });
+              tpl.salesRows.forEach((r: any) => {
+                tradingRight.push({ label: r.name, amount: r.amount, depth: 1 });
+              });
+            }
+            if (tpl.totalClosingStock > 0) {
+              tradingRight.push({ label: "BY INVENTORY", isHeader: true, depth: 0 });
+              tpl.closingStockRows.forEach((r: any) => {
+                tradingRight.push({ label: "STOCK IN TRADE", amount: r.amount, depth: 1 });
+              });
+            }
+            if (tpl.grossProfit < 0) {
+              tradingRight.push({ label: "BY GROSS LOSS", amount: Math.abs(tpl.grossProfit), isBold: true, depth: 0 });
+            }
+
+            // Pad Trading rows to match
+            const tradingMax = Math.max(tradingLeft.length, tradingRight.length);
+            while (tradingLeft.length < tradingMax) {
+              tradingLeft.push({ label: "", depth: 0 });
+            }
+            while (tradingRight.length < tradingMax) {
+              tradingRight.push({ label: "", depth: 0 });
+            }
+
+            // P&L Left (Debits)
+            const plLeft: any[] = [];
+            const plRight: any[] = [];
+
+            if (tpl.grossProfit < 0) {
+              plLeft.push({ label: "TO GROSS LOSS", amount: Math.abs(tpl.grossProfit), isBold: true, depth: 0 });
+            }
+            if (tpl.totalFinancialExp > 0) {
+              plLeft.push({ label: "TO FINANCIAL EXPENSES", isHeader: true, depth: 0 });
+              tpl.financialExpRows.forEach((r: any) => {
+                plLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+              });
+            }
+            if (tpl.totalIndirectExp > 0) {
+              plLeft.push({ label: "TO INDIRECT EXPENSES", isHeader: true, depth: 0 });
+              tpl.indirectExpRows.forEach((r: any) => {
+                plLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+              });
+            }
+            if (tpl.totalDepreciation > 0) {
+              plLeft.push({ label: "TO DEPRECIATION", isHeader: true, depth: 0 });
+              tpl.depreciationRows.forEach((r: any) => {
+                plLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+              });
+            }
+            if (tpl.netProfit > 0) {
+              plLeft.push({ label: "TO NET PROFIT", amount: tpl.netProfit, isBold: true, depth: 0 });
+            }
+
+            // P&L Right (Credits)
+            if (tpl.grossProfit > 0) {
+              plRight.push({ label: "BY GROSS PROFIT", amount: tpl.grossProfit, isBold: true, depth: 0 });
+            }
+            if (tpl.totalIndirectIncome > 0) {
+              plRight.push({ label: "BY INDIRECT INCOMES", isHeader: true, depth: 0 });
+              tpl.indirectIncomeRows.forEach((r: any) => {
+                plRight.push({ label: r.name, amount: r.amount, depth: 1 });
+              });
+            }
+            if (tpl.netProfit < 0) {
+              plRight.push({ label: "BY NET LOSS", amount: Math.abs(tpl.netProfit), isBold: true, depth: 0 });
+            }
+
+            // Pad P&L rows to match
+            const plMax = Math.max(plLeft.length, plRight.length);
+            while (plLeft.length < plMax) {
+              plLeft.push({ label: "", depth: 0 });
+            }
+            while (plRight.length < plMax) {
+              plRight.push({ label: "", depth: 0 });
+            }
+
+            const tradingTotalAmount = tpl.totalOpeningStock + tpl.totalPurchases + tpl.totalDirectExp + (tpl.grossProfit > 0 ? tpl.grossProfit : 0);
+            const plTotalAmount = (tpl.grossProfit < 0 ? Math.abs(tpl.grossProfit) : 0) + tpl.totalFinancialExp + tpl.totalDepreciation + tpl.totalIndirectExp + (tpl.netProfit > 0 ? tpl.netProfit : 0);
+
+            const renderPLRowHelper = (rows: any[]) => {
+              return rows.map((row, idx) => {
+                if (row.label === "") {
+                  return <div key={idx} className="min-h-[22px] py-0.5" />;
+                }
+                const indentClass = row.depth === 0 ? "pl-4" : row.depth === 1 ? "pl-8" : "pl-12";
+                const fontClass = 
+                  row.isHeader
+                    ? "font-bold text-slate-900 text-xs mt-3 first:mt-0" 
+                    : row.isBold 
+                      ? "font-bold text-slate-800 text-xs" 
+                      : "font-normal text-slate-600 text-xs";
+
+                return (
+                  <div key={idx} className={`flex py-0.5 items-center min-h-[22px] ${fontClass}`}>
+                    <div className={`flex-1 pr-2 uppercase ${indentClass} ${row.isHeader ? 'underline decoration-slate-300 underline-offset-2' : ''}`}>
+                      {row.label}
+                    </div>
+                    <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
+                      {row.amount !== undefined ? fmtReport(row.amount) : ""}
+                    </div>
+                  </div>
+                );
+              });
+            };
+
+            return (
+              <div className="pt-6">
+                {/* Company Details (Header Block) */}
+                <div className="text-center py-4 max-w-6xl mx-auto">
+                  <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.companyName || "XYZ COMPANY"}</h2>
+                  <p className="text-xs text-slate-500 mt-1 uppercase tracking-wide font-medium">
+                    {company?.address || "ADDRESS"}
+                  </p>
+                  <p className="text-sm font-bold text-slate-800 mt-2 uppercase tracking-widest font-bold">
+                    TRADING AND PROFIT AND LOSS ACCOUNT FOR THE YEAR ENDING ON {selectedFY ? new Date(selectedFY.endDate).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : today}
+                  </p>
                 </div>
-                <span className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded-full font-medium">
-                  {data.liabCapSection.groups.length} groups
-                </span>
-              </div>
 
-              {data.liabCapSection.groups.map((group) => (
-                <GroupBlock
-                  key={group.groupKey}
-                  group={group}
-                  colors={LIAB_GROUP_COLORS[group.groupName] ?? DEFAULT_COLOR}
-                  defaultOpen
-                />
-              ))}
+                {/* Table Box */}
+                <div className="bg-white border border-slate-800 max-w-6xl mx-auto rounded-none shadow-sm">
+                  <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
+                    
+                    {/* LEFT SIDE (DEBITS) */}
+                    <div className="relative flex flex-col justify-between h-full">
+                      <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
+                      <div className="flex-grow flex flex-col">
+                        <div className="flex border-b border-slate-800 font-bold text-xs bg-slate-50/50 relative z-10">
+                          <div className="flex-1 py-3 pl-4 text-slate-800 uppercase tracking-wider font-bold">PARTICULARS</div>
+                          <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
+                        </div>
 
-              {/* Liabilities + Capital total footer */}
-              <div className="flex items-center justify-between py-3.5 px-4 bg-indigo-600 text-white rounded-xl mt-2">
-                <span className="text-sm font-bold uppercase tracking-wide">Total Liabilities + Capital</span>
-                <span className="font-bold tabular-nums">{fmt(data.totalLiabCap)}</span>
-              </div>
-            </div>
-          </div>
+                        <div className="py-3 relative z-10 space-y-1">
+                          {renderPLRowHelper(tradingLeft)}
+                        </div>
 
-          {/* Balance equation footer */}
-          <div className={`flex flex-wrap items-center justify-center gap-4 py-4 px-6 rounded-xl border-2 ${
-            data.isBalanced ? "border-emerald-300 bg-emerald-50" : "border-red-300 bg-red-50"
-          }`}>
-            <div className="text-center">
-              <p className="text-xs text-slate-500 uppercase tracking-wide">Total Assets</p>
-              <p className="font-bold text-blue-700 tabular-nums">{fmt(data.totalAssets)}</p>
-            </div>
-            <span className={`text-xl font-bold ${data.isBalanced ? "text-emerald-600" : "text-red-500"}`}>=</span>
-            <div className="text-center">
-              <p className="text-xs text-slate-500 uppercase tracking-wide">Liabilities + Capital</p>
-              <p className="font-bold text-indigo-700 tabular-nums">{fmt(data.totalLiabCap)}</p>
-            </div>
-            {!data.isBalanced && (
-              <>
-                <span className="text-red-500 font-bold">≠</span>
-                <div className="text-center">
-                  <p className="text-xs text-red-500 uppercase tracking-wide">Difference</p>
-                  <p className="font-bold text-red-600 tabular-nums">{fmt(data.difference)}</p>
+                        <div className="flex border-t border-b border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
+                          <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
+                          <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
+                            {fmtReport(tradingTotalAmount)}
+                          </div>
+                        </div>
+
+                        <div className="py-3 relative z-10 space-y-1">
+                          {renderPLRowHelper(plLeft)}
+                        </div>
+
+                        <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
+                          <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
+                          <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
+                            {fmtReport(plTotalAmount)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* RIGHT SIDE (CREDITS) */}
+                    <div className="relative flex flex-col justify-between h-full">
+                      <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
+                      <div className="flex-grow flex flex-col">
+                        <div className="flex border-b border-slate-800 font-bold text-xs bg-slate-50/50 relative z-10">
+                          <div className="flex-1 py-3 pl-4 text-slate-800 uppercase tracking-wider font-bold">PARTICULARS</div>
+                          <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
+                        </div>
+
+                        <div className="py-3 relative z-10 space-y-1">
+                          {renderPLRowHelper(tradingRight)}
+                        </div>
+
+                        <div className="flex border-t border-b border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
+                          <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
+                          <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
+                            {fmtReport(tradingTotalAmount)}
+                          </div>
+                        </div>
+
+                        <div className="py-3 relative z-10 space-y-1">
+                          {renderPLRowHelper(plRight)}
+                        </div>
+
+                        <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
+                          <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
+                          <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
+                            {fmtReport(plTotalAmount)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
                 </div>
-              </>
-            )}
-            <span className={`ml-2 text-sm font-bold px-3 py-1 rounded-full ${
-              data.isBalanced ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+              </div>
+            );
+          })()}
+
+          {/* Divider */}
+          <div className="border-t border-slate-200 my-8 max-w-6xl mx-auto" />
+
+          {/* 2. PARTNER CAPITAL ACCOUNTS */}
+          {capitalAccounts.length > 0 && (
+            <div className="space-y-8">
+              {capitalAccounts.map((account, index) => {
+                const debits = account.debits;
+                const credits = account.credits;
+                
+                const maxLen = Math.max(debits.length, credits.length);
+                const paddedDebits = [...debits];
+                const paddedCredits = [...credits];
+                while (paddedDebits.length < maxLen) {
+                  paddedDebits.push({ particulars: "", amount: undefined });
+                }
+                while (paddedCredits.length < maxLen) {
+                  paddedCredits.push({ particulars: "", amount: undefined });
+                }
+
+                return (
+                  <div key={index} className="space-y-4">
+                    {/* Header Block */}
+                    <div className="text-center py-4 max-w-6xl mx-auto">
+                      <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.companyName || "XYZ COMPANY"}</h2>
+                      <p className="text-xs text-slate-500 mt-1 uppercase tracking-wide font-medium">
+                        {company?.address || "ADDRESS"}
+                      </p>
+                      <p className="text-sm font-bold text-slate-800 mt-2 uppercase tracking-widest font-bold">
+                        CAPITAL ACCOUNT OF {account.ledgerName}
+                      </p>
+                    </div>
+
+                    {/* Box Table */}
+                    <div className="bg-white border border-slate-800 max-w-6xl mx-auto rounded-none shadow-sm">
+                      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800 min-h-[200px]">
+                        
+                        {/* LEFT SIDE: DEBITS */}
+                        <div className="relative flex flex-col justify-between h-full">
+                          <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
+                          <div className="flex-grow flex flex-col">
+                            <div className="flex border-b border-slate-800 font-bold text-xs bg-slate-50/50 relative z-10">
+                              <div className="flex-1 py-3 pl-4 text-slate-800 uppercase tracking-wider font-bold">PARTICULARS</div>
+                              <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
+                            </div>
+                            <div className="flex-grow py-3 relative z-10 space-y-1 pb-6">
+                              {paddedDebits.map((row, idx) => {
+                                if (row.particulars === "") {
+                                  return <div key={idx} className="min-h-[22px] py-0.5" />;
+                                }
+                                const isClosing = row.particulars.includes("CLOSING BALANCE");
+                                return (
+                                  <div key={idx} className={`flex py-0.5 items-center min-h-[22px] text-xs ${isClosing ? "font-bold text-slate-800" : "font-normal text-slate-600"}`}>
+                                    <div className="flex-1 pr-2 uppercase pl-4">
+                                      {row.particulars}
+                                    </div>
+                                    <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
+                                      {row.amount !== undefined ? fmtReport(row.amount) : ""}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
+                            <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
+                            <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
+                              {fmtReport(account.total)}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* RIGHT SIDE: CREDITS */}
+                        <div className="relative flex flex-col justify-between h-full">
+                          <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
+                          <div className="flex-grow flex flex-col">
+                            <div className="flex border-b border-slate-800 font-bold text-xs bg-slate-50/50 relative z-10">
+                              <div className="flex-1 py-3 pl-4 text-slate-800 uppercase tracking-wider font-bold">PARTICULARS</div>
+                              <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
+                            </div>
+                            <div className="flex-grow py-3 relative z-10 space-y-1 pb-6">
+                              {paddedCredits.map((row, idx) => {
+                                if (row.particulars === "") {
+                                  return <div key={idx} className="min-h-[22px] py-0.5" />;
+                                }
+                                const isOpening = row.particulars.includes("OPENING BALANCE");
+                                return (
+                                  <div key={idx} className={`flex py-0.5 items-center min-h-[22px] text-xs ${isOpening ? "font-bold text-slate-800" : "font-normal text-slate-600"}`}>
+                                    <div className="flex-1 pr-2 uppercase pl-4">
+                                      {row.particulars}
+                                    </div>
+                                    <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
+                                      {row.amount !== undefined ? fmtReport(row.amount) : ""}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
+                            <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
+                            <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
+                              {fmtReport(account.total)}
+                            </div>
+                          </div>
+                        </div>
+
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Divider */}
+          <div className="border-t border-slate-200 my-8 max-w-6xl mx-auto" />
+
+          {/* 3. BALANCE SHEET */}
+          <div>
+            {/* Company Details (Header Block) */}
+            <div className="text-center py-4 max-w-6xl mx-auto">
+              <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.companyName || "XYZ COMPANY"}</h2>
+              <p className="text-xs text-slate-500 mt-1 uppercase tracking-wide font-medium">
+                {company?.address || "ADDRESS"}
+              </p>
+              <p className="text-sm font-bold text-slate-800 mt-2 uppercase tracking-widest">
+                BALANCE SHEET AS AT {selectedFY ? new Date(selectedFY.endDate).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : today}
+              </p>
+            </div>
+
+            {/* Side-by-Side Paper Balance Sheet Table */}
+            <div className="bg-white border border-slate-800 max-w-6xl mx-auto rounded-none shadow-sm">
+              <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800 min-h-[500px]">
+                
+                {/* LIABILITIES & CAPITAL COLUMN (LEFT SIDE) */}
+                <div className="relative flex flex-col justify-between h-full">
+                  <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
+                  <div className="flex-1 flex flex-col">
+                    <div className="flex border-b border-slate-800 font-bold text-xs bg-slate-50/50 relative z-10">
+                      <div className="flex-1 py-3 pl-4 text-slate-800 uppercase tracking-wider font-bold">LIABILITIES</div>
+                      <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
+                    </div>
+                    <div className="flex-grow py-3 relative z-10 space-y-1 pb-6">
+                      {leftRows.map((row, idx) => {
+                        const indentClass = row.depth === 0 ? "pl-4" : row.depth === 1 ? "pl-8" : "pl-12";
+                        const fontClass = 
+                          row.type === 'header' 
+                            ? "font-bold text-slate-900 text-xs mt-3 first:mt-0" 
+                            : row.type === 'subheader' 
+                              ? "font-bold text-slate-700 text-[11px] mt-2" 
+                              : "font-normal text-slate-600 text-xs";
+
+                        return (
+                          <div key={idx} className={`flex py-0.5 items-center ${fontClass}`}>
+                            <div className={`flex-1 pr-2 uppercase ${indentClass} ${row.type === 'header' || row.type === 'subheader' ? 'underline decoration-slate-300 underline-offset-2' : ''}`}>
+                              {row.label}
+                            </div>
+                            <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
+                              {row.amount !== undefined ? fmtReport(row.amount) : ""}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
+                    <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
+                    <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
+                      {fmtReport(data.totalLiabCap)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ASSETS COLUMN (RIGHT SIDE) */}
+                <div className="relative flex flex-col justify-between h-full">
+                  <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
+                  <div className="flex-1 flex flex-col">
+                    <div className="flex border-b border-slate-800 font-bold text-xs bg-slate-50/50 relative z-10">
+                      <div className="flex-1 py-3 pl-4 text-slate-800 uppercase tracking-wider font-bold">ASSETS</div>
+                      <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
+                    </div>
+                    <div className="flex-grow py-3 relative z-10 space-y-1 pb-6">
+                      {rightRows.map((row, idx) => {
+                        const indentClass = row.depth === 0 ? "pl-4" : row.depth === 1 ? "pl-8" : "pl-12";
+                        const fontClass = 
+                          row.type === 'header' 
+                            ? "font-bold text-slate-900 text-xs mt-3 first:mt-0" 
+                            : row.type === 'subheader' 
+                              ? "font-bold text-slate-700 text-[11px] mt-2" 
+                              : "font-normal text-slate-600 text-xs";
+
+                        return (
+                          <div key={idx} className={`flex py-0.5 items-center ${fontClass}`}>
+                            <div className={`flex-1 pr-2 uppercase ${indentClass} ${row.type === 'header' || row.type === 'subheader' ? 'underline decoration-slate-300 underline-offset-2' : ''}`}>
+                              {row.label}
+                            </div>
+                            <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
+                              {row.amount !== undefined ? fmtReport(row.amount) : ""}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
+                    <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
+                    <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
+                      {fmtReport(data.totalAssets)}
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Balance equation footer */}
+            <div className={`flex flex-wrap items-center justify-center gap-4 py-4 px-6 rounded-xl border-2 max-w-6xl mx-auto mt-6 ${
+              data.isBalanced ? "border-emerald-300 bg-emerald-50" : "border-red-300 bg-red-50"
             }`}>
-              {data.isBalanced ? "Balanced ✓" : "Out of Balance ✗"}
-            </span>
+              <div className="text-center">
+                <p className="text-xs text-slate-500 uppercase tracking-wide">Total Assets</p>
+                <p className="font-bold text-blue-700 tabular-nums">{fmt(data.totalAssets)}</p>
+              </div>
+              <span className={`text-xl font-bold ${data.isBalanced ? "text-emerald-600" : "text-red-500"}`}>=</span>
+              <div className="text-center">
+                <p className="text-xs text-slate-500 uppercase tracking-wide">Liabilities + Capital</p>
+                <p className="font-bold text-indigo-700 tabular-nums">{fmt(data.totalLiabCap)}</p>
+              </div>
+              {!data.isBalanced && (
+                <>
+                  <span className="text-red-500 font-bold">≠</span>
+                  <div className="text-center">
+                    <p className="text-xs text-red-500 uppercase tracking-wide">Difference</p>
+                    <p className="font-bold text-red-600 tabular-nums">{fmt(data.difference)}</p>
+                  </div>
+                </>
+              )}
+              <span className={`ml-2 text-sm font-bold px-3 py-1 rounded-full ${
+                data.isBalanced ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+              }`}>
+                {data.isBalanced ? "Balanced ✓" : "Out of Balance ✗"}
+              </span>
+            </div>
           </div>
         </>
       )}

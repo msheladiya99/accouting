@@ -13,7 +13,7 @@ import type { FinancialYear } from "../api/financialYearApi";
 import { BalanceSheetPanel } from "../components/BalanceSheetPanel";
 
 const BS_PANEL_PATHS = new Set([
-  "/pl-statement", "/bank-cash-book", "/journal-voucher",
+  "/bank-cash-book", "/journal-voucher",
   "/ledger-master", "/trial-balance", "/financial-year",
 ]);
 
@@ -26,7 +26,6 @@ const ALL_NAV_ITEMS = [
   { path: "/journal-voucher",icon: FileText,        label: "Journal Voucher"  },
   { path: "/balance-sheet",  icon: BarChart3,       label: "Balance Sheet"    },
   { path: "/trial-balance",  icon: TrendingUp,      label: "Trial Balance"    },
-  { path: "/pl-statement",   icon: LineChart,       label: "P&L Statement"    },
   { path: "/reports",        icon: PieChart,        label: "Reports"          },
   { path: "/export",         icon: Download,        label: "Export"           },
   { path: "/user-management",icon: Users,            label: "User Management"  },

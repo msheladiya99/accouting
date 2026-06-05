@@ -12,7 +12,7 @@ import { getAllJournalEntries } from "../api/journalVoucherApi";
 import { getAllLedgers } from "../api/ledgerApi";
 
 const fmt = (v: number) =>
-  `₹${Math.abs(v).toLocaleString("en-IN")}`;
+  `â‚¹${Math.abs(v).toLocaleString("en-IN")}`;
 
 const fmtReport = (v: number) => {
   const val = Math.abs(v);
@@ -22,7 +22,7 @@ const fmtReport = (v: number) => {
   });
 };
 
-// ── Traditional report structures ─────────────────────────────────────────────
+// â”€â”€ Traditional report structures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const LIABILITIES_STRUCTURE = [
   {
     title: "CAPITAL",
@@ -69,7 +69,7 @@ const ASSETS_STRUCTURE = [
   }
 ];
 
-// ── Helper to build structure ──────────────────────────────────────────────────
+// â”€â”€ Helper to build structure â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function buildStructuredSection(structure: any, apiSection: any) {
   const matchedGroupKeys = new Set<string>();
 
@@ -202,7 +202,7 @@ function flattenUnmatched(unmatchedGroups: any[]): ReportRow[] {
   return rows;
 }
 
-// ── Extra Calculations for Trading & P&L and Capital Accounts ─────────────────
+// â”€â”€ Extra Calculations for Trading & P&L and Capital Accounts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 interface CapitalTxn {
   particulars: string;
   amount: number;
@@ -390,10 +390,10 @@ function computePartnerCapital(
   };
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
+// â”€â”€ Main component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function BalanceSheet() {
   const { selectedFY, company } = useApp();
-  const financialYear = selectedFY?.label ?? "—";
+  const financialYear = selectedFY?.label ?? "â€”";
 
   const [data, setData]       = useState<BalanceSheetData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -484,7 +484,7 @@ export default function BalanceSheet() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-slate-900">Balance Sheet</h1>
-          <p className="text-sm text-slate-500 mt-0.5">As at {today} · {financialYear}</p>
+          <p className="text-sm text-slate-500 mt-0.5">As at {today} Â· {financialYear}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -493,7 +493,7 @@ export default function BalanceSheet() {
             className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-            {refreshing ? "Refreshing…" : "Refresh"}
+            {refreshing ? "Refreshingâ€¦" : "Refresh"}
           </button>
           <button className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors">
             <Printer size={14} /> Print
@@ -508,7 +508,7 @@ export default function BalanceSheet() {
       {loading && (
         <div className="flex items-center justify-center h-64 text-slate-500 text-sm gap-2">
           <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-          Computing balance sheet from all sources…
+          Computing balance sheet from all sourcesâ€¦
         </div>
       )}
 
@@ -534,8 +534,8 @@ export default function BalanceSheet() {
             <div className="flex-1">
               <span className="text-sm font-medium">
                 {data.isBalanced
-                  ? "Balance Sheet is Balanced — Assets = Liabilities + Capital"
-                  : `Out of Balance! Difference: ₹${data.difference.toLocaleString("en-IN")}`}
+                  ? "Balance Sheet is Balanced â€” Assets = Liabilities + Capital"
+                  : `Out of Balance! Difference: â‚¹${data.difference.toLocaleString("en-IN")}`}
               </span>
             </div>
             <span className="text-xs text-slate-500 hidden sm:block">
@@ -746,7 +746,7 @@ export default function BalanceSheet() {
             return (
               <div className="pt-6">
                 {/* Company Details (Header Block) */}
-                <div className="text-center py-4 max-w-6xl mx-auto">
+                <div className="text-center py-4 max-w-4xl mx-auto">
                   <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.name || "XYZ COMPANY"}</h2>
                   <p className="text-xs text-slate-500 mt-1 uppercase tracking-wide font-medium">
                     {company?.address || "ADDRESS"}
@@ -757,7 +757,7 @@ export default function BalanceSheet() {
                 </div>
 
                 {/* Table Box */}
-                <div className="bg-white border border-slate-800 max-w-6xl mx-auto rounded-none shadow-sm">
+                <div className="bg-white border border-slate-800 max-w-4xl mx-auto rounded-none shadow-sm">
                   <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
                     
                     {/* LEFT SIDE (DEBITS) */}
@@ -833,12 +833,12 @@ export default function BalanceSheet() {
           })()}
 
           {/* Divider */}
-          <div className="border-t border-slate-200 my-8 max-w-6xl mx-auto" />
+          <div className="border-t border-slate-200 my-8 max-w-4xl mx-auto" />
 
           {/* 2. PARTNER CAPITAL ACCOUNTS */}
           {capitalAccounts.length > 0 && (
             <div className="space-y-8">
-              {capitalAccounts.map((account, index) => {
+              {capitalAccounts.map((account: PartnerCapitalAccount, index: number) => {
                 const debits = account.debits;
                 const credits = account.credits;
                 
@@ -855,7 +855,7 @@ export default function BalanceSheet() {
                 return (
                   <div key={index} className="space-y-4">
                     {/* Header Block */}
-                    <div className="text-center py-4 max-w-6xl mx-auto">
+                    <div className="text-center py-4 max-w-4xl mx-auto">
                       <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.name || "XYZ COMPANY"}</h2>
                       <p className="text-xs text-slate-500 mt-1 uppercase tracking-wide font-medium">
                         {company?.address || "ADDRESS"}
@@ -866,7 +866,7 @@ export default function BalanceSheet() {
                     </div>
 
                     {/* Box Table */}
-                    <div className="bg-white border border-slate-800 max-w-6xl mx-auto rounded-none shadow-sm">
+                    <div className="bg-white border border-slate-800 max-w-4xl mx-auto rounded-none shadow-sm">
                       <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800 min-h-[200px]">
                         
                         {/* LEFT SIDE: DEBITS */}
@@ -948,12 +948,12 @@ export default function BalanceSheet() {
           )}
 
           {/* Divider */}
-          <div className="border-t border-slate-200 my-8 max-w-6xl mx-auto" />
+          <div className="border-t border-slate-200 my-8 max-w-4xl mx-auto" />
 
           {/* 3. BALANCE SHEET */}
           <div>
             {/* Company Details (Header Block) */}
-            <div className="text-center py-4 max-w-6xl mx-auto">
+            <div className="text-center py-4 max-w-4xl mx-auto">
               <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.name || "XYZ COMPANY"}</h2>
               <p className="text-xs text-slate-500 mt-1 uppercase tracking-wide font-medium">
                 {company?.address || "ADDRESS"}
@@ -964,7 +964,7 @@ export default function BalanceSheet() {
             </div>
 
             {/* Side-by-Side Paper Balance Sheet Table */}
-            <div className="bg-white border border-slate-800 max-w-6xl mx-auto rounded-none shadow-sm">
+            <div className="bg-white border border-slate-800 max-w-4xl mx-auto rounded-none shadow-sm">
               <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800 min-h-[500px]">
                 
                 {/* LIABILITIES & CAPITAL COLUMN (LEFT SIDE) */}
@@ -1049,7 +1049,7 @@ export default function BalanceSheet() {
             </div>
 
             {/* Balance equation footer */}
-            <div className={`flex flex-wrap items-center justify-center gap-4 py-4 px-6 rounded-xl border-2 max-w-6xl mx-auto mt-6 ${
+            <div className={`flex flex-wrap items-center justify-center gap-4 py-4 px-6 rounded-xl border-2 max-w-4xl mx-auto mt-6 ${
               data.isBalanced ? "border-emerald-300 bg-emerald-50" : "border-red-300 bg-red-50"
             }`}>
               <div className="text-center">
@@ -1063,7 +1063,7 @@ export default function BalanceSheet() {
               </div>
               {!data.isBalanced && (
                 <>
-                  <span className="text-red-500 font-bold">≠</span>
+                  <span className="text-red-500 font-bold">â‰ </span>
                   <div className="text-center">
                     <p className="text-xs text-red-500 uppercase tracking-wide">Difference</p>
                     <p className="font-bold text-red-600 tabular-nums">{fmt(data.difference)}</p>
@@ -1073,7 +1073,7 @@ export default function BalanceSheet() {
               <span className={`ml-2 text-sm font-bold px-3 py-1 rounded-full ${
                 data.isBalanced ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
               }`}>
-                {data.isBalanced ? "Balanced ✓" : "Out of Balance ✗"}
+                {data.isBalanced ? "Balanced âœ“" : "Out of Balance âœ—"}
               </span>
             </div>
           </div>
@@ -1082,3 +1082,4 @@ export default function BalanceSheet() {
     </div>
   );
 }
+

@@ -121,7 +121,7 @@ function ApiKeyInput({ apiKey, onChange }: { apiKey: string; onChange: (k: strin
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function BankImport() {
+export default function BankImport({ onClose, onImportComplete }: { onClose?: () => void; onImportComplete?: () => void } = {}) {
   const [step, setStep]         = useState(0);
   const [dragging, setDragging] = useState(false);
   const [file, setFile]         = useState<File | null>(null);
@@ -659,7 +659,13 @@ export default function BankImport() {
                 Import Another
               </button>
               <button
-                onClick={() => window.location.href = "/bank-cash-book"}
+                onClick={() => {
+                  if (onImportComplete) {
+                    onImportComplete();
+                  } else {
+                    window.location.href = "/bank-cash-book";
+                  }
+                }}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors"
               >
                 View Cash Book

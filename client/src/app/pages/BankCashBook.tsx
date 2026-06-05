@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, X, Save,
   Landmark, Wallet, TrendingDown, TrendingUp, DollarSign,
-  CreditCard, Loader2, Filter, Download, Check,
+  CreditCard, Loader2, Filter, Download, Check, Upload,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
@@ -16,6 +16,7 @@ import {
   CONTRA_GROUPS,
   type BankCashAccount, type BankCashRow, type EntryPayload, type AccountGroup,
 } from "../api/bankCashBookApi";
+import BankImport from "./BankImport";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
@@ -487,6 +488,7 @@ export default function BankCashBook() {
   const [groupTypeFilter, setGroupTypeFilter] = useState<"all" | "Bank" | "Cash">("all");
   const [search,          setSearch]          = useState("");
   const [modal,           setModal]           = useState<{ entry?: BankCashRow } | null>(null);
+  const [showImport,      setShowImport]      = useState(false);
 
   const loadRows = useCallback(async (accId: string) => {
     setLoading(true);
@@ -590,6 +592,10 @@ export default function BankCashBook() {
           <button onClick={() => loadRows(accountFilter)} title="Refresh"
             className="p-2 border border-slate-200 bg-white rounded-lg text-slate-500 hover:bg-slate-50 transition-colors">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+          </button>
+          <button onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm">
+            <Upload size={14} /> Bank Import
           </button>
           <button onClick={() => setModal({})}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors">
@@ -728,6 +734,31 @@ export default function BankCashBook() {
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
         />
+      )}
+
+      {showImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowImport(false)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+            {/* Close Button */}
+            <button
+              onClick={() => setShowImport(false)}
+              className="absolute right-4 top-4 z-50 p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+              title="Close Import Modal"
+            >
+              <X size={18} />
+            </button>
+            <div className="overflow-y-auto flex-1 pb-6">
+              <BankImport
+                onClose={() => setShowImport(false)}
+                onImportComplete={async () => {
+                  setShowImport(false);
+                  await loadRows(accountFilter);
+                }}
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

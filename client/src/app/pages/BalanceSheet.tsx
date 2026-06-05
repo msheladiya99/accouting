@@ -747,7 +747,7 @@ export default function BalanceSheet() {
               <div className="pt-6">
                 {/* Company Details (Header Block) */}
                 <div className="text-center py-4 max-w-6xl mx-auto">
-                  <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.companyName || "XYZ COMPANY"}</h2>
+                  <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.name || "XYZ COMPANY"}</h2>
                   <p className="text-xs text-slate-500 mt-1 uppercase tracking-wide font-medium">
                     {company?.address || "ADDRESS"}
                   </p>
@@ -856,7 +856,7 @@ export default function BalanceSheet() {
                   <div key={index} className="space-y-4">
                     {/* Header Block */}
                     <div className="text-center py-4 max-w-6xl mx-auto">
-                      <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.companyName || "XYZ COMPANY"}</h2>
+                      <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.name || "XYZ COMPANY"}</h2>
                       <p className="text-xs text-slate-500 mt-1 uppercase tracking-wide font-medium">
                         {company?.address || "ADDRESS"}
                       </p>
@@ -954,7 +954,7 @@ export default function BalanceSheet() {
           <div>
             {/* Company Details (Header Block) */}
             <div className="text-center py-4 max-w-6xl mx-auto">
-              <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.companyName || "XYZ COMPANY"}</h2>
+              <h2 className="text-xl font-bold text-slate-900 uppercase tracking-wide">{company?.name || "XYZ COMPANY"}</h2>
               <p className="text-xs text-slate-500 mt-1 uppercase tracking-wide font-medium">
                 {company?.address || "ADDRESS"}
               </p>

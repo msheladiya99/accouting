@@ -240,7 +240,7 @@ export default function AdminLayout() {
                     {availableFYs.length === 0 ? (
                       <p className="px-4 py-3 text-xs text-slate-400">No financial years found</p>
                     ) : (
-                      availableFYs.map((fy) => {
+                      availableFYs.map((fy: FinancialYear) => {
                         const isSelected = fy._id === selectedFY?._id;
                         return (
                           <button
@@ -352,7 +352,7 @@ export default function AdminLayout() {
 
       {/* ── Balance Sheet right panel ─────────────────────────────────────── */}
       {showBSPanel && (
-        <BalanceSheetPanel open={bsOpen} onToggle={() => setBsOpen((v) => !v)} />
+        <BalanceSheetPanel open={bsOpen} onToggle={() => setBsOpen(!bsOpen)} />
       )}
       </div>
     </div>

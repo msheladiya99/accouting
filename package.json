@@ -1,0 +1,14 @@
+{
+  "name": "accounting-saas-monorepo",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter @accounting/client dev\" \"pnpm --filter @accounting/server dev\"",
+    "dev:client": "pnpm --filter @accounting/client dev",
+    "dev:server": "pnpm --filter @accounting/server dev",
+    "build": "pnpm --filter @accounting/client build",
+    "start": "pnpm --filter @accounting/server start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

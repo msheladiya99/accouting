@@ -1,0 +1,98 @@
+import axiosClient from "./axiosClient";
+
+export const ACCOUNT_GROUPS = ["Bank", "Cash"] as const;
+export type AccountGroup = typeof ACCOUNT_GROUPS[number];
+
+export const CONTRA_GROUPS = [
+  "Assets", "Liabilities", "Capital", "Income", "Expense",
+  "Bank", "Cash", "Purchases", "Sales", "Sundry Debtors", "Sundry Creditors",
+] as const;
+export type ContraGroup = typeof CONTRA_GROUPS[number];
+
+// ── Accounts ──────────────────────────────────────────────────────────────────
+export interface BankCashAccount {
+  _id: string;
+  name: string;
+  group: AccountGroup;
+  openingBalance: number;
+}
+
+// ── Entry (stored) ────────────────────────────────────────────────────────────
+export interface BankCashEntry {
+  _id: string;
+  accountId: string;
+  date: string;           // "YYYY-MM-DD"
+  particulars: string;
+  withdrawal: number;
+  deposit: number;
+  contraAccountName: string;
+  contraAccountGroup: ContraGroup;
+  createdAt: string;
+}
+
+// ── Entry with computed fields (display) ──────────────────────────────────────
+export interface BankCashRow extends BankCashEntry {
+  srNo: number;
+  balance: number;
+  accountName: string;
+  accountGroup: AccountGroup;
+}
+
+export interface EntryPayload {
+  accountId: string;
+  date: string;
+  particulars: string;
+  withdrawal: number;
+  deposit: number;
+  contraAccountName: string;
+  contraAccountGroup: ContraGroup;
+}
+
+// ── Helper: compute running balance for a set of entries under one account ────
+export function computeRows(
+  account: BankCashAccount,
+  accountEntries: BankCashEntry[],
+): BankCashRow[] {
+  const sorted = [...accountEntries].sort((a, b) =>
+    a.date !== b.date ? a.date.localeCompare(b.date) : a.createdAt.localeCompare(b.createdAt),
+  );
+  let running = account.openingBalance;
+  return sorted.map((e, i) => {
+    running = running + e.deposit - e.withdrawal;
+    return {
+      ...e,
+      srNo: i + 1,
+      balance: running,
+      accountName: account.name,
+      accountGroup: account.group,
+    };
+  });
+}
+
+// ── API functions ─────────────────────────────────────────────────────────────
+export async function getAllAccounts(): Promise<BankCashAccount[]> {
+  const res = await axiosClient.get<BankCashAccount[]>("/bank-cash-book/accounts");
+  return res.data;
+}
+
+export async function getEntriesForAccount(accountId: string): Promise<BankCashRow[]> {
+  const res = await axiosClient.get<BankCashRow[]>(`/bank-cash-book/entries?accountId=${accountId}`);
+  return res.data;
+}
+
+export async function getAllEntries(): Promise<BankCashRow[]> {
+  const res = await axiosClient.get<BankCashRow[]>("/bank-cash-book/entries");
+  return res.data;
+}
+
+export async function createEntry(payload: EntryPayload): Promise<void> {
+  await axiosClient.post("/bank-cash-book/entries", payload);
+}
+
+export async function updateEntry(id: string, payload: EntryPayload): Promise<void> {
+  await axiosClient.put(`/bank-cash-book/entries/${id}`, payload);
+}
+
+export async function deleteEntry(id: string): Promise<void> {
+  await axiosClient.delete(`/bank-cash-book/entries/${id}`);
+}

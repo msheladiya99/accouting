@@ -1,4 +1,4 @@
-import { getAllEntries } from "./bankCashBookApi";
+import { getAllEntries, getAllAccounts } from "./bankCashBookApi";
 import { getAllJournalEntries } from "./journalVoucherApi";
 import { getAllGroups } from "./accountGroupApi";
 import { getAllLedgers } from "./ledgerApi";
@@ -65,14 +65,36 @@ export async function computeTrialBalance(): Promise<TrialSummary> {
   const { map, addOpeningDr, addOpeningCr, addTxnDr, addTxnCr, ensure } = makeBuckets();
 
   // 1. Opening Balances (fetched dynamically from the database)
-  const ledgers = await getAllLedgers();
+  const [ledgers, bankAccounts] = await Promise.all([
+    getAllLedgers(),
+    getAllAccounts()
+  ]);
+
   for (const l of ledgers) {
+    const groupLower = (l.groupName || "").toLowerCase();
+    if (groupLower === "bank" || groupLower === "cash") {
+      continue;
+    }
     // Ensure the ledger exists in the buckets map even if opening balances are 0
     ensure(l.ledgerName, l.groupName);
     if (l.openingDr && l.openingDr > 0) addOpeningDr(l.ledgerName, l.groupName, l.openingDr);
     if (l.openingCr && l.openingCr > 0) addOpeningCr(l.ledgerName, l.groupName, l.openingCr);
   }
-  const openingLedgers = ledgers.filter(l => (l.openingDr || 0) > 0 || (l.openingCr || 0) > 0).length;
+
+  for (const acc of bankAccounts) {
+    ensure(acc.name, acc.group);
+    if (acc.openingBalance && acc.openingBalance > 0) {
+      addOpeningDr(acc.name, acc.group, acc.openingBalance);
+    } else if (acc.openingBalance && acc.openingBalance < 0) {
+      addOpeningCr(acc.name, acc.group, Math.abs(acc.openingBalance));
+    }
+  }
+
+  const openingLedgers = ledgers.filter(l => {
+    const gl = (l.groupName || "").toLowerCase();
+    if (gl === "bank" || gl === "cash") return false;
+    return (l.openingDr || 0) > 0 || (l.openingCr || 0) > 0;
+  }).length + bankAccounts.filter(acc => (acc.openingBalance || 0) !== 0).length;
 
   // 2. Bank / Cash Book (double-entry: each entry affects both account and contra)
   const bankEntries = await getAllEntries();

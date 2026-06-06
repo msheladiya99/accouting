@@ -523,6 +523,7 @@ export default function OpeningBalances() {
         toast.success("Opening balances saved successfully to database!");
       }
       load();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (err: any) {
       toast.error(err.message || "Failed to save opening balances");
     } finally {

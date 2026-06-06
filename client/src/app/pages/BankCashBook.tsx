@@ -589,6 +589,7 @@ export default function BankCashBook() {
       }
       setModal(null);
       await loadRows(accountFilter);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message || "Operation failed");
     } finally {
@@ -602,6 +603,7 @@ export default function BankCashBook() {
       await deleteEntry(row._id);
       toast.success("Entry deleted");
       await loadRows(accountFilter);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -619,6 +621,7 @@ export default function BankCashBook() {
       } else {
         await loadRows(accountFilter);
       }
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message || "Failed to clear entries");
     }
@@ -630,6 +633,7 @@ export default function BankCashBook() {
       await updateEntry(id, patch);
       toast.success("Saved", { duration: 1200, icon: "✓" });
       await loadRows(accountFilter);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message || "Failed to save");
     }
@@ -864,6 +868,7 @@ export default function BankCashBook() {
                   setGroupTypeFilter("all");
                   // Reload entries
                   await loadRows("all");
+                  window.dispatchEvent(new CustomEvent("accounting-data-updated"));
                 }}
               />
             </div>

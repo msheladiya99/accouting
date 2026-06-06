@@ -445,6 +445,20 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
 
   useEffect(() => { if (open && !data) load(); }, [open, data, load]);
 
+  useEffect(() => {
+    const handleUpdate = () => {
+      if (open) {
+        load();
+      } else {
+        setData(null);
+      }
+    };
+    window.addEventListener("accounting-data-updated", handleUpdate);
+    return () => {
+      window.removeEventListener("accounting-data-updated", handleUpdate);
+    };
+  }, [open, load]);
+
 
   useEffect(() => {
     async function loadExtraData() {

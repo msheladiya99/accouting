@@ -578,6 +578,7 @@ export default function JournalVoucher() {
         toast.success(`${created.voucherNo} created`);
       }
       setModal(null);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -591,6 +592,7 @@ export default function JournalVoucher() {
       await deleteJournalEntry(entry._id);
       setEntries((p) => p.filter((e) => e._id !== entry._id));
       toast.success(`${entry.voucherNo} deleted`);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -601,6 +603,7 @@ export default function JournalVoucher() {
       const updated = await updateJournalEntry(id, patch);
       setEntries((p) => p.map((e) => e._id === id ? updated : e));
       toast.success("Saved", { duration: 1200, icon: "✓" });
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message || "Failed to save");
       await load();

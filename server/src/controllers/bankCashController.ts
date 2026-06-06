@@ -7,7 +7,17 @@ import { AuthenticatedRequest } from "../middleware/auth";
 export async function getAllAccounts(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
-    res.json(accounts);
+    const results = [];
+    for (const acc of accounts) {
+      const initialBalance = req.financialYear
+        ? await getOpeningBalanceAt(acc, req.financialYear.startDate, req.companyId as string)
+        : acc.openingBalance;
+      
+      const accObj = acc.toObject();
+      accObj.openingBalance = initialBalance;
+      results.push(accObj);
+    }
+    res.json(results);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to retrieve accounts" });
   }
@@ -21,7 +31,12 @@ export async function getAccountById(req: AuthenticatedRequest, res: Response): 
       res.status(404).json({ message: "Account not found" });
       return;
     }
-    res.json(account);
+    const initialBalance = req.financialYear
+      ? await getOpeningBalanceAt(account, req.financialYear.startDate, req.companyId as string)
+      : account.openingBalance;
+    const accObj = account.toObject();
+    accObj.openingBalance = initialBalance;
+    res.json(accObj);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to retrieve account" });
   }

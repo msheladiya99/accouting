@@ -356,6 +356,7 @@ export default function LedgerMaster() {
       DYNAMIC_SUPER_GROUP_MAP[created.groupName] = created.superGroup;
       toast.success(`Account group "${created.groupName}" created!`);
       setGroupModalOpen(false);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message || "Failed to create group");
     } finally {
@@ -377,6 +378,7 @@ export default function LedgerMaster() {
         toast.success(`Ledger "${updated.ledgerName}" updated`);
       }
       setModal(null);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message || "Operation failed");
     } finally {
@@ -390,6 +392,7 @@ export default function LedgerMaster() {
       await deleteLedger(ledger._id);
       setRows((p) => p.filter((r) => r._id !== ledger._id));
       toast.success(`"${ledger.ledgerName}" deleted`);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -413,6 +416,7 @@ export default function LedgerMaster() {
       const updated = await updateLedger(data._id, payload);
       setRows((p) => p.map((r) => r._id === updated._id ? updated : r));
       toast.success("Saved");
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message);
       setRows((p) => p.map((r) => r._id === data._id ? { ...r, [field]: oldValue } : r));

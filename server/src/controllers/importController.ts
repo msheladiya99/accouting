@@ -42,8 +42,18 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
           companyId: req.companyId
         });
         await acc.save();
+      } else if (statementOpeningBalance !== undefined && acc.openingBalance === 0) {
+        acc.openingBalance = statementOpeningBalance;
+        await acc.save();
       }
       targetAccountId = acc._id.toString();
+    } else if (targetAccountId) {
+      // Update existing BankCashAccount if its opening balance is 0
+      let acc = await BankCashAccount.findOne({ _id: targetAccountId, companyId: req.companyId });
+      if (acc && statementOpeningBalance !== undefined && acc.openingBalance === 0) {
+        acc.openingBalance = statementOpeningBalance;
+        await acc.save();
+      }
     }
 
     if (!targetAccountId) {
@@ -397,7 +407,12 @@ export async function enrichWithOpenRouter(req: AuthenticatedRequest, res: Respo
   }
 
   try {
-    const prompt = `You are an Indian Accountant.
+    const BATCH_SIZE = 30;
+    const results: any[] = [];
+
+    for (let i = 0; i < narrations.length; i += BATCH_SIZE) {
+      const batch = narrations.slice(i, i + BATCH_SIZE);
+      const prompt = `You are an Indian Accountant.
 
 Based on these bank transaction narrations, suggest the accounting ledger account name and group for each.
 
@@ -417,42 +432,44 @@ Specific Mapping Guidelines (Critical!):
 - Bank charges or interest paid must be mapped to "Bank Charges" and group "Expense".
 - Interest received or FD maturity proceeds must be mapped to group "Income" (e.g. "Interest Income").
 
-Return ONLY a valid JSON array with exactly ${narrations.length} objects, one per narration in the same order:
+Return ONLY a valid JSON array with exactly ${batch.length} objects, one per narration in the same order:
 [{"accountName":"...","accountGroup":"..."}, ...]
 
 Narrations:
-${narrations.map((n, i) => `${i + 1}. ${n}`).join("\n")}`;
+${batch.map((n, idx) => `${idx + 1}. ${n}`).join("\n")}`;
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-        "X-Title": "Accounting SaaS",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+          "X-Title": "Accounting SaaS",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error((err as any)?.error?.message ?? `API error ${response.status}`);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error((err as any)?.error?.message ?? `API error ${response.status}`);
+      }
+
+      const data = await response.json();
+      const text = data.choices[0].message.content as string;
+
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error("Could not parse AI response as JSON");
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (!Array.isArray(parsed) || parsed.length !== batch.length) {
+        throw new Error("AI returned unexpected number of results");
+      }
+      results.push(...parsed);
     }
 
-    const data = await response.json();
-    const text = data.choices[0].message.content as string;
-
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error("Could not parse AI response as JSON");
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    if (!Array.isArray(parsed) || parsed.length !== narrations.length) {
-      throw new Error("AI returned unexpected number of results");
-    }
-
-    res.json(parsed);
+    res.json(results);
   } catch (error: any) {
     console.error("AI narration enrichment error:", error);
     res.status(500).json({ message: error.message || "Failed to enrich narrations via AI" });

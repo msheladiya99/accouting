@@ -232,13 +232,37 @@ interface TempTxn {
 function parsePDFText(text: string): RawTransaction[] {
   const lines  = text.split("\n").map((l) => l.trim()).filter(Boolean);
   const tempTxns: TempTxn[] = [];
+  let openingBalRow: RawTransaction | null = null;
 
   for (const line of lines) {
-    let dateMatch = line.match(DATE_4_RE);
-    if (!dateMatch) {
-      dateMatch = line.match(DATE_2_RE);
+    const isOpBal = /opening\s*balance|bal\s*b\/f|balance\s*b\/f|brought\s*forward|opening\s*bal/i.test(line);
+
+    if (!isOpBal && /closing\s*balance|balance\s*c\/f|carried\s*forward|page\s+(\d+|total)|statement\s*of|generated\s*on|period|interest\s*rate|limit\s*amount|drawing\s*power|overdraft|page\s*total/i.test(line)) {
+      continue;
     }
-    if (!dateMatch) continue;
+
+    let dateMatch = line.match(DATE_4_RE) || line.match(DATE_2_RE);
+    if (!dateMatch) {
+      // Line has no date. Check if it's a narration continuation for the previous transaction
+      if (tempTxns.length > 0 && !isOpBal) {
+        const amounts = [...line.matchAll(AMT_RE)];
+        if (amounts.length === 0) {
+          const cleanLine = line.replace(/\s+/g, " ").trim();
+          // Skip lines that look like header names
+          if (cleanLine.length > 1 && !/particulars|narration|description|date|amount|balance/i.test(cleanLine)) {
+            const last = tempTxns[tempTxns.length - 1];
+            // If the last narration was just a duplicate date or empty, replace it
+            const isJustDate = last.narration.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$|^\d{4}-\d{2}-\d{2}$/);
+            if (!last.narration || isJustDate) {
+              last.narration = cleanLine;
+            } else {
+              last.narration += " " + cleanLine;
+            }
+          }
+        }
+      }
+      continue;
+    }
 
     const date = parseDate(dateMatch[1]);
     if (!date) continue;
@@ -250,17 +274,46 @@ function parsePDFText(text: string): RawTransaction[] {
 
     const afterDate  = line.slice(line.indexOf(dateMatch[1]) + dateMatch[1].length);
     const narrMatch  = afterDate.match(/^[\s\-\/]*([\w\s\/\-\.#@&(),]+?)\s+[\d,]+\.\d{2}/);
-    const narration  = (narrMatch?.[1] ?? afterDate.replace(AMT_RE, "").replace(/\s+/g, " ")).trim();
+    let narration    = (narrMatch?.[1] ?? afterDate.replace(AMT_RE, "").replace(/\s+/g, " ")).trim();
 
-    if (!narration || narration.length < 2) continue;
+    // Strip any secondary/duplicate dates at the beginning of the narration (e.g. Value Date)
+    while (true) {
+      const dateStartMatch = narration.match(/^(?:[\s\-\/]*)(?:\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2})/);
+      if (dateStartMatch) {
+        narration = narration.slice(dateStartMatch[0].length).trim();
+      } else {
+        break;
+      }
+    }
+    narration = narration.replace(/^[\s\-\/]+|[\s\-\/]+$/g, "").trim();
+
+    if (isOpBal) {
+      const opAmt = amounts[0] || 0;
+      openingBalRow = {
+        date,
+        narration: "Opening Balance",
+        withdrawal: 0,
+        deposit: opAmt
+      };
+      continue;
+    }
 
     tempTxns.push({ date, narration, amounts, line });
   }
 
   const txns: RawTransaction[] = [];
+  if (openingBalRow) {
+    txns.push(openingBalRow);
+  }
+
   for (let i = 0; i < tempTxns.length; i++) {
-    const { date, narration, amounts, line } = tempTxns[i];
+    let { date, narration, amounts, line } = tempTxns[i];
     let withdrawal = 0, deposit = 0;
+
+    narration = narration.trim();
+    if (!narration || narration.length < 2) {
+      continue;
+    }
 
     if (amounts.length >= 3) {
       const [a, b, bal] = amounts;

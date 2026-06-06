@@ -484,8 +484,12 @@ export default function BankCashBook() {
   const loadRows = useCallback(async (accId: string) => {
     setLoading(true);
     try {
-      const data = accId === "all" ? await getAllEntries() : await getEntriesForAccount(accId);
-      setRows(data);
+      const [entriesData, accountsData] = await Promise.all([
+        accId === "all" ? getAllEntries() : getEntriesForAccount(accId),
+        getAllAccounts()
+      ]);
+      setRows(entriesData);
+      setAccounts(accountsData);
     } catch {
       toast.error("Failed to load entries");
     } finally {

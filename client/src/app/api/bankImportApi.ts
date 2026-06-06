@@ -145,21 +145,25 @@ export async function parseExcel(file: File): Promise<RawTransaction[]> {
 }
 
 // ── PDF parser (pdfjs-dist) ───────────────────────────────────────────────────
-async function extractPDFText(file: File): Promise<string> {
+export async function extractPDFText(file: File): Promise<string> {
   const pdfjsLib = await import("pdfjs-dist");
   pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
     "pdfjs-dist/build/pdf.worker.min.mjs",
     import.meta.url
   ).toString();
 
-  const buf  = await file.arrayBuffer();
-  const pdf  = await pdfjsLib.getDocument({ data: buf }).promise;
-  let fullText = "";
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+
+  // Collect ALL lines from ALL pages first, then deduplicate.
+  // Bank statements often render as many PDF sub-pages (e.g. 74 PDF pages for a
+  // 15-page statement), repeating the same transaction rows on every sub-page.
+  const allLines: string[] = [];
 
   for (let p = 1; p <= pdf.numPages; p++) {
     const page    = await pdf.getPage(p);
     const content = await page.getTextContent();
-    
+
     // Group text items on the same visual line (within 4 units of y-coordinate)
     const linesArray: { y: number; cells: { x: number; text: string }[] }[] = [];
 
@@ -176,17 +180,30 @@ async function extractPDFText(file: File): Promise<string> {
       }
     }
 
-    // Sort lines from top of page to bottom
+    // Sort lines from top of page to bottom, then left-to-right within each line
     linesArray.sort((a, b) => b.y - a.y);
-
     for (const lineObj of linesArray) {
-      // Sort cells from left to right
       const sortedCells = lineObj.cells.sort((a, b) => a.x - b.x);
-      fullText += sortedCells.map((c) => c.text).join("  ") + "\n";
+      allLines.push(sortedCells.map((c) => c.text).join("  "));
     }
   }
 
-  return fullText;
+  // ── Deduplicate lines across pages ────────────────────────────────────────
+  // Normalize each line (collapse whitespace, lowercase) for comparison.
+  // Keep the original-cased version but skip any line whose normalized form
+  // was already seen. This removes ~4-5x duplicates from multi-page PDFs.
+  const seenNormalized = new Set<string>();
+  const uniqueLines: string[] = [];
+
+  for (const line of allLines) {
+    const normalized = line.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!normalized) continue;
+    if (seenNormalized.has(normalized)) continue;
+    seenNormalized.add(normalized);
+    uniqueLines.push(line);
+  }
+
+  return uniqueLines.join("\n");
 }
 
 const DATE_4_RE = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/;
@@ -363,7 +380,41 @@ export interface ParseResult {
   transactions: RawTransaction[];
 }
 
+// ── Bank name detector (regex-based, no AI needed for PDFs) ──────────────────
+const KNOWN_BANKS: { pattern: RegExp; name: string }[] = [
+  { pattern: /bank\s+of\s+baroda/i,                        name: "Bank of Baroda" },
+  { pattern: /state\s+bank\s+of\s+india|SBI/i,            name: "State Bank of India" },
+  { pattern: /hdfc\s+bank/i,                              name: "HDFC Bank" },
+  { pattern: /icici\s+bank/i,                             name: "ICICI Bank" },
+  { pattern: /axis\s+bank/i,                              name: "Axis Bank" },
+  { pattern: /kotak\s+mahindra|kotak\s+bank/i,           name: "Kotak Mahindra Bank" },
+  { pattern: /punjab\s+national\s+bank|PNB/i,            name: "Punjab National Bank" },
+  { pattern: /canara\s+bank/i,                            name: "Canara Bank" },
+  { pattern: /union\s+bank/i,                             name: "Union Bank of India" },
+  { pattern: /bank\s+of\s+india\b/i,                      name: "Bank of India" },
+  { pattern: /indian\s+bank/i,                            name: "Indian Bank" },
+  { pattern: /central\s+bank\s+of\s+india/i,             name: "Central Bank of India" },
+  { pattern: /idbi\s+bank/i,                              name: "IDBI Bank" },
+  { pattern: /yes\s+bank/i,                               name: "Yes Bank" },
+  { pattern: /indusind\s+bank/i,                          name: "IndusInd Bank" },
+  { pattern: /federal\s+bank/i,                           name: "Federal Bank" },
+  { pattern: /south\s+indian\s+bank/i,                    name: "South Indian Bank" },
+  { pattern: /karnataka\s+bank/i,                         name: "Karnataka Bank" },
+  { pattern: /bandhan\s+bank/i,                           name: "Bandhan Bank" },
+];
+
+export function detectBankNameFromText(text: string): string {
+  // Only scan the first 2000 chars — bank name is always in the header
+  const header = text.slice(0, 2000);
+  for (const { pattern, name } of KNOWN_BANKS) {
+    if (pattern.test(header)) return name;
+  }
+  return "";
+}
+
 // ── AI Statement parsing via OpenRouter (Proxy through Backend) ─────────────────
+// NOTE: This is only used for IMAGE files (png/jpg/jpeg/webp).
+// PDF files use the local parser (parsePDF) for reliable, exact transaction counts.
 export async function parseStatementWithAI(file: File): Promise<ParseResult> {
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
   

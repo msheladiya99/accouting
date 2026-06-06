@@ -14,6 +14,7 @@ import {
 import toast from "react-hot-toast";
 import {
   parseExcel, parsePDF, parseStatementWithAI, enrichWithOpenRouter, saveImportedTransactions,
+  detectBankNameFromText, extractPDFText,
   SAMPLE_TRANSACTIONS,
   type ImportRow, type RawTransaction,
 } from "../api/bankImportApi";
@@ -40,8 +41,20 @@ function toImportRows(txns: RawTransaction[]): ImportRow[] {
   return txns.map((t) => ({ ...t, id: uid(), aiAccountName: "", aiAccountGroup: "", aiStatus: "idle" as const }));
 }
 
+// Deduplicate raw transactions by fingerprint (date + narration + withdrawal + deposit)
+// Bank statements often have per-page opening/closing totals that the AI treats as extra rows
+function deduplicateTransactions(txns: RawTransaction[]): RawTransaction[] {
+  const seen = new Set<string>();
+  return txns.filter((t) => {
+    const fp = `${t.date}||${(t.narration || "").trim().toLowerCase()}||${t.withdrawal}||${t.deposit}`;
+    if (seen.has(fp)) return false;
+    seen.add(fp);
+    return true;
+  });
+}
+
 const isOpeningBalRow = (narration: string) =>
-  /opening\s*balance|bal\s*b\/f|balance\s*b\/f|brought\s*forward/i.test(narration);
+  /opening\s*balance|bal\s*b\/f|balance\s*b\/f|brought\s*forward|closing\s*balance|balance\s*c\/f|carried\s*forward/i.test(narration);
 
 // ── Inline group cell editor ──────────────────────────────────────────────────
 const GroupCellEditor = forwardRef(function GroupCellEditor(props: any, ref) {
@@ -200,14 +213,11 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
         txns = res.transactions;
         parsedBankName = res.bankName;
       } else if (ext === "pdf") {
-        try {
-          const res = await parseStatementWithAI(f);
-          txns = res.transactions;
-          parsedBankName = res.bankName;
-        } catch (err: any) {
-          console.warn("AI parsing failed, falling back to local parsing", err);
-          txns = await parsePDF(f);
-        }
+        // Always use local parser for PDFs — AI hallucinated and duplicated entries.
+        // extractPDFText deduplicates lines across pages, giving correct transaction counts.
+        const rawText = await extractPDFText(f);
+        txns = await parsePDF(f);
+        parsedBankName = detectBankNameFromText(rawText);
       } else {
         txns = await parseExcel(f);
       }
@@ -215,6 +225,14 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       if (txns.length === 0) {
         setParseError("No transactions found. Check that the statement is clear and has valid headers.");
         return;
+      }
+
+      // ── Deduplicate: remove repeated rows (page headers/footers repeated by AI) ──
+      const beforeCount = txns.length;
+      txns = deduplicateTransactions(txns);
+      const dupsRemoved = beforeCount - txns.length;
+      if (dupsRemoved > 0) {
+        console.info(`[BankImport] Removed ${dupsRemoved} duplicate rows (${beforeCount} → ${txns.length})`);
       }
 
       if (parsedBankName) {

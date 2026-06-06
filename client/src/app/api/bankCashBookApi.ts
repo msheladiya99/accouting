@@ -101,3 +101,8 @@ export async function createAccount(payload: { name: string; group: "Bank" | "Ca
   const res = await axiosClient.post<BankCashAccount>("/bank-cash-book/accounts", payload);
   return res.data;
 }
+
+export async function clearEntriesForAccount(accountId: string): Promise<{ deletedCount: number; message: string }> {
+  const res = await axiosClient.delete<{ deletedCount: number; message: string }>(`/bank-cash-book/accounts/${accountId}/entries`);
+  return res.data;
+}

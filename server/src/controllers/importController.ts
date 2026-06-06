@@ -113,8 +113,44 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       };
     });
 
-    const result = await BankCashEntry.insertMany(preparedEntries);
-    res.status(201).json(result);
+    // ── Deduplication: only insert entries that don't already exist ────────────
+    // Build a Set of fingerprints from existing entries for this account
+    const existingEntries = await BankCashEntry.find(
+      { accountId: targetAccountId, companyId: { $in: [req.companyId, companyObjId] } },
+      { date: 1, particulars: 1, withdrawal: 1, deposit: 1 }
+    ).lean();
+
+    const existingFingerprints = new Set(
+      existingEntries.map((e: any) =>
+        `${e.date}||${(e.particulars || "").trim().toLowerCase()}||${e.withdrawal}||${e.deposit}`
+      )
+    );
+
+    const newEntries = preparedEntries.filter((e) => {
+      const fp = `${e.date}||${(e.particulars || "").trim().toLowerCase()}||${e.withdrawal}||${e.deposit}`;
+      return !existingFingerprints.has(fp);
+    });
+
+    const skippedCount = preparedEntries.length - newEntries.length;
+
+    if (newEntries.length === 0) {
+      res.status(200).json({
+        message: `All ${preparedEntries.length} entries already exist — no duplicates inserted.`,
+        insertedCount: 0,
+        skippedCount,
+      });
+      return;
+    }
+
+    const result = await BankCashEntry.insertMany(newEntries);
+    res.status(201).json({
+      inserted: result,
+      insertedCount: result.length,
+      skippedCount,
+      message: skippedCount > 0
+        ? `Imported ${result.length} new entries. Skipped ${skippedCount} duplicates.`
+        : `Imported ${result.length} entries successfully.`,
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to save imported transactions" });
   }
@@ -154,9 +190,17 @@ export async function parseStatementWithAI(req: AuthenticatedRequest, res: Respo
               content: [
                 {
                   type: "text",
-                  text: `You are an expert accountant. Extract all transactions from this bank statement image. Also, identify the Name of the Bank (e.g. "Bank of Baroda", "HDFC Bank", "State Bank of India", etc.) from the header. If it cannot be identified, return "Unknown Bank".
- 
-Return ONLY a valid JSON object in the following format, and nothing else. Do not wrap in markdown code blocks:
+                  text: `You are an expert accountant parsing a bank statement image.
+
+CRITICAL RULES:
+1. Extract ONLY actual financial transactions (money movements).
+2. DO NOT include rows for "Opening Balance", "Closing Balance", "Balance B/F", "Balance C/F", "Brought Forward", "Carried Forward", or any balance summary rows.
+3. Each transaction must appear EXACTLY ONCE — do not duplicate any row.
+4. Do NOT include page headers, footers, or bank account info lines.
+5. Date must be in YYYY-MM-DD format. Skip rows without a valid date.
+6. Identify the Bank Name from the header. If not found, return "Unknown Bank".
+
+Return ONLY a valid JSON object — no markdown, no code blocks:
 {
   "bankName": "Name of the Bank",
   "transactions": [{"date":"YYYY-MM-DD","narration":"...","withdrawal":123.45,"deposit":0}, ...]
@@ -200,10 +244,17 @@ Return ONLY a valid JSON object in the following format, and nothing else. Do no
             messages: [
               {
                 role: "user",
-                content: `You are an expert accountant. Extract all transactions from this bank statement text. Also, identify the Name of the Bank (e.g. "Bank of Baroda", "HDFC Bank", "State Bank of India", etc.) from the text header. If it cannot be identified, return "Unknown Bank".
+                content: `You are an expert accountant parsing a bank statement that may span multiple pages.
 
-Ensure you extract every single transaction row from the text.
-Return ONLY a valid JSON object in the following format, and nothing else. Do not wrap in markdown code blocks:
+CRITICAL RULES:
+1. Extract ONLY actual financial transactions (money movements). 
+2. DO NOT include rows for "Opening Balance", "Closing Balance", "Balance B/F", "Balance C/F", "Brought Forward", "Carried Forward", or any balance summary rows.
+3. Each transaction must appear EXACTLY ONCE — if the same transaction appears on multiple pages (due to page carry-forward), include it only once.
+4. Do NOT include page headers, page footers, or bank address/account number lines.
+5. The date must be a real transaction date in YYYY-MM-DD format. Skip rows without a valid date.
+6. Identify the Name of the Bank (e.g. "Bank of Baroda", "HDFC Bank", "State Bank of India") from the header. If not found, return "Unknown Bank".
+
+Return ONLY a valid JSON object — no markdown, no code blocks:
 {
   "bankName": "Name of the Bank",
   "transactions": [{"date":"YYYY-MM-DD","narration":"...","withdrawal":123.45,"deposit":0}, ...]
@@ -243,9 +294,17 @@ ${rawText}`
                 content: [
                   {
                     type: "text",
-                    text: `You are an expert accountant. Extract all transactions from this bank statement document. Also, identify the Name of the Bank (e.g. "Bank of Baroda", "HDFC Bank", "State Bank of India", etc.) from the header. If it cannot be identified, return "Unknown Bank".
- 
-Return ONLY a valid JSON object in the following format, and nothing else. Do not wrap in markdown code blocks:
+                    text: `You are an expert accountant parsing a multi-page bank statement PDF.
+
+CRITICAL RULES:
+1. Extract ONLY actual financial transactions (money movements).
+2. DO NOT include rows for "Opening Balance", "Closing Balance", "Balance B/F", "Balance C/F", "Brought Forward", "Carried Forward", or any balance summary rows.
+3. Each transaction must appear EXACTLY ONCE — if the same transaction appears on multiple pages (page carry-forward), include it only ONCE.
+4. Do NOT include page headers, footers, or bank account info lines.
+5. Date must be in YYYY-MM-DD format. Skip rows without a valid date.
+6. Identify the Bank Name from the header. If not found, return "Unknown Bank".
+
+Return ONLY a valid JSON object — no markdown, no code blocks:
 {
   "bankName": "Name of the Bank",
   "transactions": [{"date":"YYYY-MM-DD","narration":"...","withdrawal":123.45,"deposit":0}, ...]

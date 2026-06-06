@@ -274,3 +274,26 @@ export async function deleteEntry(req: AuthenticatedRequest, res: Response): Pro
     res.status(500).json({ message: error.message || "Failed to delete entry" });
   }
 }
+
+// Clear ALL entries for a specific account (used to fix duplicate imports)
+export async function clearEntriesForAccount(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { id } = req.params;
+  try {
+    const account = await BankCashAccount.findOne({ _id: id, companyId: req.companyId });
+    if (!account) {
+      res.status(404).json({ message: "Account not found" });
+      return;
+    }
+    const { Types: MongoTypes } = require("mongoose");
+    let companyIdFilter: any;
+    try {
+      companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+    } catch {
+      companyIdFilter = req.companyId;
+    }
+    const result = await BankCashEntry.deleteMany({ accountId: id, companyId: companyIdFilter });
+    res.json({ message: `Deleted ${result.deletedCount} entries for account "${account.name}"`, deletedCount: result.deletedCount });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to clear entries" });
+  }
+}

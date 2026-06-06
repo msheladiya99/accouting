@@ -12,7 +12,7 @@ import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import {
   getAllAccounts, getEntriesForAccount, getAllEntries,
-  createEntry, updateEntry, deleteEntry,
+  createEntry, updateEntry, deleteEntry, clearEntriesForAccount,
   CONTRA_GROUPS,
   type BankCashAccount, type BankCashRow, type EntryPayload, type AccountGroup,
 } from "../api/bankCashBookApi";
@@ -532,6 +532,23 @@ export default function BankCashBook() {
     }
   }, [accountFilter, loadRows]);
 
+  const handleClearEntries = useCallback(async (acc: BankCashAccount) => {
+    if (!window.confirm(
+      `⚠️ This will permanently delete ALL entries for "${acc.name}".\n\nThis cannot be undone. Are you sure?`
+    )) return;
+    try {
+      const res = await clearEntriesForAccount(acc._id);
+      toast.success(res.message || `Cleared all entries for ${acc.name}`);
+      if (accountFilter === acc._id) {
+        await loadRows(acc._id);
+      } else {
+        await loadRows(accountFilter);
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Failed to clear entries");
+    }
+  }, [accountFilter, loadRows]);
+
   // Called by ExcelTable when user edits a cell inline
   const handleCellSave = useCallback(async (id: string, patch: Partial<EntryPayload>) => {
     try {
@@ -611,14 +628,23 @@ export default function BankCashBook() {
             <>
               <span className="text-xs text-slate-400 px-1 flex items-center gap-1"><Landmark size={11} /> Bank</span>
               {bankAccounts.map((acc) => (
-                <button key={acc._id}
-                  onClick={() => { setAccountFilter(acc._id); setGroupTypeFilter("all"); }}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all border ${
-                    accountFilter === acc._id ? "bg-blue-600 text-white border-blue-600" : "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
-                  }`}
-                >
-                  <Landmark size={13} /> {acc.name}
-                </button>
+                <div key={acc._id} className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => { setAccountFilter(acc._id); setGroupTypeFilter("all"); }}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-l-lg text-sm font-medium transition-all border ${
+                      accountFilter === acc._id ? "bg-blue-600 text-white border-blue-600" : "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+                    }`}
+                  >
+                    <Landmark size={13} /> {acc.name}
+                  </button>
+                  <button
+                    onClick={() => handleClearEntries(acc)}
+                    title={`Clear all entries for ${acc.name}`}
+                    className="flex items-center px-2 py-2 rounded-r-lg border border-l-0 border-red-200 bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
               ))}
             </>
           )}
@@ -627,14 +653,23 @@ export default function BankCashBook() {
             <>
               <span className="text-xs text-slate-400 px-1 flex items-center gap-1"><Wallet size={11} /> Cash</span>
               {cashAccounts.map((acc) => (
-                <button key={acc._id}
-                  onClick={() => { setAccountFilter(acc._id); setGroupTypeFilter("all"); }}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all border ${
-                    accountFilter === acc._id ? "bg-amber-500 text-white border-amber-500" : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
-                  }`}
-                >
-                  <Wallet size={13} /> {acc.name}
-                </button>
+                <div key={acc._id} className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => { setAccountFilter(acc._id); setGroupTypeFilter("all"); }}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-l-lg text-sm font-medium transition-all border ${
+                      accountFilter === acc._id ? "bg-amber-500 text-white border-amber-500" : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                    }`}
+                  >
+                    <Wallet size={13} /> {acc.name}
+                  </button>
+                  <button
+                    onClick={() => handleClearEntries(acc)}
+                    title={`Clear all entries for ${acc.name}`}
+                    className="flex items-center px-2 py-2 rounded-r-lg border border-l-0 border-red-200 bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
               ))}
             </>
           )}

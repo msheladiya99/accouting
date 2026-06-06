@@ -132,9 +132,16 @@ function computeRows(account: any, accountEntries: any[]) {
 
 // Helper to sum all historical movements prior to the active financial year's start date
 async function getOpeningBalanceAt(account: any, startDate: string, companyId: string): Promise<number> {
+  const { Types: MongoTypes } = require("mongoose");
+  let companyIdFilter: any;
+  try {
+    companyIdFilter = { $in: [companyId, new MongoTypes.ObjectId(companyId)] };
+  } catch {
+    companyIdFilter = companyId;
+  }
   const priorEntries = await BankCashEntry.find({
     accountId: account._id.toString(),
-    companyId,
+    companyId: companyIdFilter,
     date: { $lt: startDate }
   });
   const movement = priorEntries.reduce((sum, e) => sum + e.deposit - e.withdrawal, 0);
@@ -147,7 +154,15 @@ export async function getAllEntries(req: AuthenticatedRequest, res: Response): P
     const accounts = await BankCashAccount.find({ companyId: req.companyId });
 
     // Set up filter query scoped by companyId and active financial year
-    const filterQuery: any = { companyId: req.companyId };
+    // Use $in to match both ObjectId and string forms of companyId (handles legacy imports)
+    const { Types: MongoTypes } = require("mongoose");
+    let companyIdFilter: any;
+    try {
+      companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+    } catch {
+      companyIdFilter = req.companyId;
+    }
+    const filterQuery: any = { companyId: companyIdFilter };
     if (req.financialYear) {
       filterQuery.date = { $gte: req.financialYear.startDate, $lte: req.financialYear.endDate };
     }

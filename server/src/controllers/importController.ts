@@ -1,4 +1,5 @@
 import { Response } from "express";
+import { Types } from "mongoose";
 import { ImportedTransaction } from "../models/ImportedTransaction";
 import { BankCashEntry } from "../models/BankCashEntry";
 import { Ledger } from "../models/Ledger";
@@ -51,6 +52,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
     }
 
     const now = new Date();
+    const companyObjId = new Types.ObjectId(req.companyId as string);
     const preparedImport = rows.map((r: any) => ({
       date: r.date,
       narration: r.narration,
@@ -59,7 +61,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       accountName: r.aiAccountName,
       accountGroup: r.aiAccountGroup,
       importedAt: now,
-      companyId: req.companyId
+      companyId: companyObjId
     }));
 
     await ImportedTransaction.insertMany(preparedImport);
@@ -93,16 +95,23 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       }
     }
 
-    const preparedEntries = rows.map((r: any) => ({
-      companyId: req.companyId,
-      accountId: targetAccountId,
-      date: r.date,
-      particulars: r.narration,
-      withdrawal: r.withdrawal || 0,
-      deposit: r.deposit || 0,
-      contraAccountName: r.aiAccountName,
-      contraAccountGroup: r.aiAccountGroup
-    }));
+    const preparedEntries = rows.map((r: any) => {
+      // Ensure date is always a clean "YYYY-MM-DD" string, not an ISO timestamp
+      let cleanDate = (r.date || "").toString().trim();
+      if (cleanDate.length > 10) {
+        cleanDate = cleanDate.slice(0, 10);
+      }
+      return {
+        companyId: companyObjId,
+        accountId: targetAccountId,
+        date: cleanDate,
+        particulars: r.narration,
+        withdrawal: r.withdrawal || 0,
+        deposit: r.deposit || 0,
+        contraAccountName: r.aiAccountName,
+        contraAccountGroup: r.aiAccountGroup
+      };
+    });
 
     const result = await BankCashEntry.insertMany(preparedEntries);
     res.status(201).json(result);

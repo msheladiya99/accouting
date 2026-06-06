@@ -744,7 +744,14 @@ export default function BankCashBook() {
                 onClose={() => setShowImport(false)}
                 onImportComplete={async () => {
                   setShowImport(false);
-                  await loadRows(accountFilter);
+                  // Reload accounts first (new account may have been auto-created)
+                  const freshAccounts = await getAllAccounts().catch(() => []);
+                  setAccounts(freshAccounts);
+                  // Reset filter to "all" so newly imported entries are visible
+                  setAccountFilter("all");
+                  setGroupTypeFilter("all");
+                  // Reload entries
+                  await loadRows("all");
                 }}
               />
             </div>

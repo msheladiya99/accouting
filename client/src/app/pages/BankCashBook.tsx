@@ -17,6 +17,7 @@ import {
   type BankCashAccount, type BankCashRow, type EntryPayload, type AccountGroup,
 } from "../api/bankCashBookApi";
 import BankImport from "./BankImport";
+import { getAllGroups } from "../api/accountGroupApi";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
@@ -32,13 +33,14 @@ const GROUP_COLORS: Record<AccountGroup, { bg: string; text: string; icon: React
 
 // ── Entry Modal ───────────────────────────────────────────────────────────────
 function EntryModal({
-  accounts, entry, loading, onClose, onSubmit,
+  accounts, entry, loading, onClose, onSubmit, contraGroups,
 }: {
   accounts: BankCashAccount[];
   entry?: BankCashRow;
   loading: boolean;
   onClose: () => void;
   onSubmit: (data: EntryPayload) => void;
+  contraGroups: string[];
 }) {
   const { register, handleSubmit, watch, formState: { errors } } = useForm<EntryPayload>({
     defaultValues: {
@@ -117,7 +119,7 @@ function EntryModal({
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Account Group <span className="text-red-500">*</span></label>
               <select {...register("contraAccountGroup", { required: true })}
                 className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400">
-                {CONTRA_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
+                {contraGroups.map((g) => <option key={g} value={g}>{g}</option>)}
               </select>
             </div>
           </div>
@@ -199,12 +201,13 @@ type EditCell = { id: string; field: string; value: string };
 
 // ── Excel-style Table ─────────────────────────────────────────────────────────
 function ExcelTable({
-  rows, openingBalance, onDelete, onCellSave,
+  rows, openingBalance, onDelete, onCellSave, contraGroups,
 }: {
   rows: BankCashRow[];
   openingBalance: number;
   onDelete: (r: BankCashRow) => void;
   onCellSave: (id: string, patch: Partial<EntryPayload>) => Promise<void>;
+  contraGroups: string[];
 }) {
   const [editCell, setEditCell]   = useState<EditCell | null>(null);
   const [saving,   setSaving]     = useState(false);
@@ -246,10 +249,67 @@ function ExcelTable({
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent, row: BankCashRow) {
-    if (e.key === "Enter")  { e.preventDefault(); commitEdit(row); }
+  const fields = ["date", "particulars", "withdrawal", "deposit", "contraAccountName", "contraAccountGroup"];
+
+  function navigateCell(rowId: string, currentField: string, direction: "next" | "prev" | "down" | "up") {
+    const rowIndex = rows.findIndex(r => r._id === rowId);
+    if (rowIndex === -1) return;
+    const fieldIndex = fields.indexOf(currentField);
+    if (fieldIndex === -1) return;
+
+    let nextRowIndex = rowIndex;
+    let nextFieldIndex = fieldIndex;
+
+    if (direction === "next") {
+      if (fieldIndex < fields.length - 1) {
+        nextFieldIndex = fieldIndex + 1;
+      } else if (rowIndex < rows.length - 1) {
+        nextRowIndex = rowIndex + 1;
+        nextFieldIndex = 0;
+      }
+    } else if (direction === "prev") {
+      if (fieldIndex > 0) {
+        nextFieldIndex = fieldIndex - 1;
+      } else if (rowIndex > 0) {
+        nextRowIndex = rowIndex - 1;
+        nextFieldIndex = fields.length - 1;
+      }
+    } else if (direction === "down") {
+      if (rowIndex < rows.length - 1) {
+        nextRowIndex = rowIndex + 1;
+      }
+    } else if (direction === "up") {
+      if (rowIndex > 0) {
+        nextRowIndex = rowIndex - 1;
+      }
+    }
+
+    const nextRow = rows[nextRowIndex];
+    const nextField = fields[nextFieldIndex];
+    const nextValue = nextRow ? (nextRow as any)[nextField] : "";
+
+    // Commit current edit asynchronously (non-blocking for UI responsiveness)
+    commitEdit(rows[rowIndex]);
+
+    // Start editing the next cell instantly
+    if (nextRow) {
+      startEdit(nextRow._id, nextField, nextValue);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent, row: BankCashRow, field: string, inputType?: string) {
+    if (e.key === "Enter")  { e.preventDefault(); navigateCell(row._id, field, "down"); }
     if (e.key === "Escape") { e.preventDefault(); setEditCell(null); }
-    if (e.key === "Tab")    { e.preventDefault(); commitEdit(row); }
+    if (e.key === "Tab")    {
+      e.preventDefault();
+      navigateCell(row._id, field, e.shiftKey ? "prev" : "next");
+    }
+    if (inputType !== "select") {
+      if (e.key === "ArrowUp")    { e.preventDefault(); navigateCell(row._id, field, "up"); }
+      if (e.key === "ArrowDown")  { e.preventDefault(); navigateCell(row._id, field, "down"); }
+      if (e.key === "ArrowLeft")  { e.preventDefault(); navigateCell(row._id, field, "prev"); }
+      if (e.key === "ArrowRight") { e.preventDefault(); navigateCell(row._id, field, "next"); }
+    }
   }
 
   function EditableCell({
@@ -272,10 +332,10 @@ function ExcelTable({
               value={editCell!.value}
               onChange={(e) => setEditCell({ ...editCell!, value: e.target.value })}
               onBlur={() => commitEdit(row)}
-              onKeyDown={(e) => handleKeyDown(e, row)}
+              onKeyDown={(e) => handleKeyDown(e, row, field, "select")}
               className={CELL_SELECT}
             >
-              {CONTRA_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
+              {contraGroups.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
           </td>
         );
@@ -288,7 +348,7 @@ function ExcelTable({
             value={editCell!.value}
             onChange={(e) => setEditCell({ ...editCell!, value: e.target.value })}
             onBlur={() => commitEdit(row)}
-            onKeyDown={(e) => handleKeyDown(e, row)}
+            onKeyDown={(e) => handleKeyDown(e, row, field, inputType)}
             className={`${CELL_INPUT} ${mono ? "font-mono" : ""} ${align === "right" ? "text-right" : ""}`}
             step={inputType === "number" ? "0.01" : undefined}
             min={inputType === "number" ? "0" : undefined}
@@ -480,6 +540,17 @@ export default function BankCashBook() {
   const [search,          setSearch]          = useState("");
   const [modal,           setModal]           = useState<{ entry?: BankCashRow } | null>(null);
   const [showImport,      setShowImport]      = useState(false);
+  const [groupNames,      setGroupNames]      = useState<string[]>([]);
+
+  useEffect(() => {
+    getAllGroups()
+      .then((grps) => {
+        const names = grps.map((g) => g.groupName);
+        const uniqueNames = Array.from(new Set([...names, ...CONTRA_GROUPS])).sort();
+        setGroupNames(uniqueNames);
+      })
+      .catch(() => setGroupNames(Array.from(CONTRA_GROUPS)));
+  }, [selectedFY?._id]);
 
   const loadRows = useCallback(async (accId: string) => {
     setLoading(true);
@@ -752,6 +823,7 @@ export default function BankCashBook() {
             openingBalance={summary.openingBalance}
             onDelete={handleDelete}
             onCellSave={handleCellSave}
+            contraGroups={groupNames}
           />
         )}
       </div>
@@ -763,6 +835,7 @@ export default function BankCashBook() {
           loading={saving}
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
+          contraGroups={groupNames}
         />
       )}
 

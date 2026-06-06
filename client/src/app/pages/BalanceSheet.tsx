@@ -12,7 +12,7 @@ import { getAllJournalEntries } from "../api/journalVoucherApi";
 import { getAllLedgers } from "../api/ledgerApi";
 
 const fmt = (v: number) =>
-  `â‚¹${Math.abs(v).toLocaleString("en-IN")}`;
+  `\u20B9${Math.abs(v).toLocaleString("en-IN")}`;
 
 const fmtReport = (v: number) => {
   const val = Math.abs(v);
@@ -390,10 +390,10 @@ function computePartnerCapital(
   };
 }
 
-// â”€â”€ Main component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Main component ─────────────────────────────────────────────────────────
 export default function BalanceSheet() {
   const { selectedFY, company } = useApp();
-  const financialYear = selectedFY?.label ?? "â€”";
+  const financialYear = selectedFY?.label ?? "—";
 
   const [data, setData]       = useState<BalanceSheetData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -484,7 +484,7 @@ export default function BalanceSheet() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-slate-900">Balance Sheet</h1>
-          <p className="text-sm text-slate-500 mt-0.5">As at {today} Â· {financialYear}</p>
+          <p className="text-sm text-slate-500 mt-0.5">As at {today} · {financialYear}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -493,7 +493,7 @@ export default function BalanceSheet() {
             className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-            {refreshing ? "Refreshingâ€¦" : "Refresh"}
+            {refreshing ? "Refreshing..." : "Refresh"}
           </button>
           <button className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors">
             <Printer size={14} /> Print
@@ -508,7 +508,7 @@ export default function BalanceSheet() {
       {loading && (
         <div className="flex items-center justify-center h-64 text-slate-500 text-sm gap-2">
           <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-          Computing balance sheet from all sourcesâ€¦
+          Computing balance sheet from all sources...
         </div>
       )}
 
@@ -534,8 +534,8 @@ export default function BalanceSheet() {
             <div className="flex-1">
               <span className="text-sm font-medium">
                 {data.isBalanced
-                  ? "Balance Sheet is Balanced â€” Assets = Liabilities + Capital"
-                  : `Out of Balance! Difference: â‚¹${data.difference.toLocaleString("en-IN")}`}
+                  ? "Balance Sheet is Balanced — Assets = Liabilities + Capital"
+                  : `Out of Balance! Difference: \u20B9${data.difference.toLocaleString("en-IN")}`}
               </span>
             </div>
             <span className="text-xs text-slate-500 hidden sm:block">
@@ -1063,7 +1063,7 @@ export default function BalanceSheet() {
               </div>
               {!data.isBalanced && (
                 <>
-                  <span className="text-red-500 font-bold">â‰ </span>
+                  <span className="text-red-500 font-bold">≠</span>
                   <div className="text-center">
                     <p className="text-xs text-red-500 uppercase tracking-wide">Difference</p>
                     <p className="font-bold text-red-600 tabular-nums">{fmt(data.difference)}</p>
@@ -1073,7 +1073,7 @@ export default function BalanceSheet() {
               <span className={`ml-2 text-sm font-bold px-3 py-1 rounded-full ${
                 data.isBalanced ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
               }`}>
-                {data.isBalanced ? "Balanced âœ“" : "Out of Balance âœ—"}
+                {data.isBalanced ? "Balanced ✓" : "Out of Balance ✗"}
               </span>
             </div>
           </div>

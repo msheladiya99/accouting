@@ -19,7 +19,7 @@ export async function getImportedTransactions(req: AuthenticatedRequest, res: Re
 }
 
 export async function saveImportedTransactions(req: AuthenticatedRequest, res: Response): Promise<void> {
-  const { rows, accountId, bankName } = req.body;
+  const { rows, accountId, bankName, statementOpeningBalance } = req.body;
   try {
     if (!rows || !Array.isArray(rows)) {
       res.status(400).json({ message: "rows array is required" });
@@ -37,7 +37,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
         acc = new BankCashAccount({
           name: bankName.trim(),
           group: "Bank",
-          openingBalance: 0,
+          openingBalance: statementOpeningBalance || 0,
           companyId: req.companyId
         });
         await acc.save();

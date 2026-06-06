@@ -12,8 +12,9 @@ const PORT = process.env.PORT || 5000;
 // Enable CORS for frontend requests
 app.use(cors());
 
-// Parse incoming JSON requests
-app.use(express.json());
+// Parse incoming JSON and URL-encoded requests with limits
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Routes
 app.use("/api", apiRouter);

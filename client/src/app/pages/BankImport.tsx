@@ -18,7 +18,7 @@ import {
   type ImportRow, type RawTransaction,
 } from "../api/bankImportApi";
 import { LEDGER_GROUPS } from "../api/ledgerApi";
-import { getAllAccounts, type BankCashAccount } from "../api/bankCashBookApi";
+import { getAllAccounts, createAccount, type BankCashAccount } from "../api/bankCashBookApi";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -39,6 +39,9 @@ const GROUP_COLORS: Record<string, string> = {
 function toImportRows(txns: RawTransaction[]): ImportRow[] {
   return txns.map((t) => ({ ...t, id: uid(), aiAccountName: "", aiAccountGroup: "", aiStatus: "idle" as const }));
 }
+
+const isOpeningBalRow = (narration: string) =>
+  /opening\s*balance|bal\s*b\/f|balance\s*b\/f|brought\s*forward/i.test(narration);
 
 // ── Inline group cell editor ──────────────────────────────────────────────────
 const GroupCellEditor = forwardRef(function GroupCellEditor(props: any, ref) {
@@ -98,6 +101,12 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
   const [selectedAccountId, setSelectedAccountId] = useState<string>("auto-create");
   const [detectedBankName, setDetectedBankName] = useState<string>("");
 
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newAccName, setNewAccName]         = useState("");
+  const [newAccGroup, setNewAccGroup]       = useState<"Bank" | "Cash">("Bank");
+  const [newAccBal, setNewAccBal]           = useState("");
+  const [creatingAcc, setCreatingAcc]       = useState(false);
+
   useEffect(() => {
     getAllAccounts()
       .then((accs) => {
@@ -140,16 +149,30 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     }, 250);
 
     try {
-      const narrations = inputRows.map((r) => r.narration);
-      const matches    = await enrichWithOpenRouter(narrations);
+      const activeRows = inputRows.filter((r) => !isOpeningBalRow(r.narration));
+      const narrations = activeRows.map((r) => r.narration);
+      const matches    = narrations.length > 0 ? await enrichWithOpenRouter(narrations) : [];
       clearInterval(progressInterval);
       setAiProgress(100);
-      const enriched: ImportRow[] = inputRows.map((r, i) => ({
-        ...r,
-        aiAccountName:  matches[i]?.accountName  ?? "",
-        aiAccountGroup: matches[i]?.accountGroup ?? "",
-        aiStatus: "done" as const,
-      }));
+
+      let activeIdx = 0;
+      const enriched: ImportRow[] = inputRows.map((r) => {
+        if (isOpeningBalRow(r.narration)) {
+          return {
+            ...r,
+            aiAccountName: "",
+            aiAccountGroup: "",
+            aiStatus: "done" as const,
+          };
+        }
+        const match = matches[activeIdx++];
+        return {
+          ...r,
+          aiAccountName:  match?.accountName  ?? "",
+          aiAccountGroup: match?.accountGroup ?? "",
+          aiStatus: "done" as const,
+        };
+      });
       setRows(enriched);
       setStep(2);
       toast.success(`AI suggested accounts for ${matches.length} transactions`);
@@ -219,6 +242,33 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     }
   }, [runAI, accounts]);
 
+  // ── Create Account ────────────────────────────────────────────────────────
+  const handleCreateAccount = useCallback(async () => {
+    if (!newAccName.trim()) {
+      toast.error("Please enter a bank/cash account name");
+      return;
+    }
+    setCreatingAcc(true);
+    try {
+      const payload = {
+        name: newAccName.trim(),
+        group: newAccGroup,
+        openingBalance: parseFloat(newAccBal) || 0
+      };
+      const newAcc = await createAccount(payload);
+      setAccounts((prev) => [...prev, newAcc].sort((a, b) => a.name.localeCompare(b.name)));
+      setSelectedAccountId(newAcc._id);
+      setShowCreateForm(false);
+      setNewAccName("");
+      setNewAccBal("");
+      toast.success(`Account "${newAcc.name}" created and selected!`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to create account");
+    } finally {
+      setCreatingAcc(false);
+    }
+  }, [newAccName, newAccGroup, newAccBal]);
+
   // ── Load sample ───────────────────────────────────────────────────────────
   const loadSample = useCallback(async () => {
     const sampleRows = toImportRows(SAMPLE_TRANSACTIONS);
@@ -234,15 +284,21 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       toast.error("Please select a target Bank/Cash account first");
       return;
     }
-    const incomplete = rows.filter((r) => !r.aiAccountName.trim() || !r.aiAccountGroup.trim());
+    const activeTxns = rows.filter((r) => !isOpeningBalRow(r.narration));
+    const incomplete = activeTxns.filter((r) => !r.aiAccountName.trim() || !r.aiAccountGroup.trim());
     if (incomplete.length > 0) {
       toast.error(`${incomplete.length} rows still need Account Name and Group`);
       return;
     }
     try {
-      await saveImportedTransactions(rows, selectedAccountId, detectedBankName);
+      const firstOpRow = rows.find((r) => isOpeningBalRow(r.narration));
+      const opBal = firstOpRow
+        ? Math.abs(firstOpRow.deposit || firstOpRow.withdrawal || 0)
+        : 0;
+
+      await saveImportedTransactions(activeTxns, selectedAccountId, detectedBankName, opBal);
       setStep(3);
-      toast.success(`${rows.length} transactions saved`);
+      toast.success(`${activeTxns.length} transactions saved`);
     } catch (err: any) {
       toast.error(err?.message || "Failed to save transactions");
     }
@@ -269,14 +325,54 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     withdrawals: rows.reduce((s, r) => s + r.withdrawal, 0),
   }), [rows]);
 
+  const rowsWithBalance = useMemo(() => {
+    const selectedAccount = accounts.find((a) => a._id === selectedAccountId);
+    const openingBalance = selectedAccount ? selectedAccount.openingBalance : 0;
+    
+    const firstOpRow = rows.find((r) => isOpeningBalRow(r.narration));
+    const statementOpeningBalance = firstOpRow
+      ? Math.abs(firstOpRow.deposit || firstOpRow.withdrawal || 0)
+      : null;
+
+    let running = statementOpeningBalance !== null ? statementOpeningBalance : openingBalance;
+
+    return rows.map((r) => {
+      if (isOpeningBalRow(r.narration)) {
+        return {
+          ...r,
+          withdrawal: 0,
+          deposit: 0,
+          balance: running,
+        };
+      }
+      running = running + r.deposit - r.withdrawal;
+      return {
+        ...r,
+        balance: running,
+      };
+    });
+  }, [rows, selectedAccountId, accounts]);
+
   // ── Column defs ───────────────────────────────────────────────────────────
   const columnDefs = useMemo<ColDef<ImportRow>[]>(() => [
     {
-      headerName: "#",
-      width: 56,
+      headerName: "Sr. No.",
+      width: 65,
       sortable: false,
       valueGetter: (p) => (p.node?.rowIndex ?? 0) + 1,
       cellStyle: { color: "#94a3b8", fontSize: "11px", textAlign: "center" },
+    },
+    {
+      headerName: "Bank/cash name",
+      width: 155,
+      valueGetter: () => {
+        if (selectedAccountId === "auto-create") {
+          return detectedBankName || "Auto-detecting...";
+        }
+        const acc = accounts.find((a) => a._id === selectedAccountId);
+        return acc ? acc.name : "";
+      },
+      cellStyle: { fontSize: "12px", color: "#334155", fontWeight: "500" },
     },
     {
       field: "date",
@@ -288,7 +384,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     },
     {
       field: "narration",
-      headerName: "Narration",
+      headerName: "Particulars/Narrations",
       flex: 1,
       minWidth: 240,
       filter: "agTextColumnFilter",
@@ -297,7 +393,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     },
     {
       field: "withdrawal",
-      headerName: "Withdrawal (Dr)",
+      headerName: "Withdrawals/Payment",
       width: 145,
       type: "numericColumn",
       cellRenderer: (p: ICellRendererParams<ImportRow>) =>
@@ -307,7 +403,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     },
     {
       field: "deposit",
-      headerName: "Deposit (Cr)",
+      headerName: "Deposit/Receipt",
       width: 145,
       type: "numericColumn",
       cellRenderer: (p: ICellRendererParams<ImportRow>) =>
@@ -316,16 +412,38 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
           : <span className="text-slate-300 text-xs">—</span>,
     },
     {
+      field: "balance",
+      headerName: "Balance",
+      width: 145,
+      type: "numericColumn",
+      cellRenderer: (p: ICellRendererParams<ImportRow>) => {
+        const bal = p.data?.balance ?? 0;
+        const formatted = "₹" + Math.abs(bal).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return (
+          <span className={`font-semibold text-xs ${bal < 0 ? "text-red-700" : "text-slate-900"}`}>
+            {formatted}
+            {bal < 0 && <span className="text-[9px] font-normal ml-0.5 text-red-400">(Cr)</span>}
+          </span>
+        );
+      },
+    },
+    {
       field: "aiAccountName",
-      headerName: "AI Account Name",
+      headerName: "Account name",
       width: 210,
-      editable: true,
+      editable: (p) => {
+        const narration = p.data?.narration ?? "";
+        return !isOpeningBalRow(narration);
+      },
       filter: "agTextColumnFilter",
       floatingFilter: true,
       cellRenderer: (p: ICellRendererParams<ImportRow>) => {
         if (!p.data) return null;
         if (p.data.aiStatus === "loading")
           return <span className="flex items-center gap-1.5 text-indigo-400 text-xs"><RefreshCw size={11} className="animate-spin" /> AI thinking…</span>;
+        if (isOpeningBalRow(p.data.narration)) {
+          return <span className="text-slate-400 text-xs italic">— (Opening Balance) —</span>;
+        }
         if (!p.value)
           return <span className="text-slate-300 text-xs italic">Double-click to enter</span>;
         return (
@@ -338,9 +456,12 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     },
     {
       field: "aiAccountGroup",
-      headerName: "AI Group",
+      headerName: "Account group name",
       width: 165,
-      editable: true,
+      editable: (p) => {
+        const narration = p.data?.narration ?? "";
+        return !isOpeningBalRow(narration);
+      },
       cellEditor: GroupCellEditor,
       filter: "agTextColumnFilter",
       floatingFilter: true,
@@ -348,6 +469,9 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
         if (!p.data) return null;
         if (p.data.aiStatus === "loading")
           return <span className="text-slate-300 text-xs">…</span>;
+        if (isOpeningBalRow(p.data.narration)) {
+          return <span className="text-slate-400 text-xs italic">—</span>;
+        }
         if (!p.value)
           return <span className="text-slate-300 text-xs italic">Select group</span>;
         const cls = GROUP_COLORS[p.value] ?? "bg-slate-100 text-slate-600";
@@ -378,7 +502,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
           </div>
         ) : null,
     },
-  ], [deleteRow]);
+  ], [deleteRow, selectedAccountId, detectedBankName, accounts]);
 
   return (
     <div className="p-4 lg:p-6 space-y-5">
@@ -398,26 +522,97 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
 
           {/* Bank/Cash Account Selector */}
           <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm space-y-2">
-            <label className="block text-sm font-medium text-slate-700 flex items-center gap-1.5">
-              <span>Select Destination Bank/Cash Account</span>
-              <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={selectedAccountId}
-              onChange={(e) => setSelectedAccountId(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 text-sm font-medium text-slate-800"
-            >
-              <option value="auto-create">
-                {detectedBankName 
-                  ? `✨ [New Bank] ${detectedBankName} (Auto-create)` 
-                  : "✨ Auto-detect & Create from Statement"}
-              </option>
-              {accounts.map((acc) => (
-                <option key={acc._id} value={acc._id}>
-                  {acc.name} ({acc.group})
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                <span>Select Destination Bank/Cash Account</span>
+                <span className="text-red-500">*</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowCreateForm(!showCreateForm)}
+                className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1"
+              >
+                {showCreateForm ? "Cancel" : "+ Create New Account"}
+              </button>
+            </div>
+
+            {showCreateForm && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-3 mt-1.5 transition-all">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase">Account Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Bank of Baroda"
+                      value={newAccName}
+                      onChange={(e) => setNewAccName(e.target.value)}
+                      className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase">Group</label>
+                    <select
+                      value={newAccGroup}
+                      onChange={(e) => setNewAccGroup(e.target.value as any)}
+                      className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800"
+                    >
+                      <option value="Bank">Bank</option>
+                      <option value="Cash">Cash</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 uppercase">Opening Balance</label>
+                  <input
+                    type="number"
+                    placeholder="0.00"
+                    value={newAccBal}
+                    onChange={(e) => setNewAccBal(e.target.value)}
+                    className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateForm(false);
+                      setNewAccName("");
+                      setNewAccBal("");
+                    }}
+                    className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs hover:bg-slate-100"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateAccount}
+                    disabled={creatingAcc}
+                    className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 font-medium"
+                  >
+                    {creatingAcc ? "Creating..." : "Create Account"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!showCreateForm && (
+              <select
+                value={selectedAccountId}
+                onChange={(e) => setSelectedAccountId(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 text-sm font-medium text-slate-800"
+              >
+                <option value="auto-create">
+                  {detectedBankName 
+                    ? `✨ [New Bank] ${detectedBankName} (Auto-create)` 
+                    : "✨ Auto-detect & Create from Statement"}
                 </option>
-              ))}
-            </select>
+                {accounts.map((acc) => (
+                  <option key={acc._id} value={acc._id}>
+                    {acc.name} ({acc.group})
+                  </option>
+                ))}
+              </select>
+            )}
             <p className="text-xs text-slate-400">
               All imported transactions will be saved under this account in the Bank/Cash Book.
             </p>
@@ -634,7 +829,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
               <AgGridReact<ImportRow>
                 theme="legacy"
                 ref={gridRef}
-                rowData={rows}
+                rowData={rowsWithBalance}
                 columnDefs={columnDefs}
                 defaultColDef={{ resizable: true, sortable: true }}
                 rowHeight={48}

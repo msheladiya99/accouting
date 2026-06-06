@@ -13,6 +13,7 @@ export interface ImportRow extends RawTransaction {
   aiAccountName: string;
   aiAccountGroup: string;
   aiStatus: "idle" | "loading" | "done" | "error";
+  balance?: number;
 }
 
 export interface AIMatch {
@@ -34,8 +35,13 @@ export async function getImportedTransactions(): Promise<ImportedTransaction[]> 
   return res.data;
 }
 
-export async function saveImportedTransactions(rows: ImportRow[], accountId: string, bankName?: string): Promise<void> {
-  await axiosClient.post("/bank-import/transactions", { rows, accountId, bankName });
+export async function saveImportedTransactions(
+  rows: ImportRow[],
+  accountId: string,
+  bankName?: string,
+  statementOpeningBalance?: number
+): Promise<void> {
+  await axiosClient.post("/bank-import/transactions", { rows, accountId, bankName, statementOpeningBalance });
 }
 
 // ── Excel parser ───────────────────────────────────────────────────────────────

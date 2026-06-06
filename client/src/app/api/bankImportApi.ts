@@ -34,8 +34,8 @@ export async function getImportedTransactions(): Promise<ImportedTransaction[]> 
   return res.data;
 }
 
-export async function saveImportedTransactions(rows: ImportRow[]): Promise<void> {
-  await axiosClient.post("/bank-import/transactions", { rows });
+export async function saveImportedTransactions(rows: ImportRow[], accountId: string, bankName?: string): Promise<void> {
+  await axiosClient.post("/bank-import/transactions", { rows, accountId, bankName });
 }
 
 // ── Excel parser ───────────────────────────────────────────────────────────────
@@ -141,8 +141,10 @@ export async function parseExcel(file: File): Promise<RawTransaction[]> {
 // ── PDF parser (pdfjs-dist) ───────────────────────────────────────────────────
 async function extractPDFText(file: File): Promise<string> {
   const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.mjs",
+    import.meta.url
+  ).toString();
 
   const buf  = await file.arrayBuffer();
   const pdf  = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -151,34 +153,68 @@ async function extractPDFText(file: File): Promise<string> {
   for (let p = 1; p <= pdf.numPages; p++) {
     const page    = await pdf.getPage(p);
     const content = await page.getTextContent();
-    const lineMap = new Map<number, { x: number; text: string }[]>();
+    
+    // Group text items on the same visual line (within 4 units of y-coordinate)
+    const linesArray: { y: number; cells: { x: number; text: string }[] }[] = [];
 
     for (const item of content.items as any[]) {
       if (!item.str?.trim()) continue;
-      const y = Math.round(item.transform[5]);
-      if (!lineMap.has(y)) lineMap.set(y, []);
-      lineMap.get(y)!.push({ x: item.transform[4], text: item.str });
+      const x = item.transform[4];
+      const y = item.transform[5];
+
+      let matchedLine = linesArray.find((l) => Math.abs(l.y - y) <= 4);
+      if (matchedLine) {
+        matchedLine.cells.push({ x, text: item.str });
+      } else {
+        linesArray.push({ y, cells: [{ x, text: item.str }] });
+      }
     }
 
-    const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
-    for (const y of sortedYs) {
-      const cells = lineMap.get(y)!.sort((a, b) => a.x - b.x);
-      fullText += cells.map((c) => c.text).join("  ") + "\n";
+    // Sort lines from top of page to bottom
+    linesArray.sort((a, b) => b.y - a.y);
+
+    for (const lineObj of linesArray) {
+      // Sort cells from left to right
+      const sortedCells = lineObj.cells.sort((a, b) => a.x - b.x);
+      fullText += sortedCells.map((c) => c.text).join("  ") + "\n";
     }
   }
 
   return fullText;
 }
 
-const DATE_RE = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2})/;
+const DATE_4_RE = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/;
+const DATE_2_RE = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2})/;
 const AMT_RE  = /[\d,]+\.\d{2}/g;
+
+function isDepositNarration(narration: string): boolean {
+  const text = narration.toLowerCase();
+  if (/\bby\b|inward|receipt|rcvd|received|credit|cr\b|deposit|salary|refund|interest|dividend|cash-in/i.test(text)) {
+    if (/\bto\b|payment|withdrawal|debit|dr\b|charge|fee|commission|purchase|payment|wdwl/i.test(text)) {
+      if (/reversal|refund/i.test(text)) return true;
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+interface TempTxn {
+  date: string;
+  narration: string;
+  amounts: number[];
+  line: string;
+}
 
 function parsePDFText(text: string): RawTransaction[] {
   const lines  = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  const txns: RawTransaction[] = [];
+  const tempTxns: TempTxn[] = [];
 
   for (const line of lines) {
-    const dateMatch = line.match(DATE_RE);
+    let dateMatch = line.match(DATE_4_RE);
+    if (!dateMatch) {
+      dateMatch = line.match(DATE_2_RE);
+    }
     if (!dateMatch) continue;
 
     const date = parseDate(dateMatch[1]);
@@ -187,26 +223,106 @@ function parsePDFText(text: string): RawTransaction[] {
     const amounts = [...line.matchAll(AMT_RE)].map((m) =>
       parseFloat(m[0].replace(/,/g, ""))
     );
-    if (amounts.length < 2) continue;
+    if (amounts.length === 0) continue;
 
     const afterDate  = line.slice(line.indexOf(dateMatch[1]) + dateMatch[1].length);
     const narrMatch  = afterDate.match(/^[\s\-\/]*([\w\s\/\-\.#@&(),]+?)\s+[\d,]+\.\d{2}/);
     const narration  = (narrMatch?.[1] ?? afterDate.replace(AMT_RE, "").replace(/\s+/g, " ")).trim();
 
-    if (!narration || narration.length < 3) continue;
+    if (!narration || narration.length < 2) continue;
 
+    tempTxns.push({ date, narration, amounts, line });
+  }
+
+  const txns: RawTransaction[] = [];
+  for (let i = 0; i < tempTxns.length; i++) {
+    const { date, narration, amounts, line } = tempTxns[i];
     let withdrawal = 0, deposit = 0;
 
     if (amounts.length >= 3) {
-      const [a, b] = amounts;
-      const drFirst = /dr|debit|withdrawal/i.test(line.slice(0, line.search(AMT_RE) + 10));
-      if (drFirst) { withdrawal = a; deposit = b; }
-      else          { deposit = a; withdrawal = b; }
-      if (withdrawal === deposit) { deposit = a; withdrawal = 0; }
+      const [a, b, bal] = amounts;
+      let solved = false;
+
+      // 1. Try reverse chronological order (current is newer, next is older)
+      if (i < tempTxns.length - 1 && tempTxns[i + 1].amounts.length >= 2) {
+        const nextBal = tempTxns[i + 1].amounts[tempTxns[i + 1].amounts.length - 1];
+        const diff = bal - nextBal;
+        if (Math.abs(diff - a) < 0.05) {
+          deposit = a; withdrawal = b; solved = true;
+        } else if (Math.abs(diff - b) < 0.05) {
+          deposit = b; withdrawal = a; solved = true;
+        } else if (Math.abs(diff + a) < 0.05) {
+          withdrawal = a; deposit = b; solved = true;
+        } else if (Math.abs(diff + b) < 0.05) {
+          withdrawal = b; deposit = a; solved = true;
+        }
+      }
+
+      // 2. Try chronological order (current is older, next is newer)
+      if (!solved && i > 0 && tempTxns[i - 1].amounts.length >= 2) {
+        const prevBal = tempTxns[i - 1].amounts[tempTxns[i - 1].amounts.length - 1];
+        const diff = bal - prevBal;
+        if (Math.abs(diff - a) < 0.05) {
+          deposit = a; withdrawal = b; solved = true;
+        } else if (Math.abs(diff - b) < 0.05) {
+          deposit = b; withdrawal = a; solved = true;
+        } else if (Math.abs(diff + a) < 0.05) {
+          withdrawal = a; deposit = b; solved = true;
+        } else if (Math.abs(diff + b) < 0.05) {
+          withdrawal = b; deposit = a; solved = true;
+        }
+      }
+
+      // 3. Fallback to keyword / text coordinate match
+      if (!solved) {
+        const drFirst = /dr|debit|withdrawal/i.test(line.slice(0, line.search(AMT_RE) + 10));
+        if (drFirst) { withdrawal = a; deposit = b; }
+        else          { deposit = a; withdrawal = b; }
+        if (withdrawal === deposit) { deposit = a; withdrawal = 0; }
+      }
     } else if (amounts.length === 2) {
-      const isCr = /cr|credit|deposit/i.test(line);
-      if (isCr) deposit = amounts[0];
-      else      withdrawal = amounts[0];
+      const [amt, bal] = amounts;
+      let solved = false;
+
+      // 1. Try reverse chronological order
+      if (i < tempTxns.length - 1 && tempTxns[i + 1].amounts.length >= 2) {
+        const nextBal = tempTxns[i + 1].amounts[tempTxns[i + 1].amounts.length - 1];
+        const diff = bal - nextBal;
+        if (Math.abs(diff - amt) < 0.05) {
+          deposit = amt; withdrawal = 0; solved = true;
+        } else if (Math.abs(diff + amt) < 0.05) {
+          withdrawal = amt; deposit = 0; solved = true;
+        }
+      }
+
+      // 2. Try chronological order
+      if (!solved && i > 0 && tempTxns[i - 1].amounts.length >= 2) {
+        const prevBal = tempTxns[i - 1].amounts[tempTxns[i - 1].amounts.length - 1];
+        const diff = bal - prevBal;
+        if (Math.abs(diff - amt) < 0.05) {
+          deposit = amt; withdrawal = 0; solved = true;
+        } else if (Math.abs(diff + amt) < 0.05) {
+          withdrawal = amt; deposit = 0; solved = true;
+        }
+      }
+
+      // 3. Fallback to keywords
+      if (!solved) {
+        const isDep = isDepositNarration(narration) || /cr|credit|deposit/i.test(line);
+        if (isDep) {
+          deposit = amt; withdrawal = 0;
+        } else {
+          withdrawal = amt; deposit = 0;
+        }
+      }
+    } else if (amounts.length === 1) {
+      const amt = amounts[0];
+      const isDep = isDepositNarration(narration) || /cr|credit|deposit/i.test(line);
+      if (isDep) {
+        deposit = amt; withdrawal = 0;
+      } else {
+        withdrawal = amt; deposit = 0;
+      }
     }
 
     if (withdrawal === 0 && deposit === 0) continue;
@@ -222,66 +338,54 @@ export async function parsePDF(file: File): Promise<RawTransaction[]> {
   return parsePDFText(text);
 }
 
-// ── Claude AI enrichment ──────────────────────────────────────────────────────
-export async function enrichWithClaude(
-  narrations: string[],
-  apiKey: string,
-): Promise<AIMatch[]> {
-  const prompt = `You are an Indian Accountant.
-
-Based on these bank transaction narrations, suggest the accounting ledger account name and group for each.
-
-Available Groups (use exactly one of these): Assets, Liabilities, Capital, Income, Expense, Bank, Cash, Purchases, Sales, Sundry Debtors, Sundry Creditors
-
-Rules:
-- UPI/NEFT/RTGS payments to vendors → Sundry Creditors
-- UPI/NEFT receipts from customers → Sundry Debtors
-- Salary, rent, marketing, utilities → Expense (with descriptive name)
-- Sales, online orders → Sales
-- GST, TDS, tax → Liabilities
-- Bank charges, interest paid → Expense
-- Interest received, FD proceeds → Income
-- Loan disbursement/repayment → Liabilities
-- Purchase of goods/materials → Purchases
-- Asset purchase (equipment, laptop) → Assets
-
-Return ONLY a valid JSON array with exactly ${narrations.length} objects, one per narration in the same order:
-[{"accountName":"...","accountGroup":"..."}, ...]
-
-Narrations:
-${narrations.map((n, i) => `${i + 1}. ${n}`).join("\n")}`;
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type":                          "application/json",
-      "x-api-key":                             apiKey,
-      "anthropic-version":                     "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model:      "claude-haiku-4-5-20251001",
-      max_tokens: 4096,
-      messages:   [{ role: "user", content: prompt }],
-    }),
+// Helper to convert File to base64
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(",")[1];
+      resolve(base64);
+    };
+    reader.onerror = (error) => reject(error);
+    reader.readAsDataURL(file);
   });
+}
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as any)?.error?.message ?? `API error ${res.status}`);
+export interface ParseResult {
+  bankName: string;
+  transactions: RawTransaction[];
+}
+
+// ── AI Statement parsing via OpenRouter (Proxy through Backend) ─────────────────
+export async function parseStatementWithAI(file: File): Promise<ParseResult> {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  
+  let payload: any = { fileName: file.name };
+
+  if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
+    const base64Data = await fileToBase64(file);
+    payload.fileBase64 = base64Data;
+  } else if (ext === "pdf") {
+    const rawText = await extractPDFText(file);
+    if (rawText.trim() && rawText.length >= 50) {
+      payload.rawText = rawText;
+    } else {
+      const base64Data = await fileToBase64(file);
+      payload.fileBase64 = base64Data;
+    }
+  } else {
+    throw new Error("Unsupported file type for AI parsing");
   }
 
-  const data = await res.json();
-  const text = (data.content[0] as any).text as string;
+  const res = await axiosClient.post<ParseResult>("/bank-import/parse", payload);
+  return res.data;
+}
 
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error("Could not parse AI response as JSON");
-
-  const parsed: AIMatch[] = JSON.parse(jsonMatch[0]);
-  if (!Array.isArray(parsed) || parsed.length !== narrations.length) {
-    throw new Error("AI returned unexpected number of results");
-  }
-  return parsed;
+// ── OpenRouter AI enrichment (Proxy through Backend) ───────────────────────────
+export async function enrichWithOpenRouter(narrations: string[]): Promise<AIMatch[]> {
+  const res = await axiosClient.post<AIMatch[]>("/bank-import/enrich", { narrations });
+  return res.data;
 }
 
 // ── Sample demo data ──────────────────────────────────────────────────────────

@@ -84,3 +84,5 @@ apiRouter.delete("/journal-voucher/:id", journalController.deleteJournalEntry);
 // Bank statement imports routes
 apiRouter.get("/bank-import/transactions", importController.getImportedTransactions);
 apiRouter.post("/bank-import/transactions", importController.saveImportedTransactions);
+apiRouter.post("/bank-import/parse", importController.parseStatementWithAI as any);
+apiRouter.post("/bank-import/enrich", importController.enrichWithOpenRouter as any);

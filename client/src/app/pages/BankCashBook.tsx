@@ -335,15 +335,15 @@ function ExcelTable({
           </tr>
           {/* Header row */}
           <tr>
-            <th className={`${COL_HEADER} text-center w-10`}>#</th>
+            <th className={`${COL_HEADER} text-center w-10`}>Sr. No.</th>
+            <th className={`${COL_HEADER}`}>Bank/cash name</th>
             <th className={`${COL_HEADER}`}>Date</th>
-            <th className={`${COL_HEADER}`}>Account</th>
-            <th className={`${COL_HEADER} min-w-[220px]`}>Particulars / Narration</th>
-            <th className={`${COL_HEADER} text-right`}>Withdrawal (Dr)</th>
-            <th className={`${COL_HEADER} text-right`}>Deposit (Cr)</th>
+            <th className={`${COL_HEADER} min-w-[220px]`}>Particulars/Narrations</th>
+            <th className={`${COL_HEADER} text-right`}>Withdrawals/Payment</th>
+            <th className={`${COL_HEADER} text-right`}>Deposit/Receipt</th>
             <th className={`${COL_HEADER} text-right`}>Balance</th>
-            <th className={`${COL_HEADER}`}>Contra Account</th>
-            <th className={`${COL_HEADER}`}>Group</th>
+            <th className={`${COL_HEADER}`}>Account name</th>
+            <th className={`${COL_HEADER}`}>Account group name</th>
             <th className={`${COL_HEADER} text-center w-16`}>
               {saving ? <Loader2 size={11} className="animate-spin inline" /> : "✓"}
             </th>
@@ -375,6 +375,11 @@ function ExcelTable({
                 {/* Row number */}
                 <td className={COL_NUM}>{idx + 1}</td>
 
+                {/* Bank/cash name — read-only */}
+                <td className={`${COL_CELL} font-medium text-slate-800`}>
+                  {row.accountName}
+                </td>
+
                 {/* Date — editable */}
                 <EditableCell row={row} field="date" value={row.date} inputType="date" mono>
                   <span className="font-mono text-slate-600 cursor-cell block">
@@ -382,26 +387,12 @@ function ExcelTable({
                   </span>
                 </EditableCell>
 
-                {/* Account — read-only badge */}
-                <td className={`${COL_CELL}`}>
-                  {(() => {
-                    const m = GROUP_COLORS[row.accountGroup];
-                    const Icon = m.icon;
-                    return (
-                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium ${m.badge}`}>
-                        <Icon size={10} />
-                        {row.accountName.split(" ")[0]}
-                      </span>
-                    );
-                  })()}
-                </td>
-
-                {/* Particulars — editable */}
+                {/* Particulars/Narrations — editable */}
                 <EditableCell row={row} field="particulars" value={row.particulars} className="max-w-[260px]">
                   <span className="block truncate text-slate-800 cursor-cell">{row.particulars}</span>
                 </EditableCell>
 
-                {/* Withdrawal — editable */}
+                {/* Withdrawals/Payment — editable */}
                 <EditableCell row={row} field="withdrawal" value={row.withdrawal} inputType="number" align="right"
                   className={isWithdrawal ? "bg-red-50" : ""}>
                   {isWithdrawal ? (
@@ -411,7 +402,7 @@ function ExcelTable({
                   )}
                 </EditableCell>
 
-                {/* Deposit — editable */}
+                {/* Deposit/Receipt — editable */}
                 <EditableCell row={row} field="deposit" value={row.deposit} inputType="number" align="right"
                   className={isDeposit ? "bg-emerald-50" : ""}>
                   {isDeposit ? (
@@ -427,12 +418,12 @@ function ExcelTable({
                   {row.balance < 0 && <span className="text-[10px] font-normal ml-1 text-red-400">(Cr)</span>}
                 </td>
 
-                {/* Contra Account — editable */}
+                {/* Account name — editable */}
                 <EditableCell row={row} field="contraAccountName" value={row.contraAccountName} className="text-slate-600">
                   <span className="block truncate max-w-[160px] cursor-cell">{row.contraAccountName}</span>
                 </EditableCell>
 
-                {/* Group — editable select */}
+                {/* Account group name — editable select */}
                 <EditableCell row={row} field="contraAccountGroup" value={row.contraAccountGroup} inputType="select">
                   <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium cursor-cell">
                     {row.contraAccountGroup}

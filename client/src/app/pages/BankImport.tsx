@@ -9,15 +9,16 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 import {
   Upload, FileText, CheckCircle2, ChevronRight, FileSpreadsheet,
   Sparkles, AlertTriangle, RefreshCw, Trash2, Eye, Save,
-  Key, X, Bot, TrendingUp, TrendingDown, Info,
+  Key, X, Bot, TrendingUp, TrendingDown, Info, Image,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
-  parseExcel, parsePDF, enrichWithClaude, saveImportedTransactions,
+  parseExcel, parsePDF, parseStatementWithAI, enrichWithOpenRouter, saveImportedTransactions,
   SAMPLE_TRANSACTIONS,
   type ImportRow, type RawTransaction,
 } from "../api/bankImportApi";
 import { LEDGER_GROUPS } from "../api/ledgerApi";
+import { getAllAccounts, type BankCashAccount } from "../api/bankCashBookApi";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -80,45 +81,7 @@ function StepBar({ step }: { step: number }) {
   );
 }
 
-// ── API Key input ─────────────────────────────────────────────────────────────
-function ApiKeyInput({ apiKey, onChange }: { apiKey: string; onChange: (k: string) => void }) {
-  const [show, setShow] = useState(false);
-  return (
-    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-      <Key size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-amber-800">Anthropic API Key for AI suggestions</p>
-        <p className="text-xs text-amber-600 mt-0.5 mb-2">
-          Used only in-browser, never stored. Get one at{" "}
-          <a href="https://console.anthropic.com" target="_blank" rel="noreferrer" className="underline">console.anthropic.com</a>
-        </p>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <input
-              type={show ? "text" : "password"}
-              value={apiKey}
-              onChange={(e) => onChange(e.target.value)}
-              placeholder="sk-ant-api03-..."
-              className="w-full px-3 py-2 text-sm bg-white border border-amber-300 rounded-lg outline-none focus:ring-2 focus:ring-amber-300 font-mono"
-            />
-            <button
-              type="button"
-              onClick={() => setShow(!show)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-amber-500 hover:text-amber-700 text-xs"
-            >
-              {show ? "Hide" : "Show"}
-            </button>
-          </div>
-          {apiKey && (
-            <button onClick={() => onChange("")} className="p-2 text-amber-500 hover:text-amber-700">
-              <X size={14} />
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function BankImport({ onClose, onImportComplete }: { onClose?: () => void; onImportComplete?: () => void } = {}) {
@@ -126,18 +89,28 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
   const [dragging, setDragging] = useState(false);
   const [file, setFile]         = useState<File | null>(null);
   const [rows, setRows]         = useState<ImportRow[]>([]);
-  const [apiKey, setApiKey]     = useState(() => (import.meta as any).env?.VITE_ANTHROPIC_API_KEY ?? "");
   const [parsing, setParsing]   = useState(false);
   const [aiLoading, setAiLoading]   = useState(false);
   const [aiProgress, setAiProgress] = useState(0);
   const [parseError, setParseError] = useState<string | null>(null);
   const gridRef = useRef<AgGridReact<ImportRow>>(null);
+  const [accounts, setAccounts]         = useState<BankCashAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>("auto-create");
+  const [detectedBankName, setDetectedBankName] = useState<string>("");
+
+  useEffect(() => {
+    getAllAccounts()
+      .then((accs) => {
+        setAccounts(accs);
+      })
+      .catch(() => toast.error("Failed to load Bank/Cash accounts"));
+  }, []);
 
   // ── Accept file ──────────────────────────────────────────────────────────
   const acceptFile = useCallback((f: File) => {
     const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!["xlsx", "xls", "pdf"].includes(ext)) {
-      toast.error("Only Excel (.xlsx/.xls) or PDF files are supported");
+    if (!["xlsx", "xls", "pdf", "png", "jpg", "jpeg", "webp"].includes(ext)) {
+      toast.error("Only Excel (.xlsx/.xls), PDF, or image files (PNG, JPG, JPEG, WebP) are supported");
       return;
     }
     setFile(f);
@@ -158,12 +131,6 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
 
   // ── Run AI ────────────────────────────────────────────────────────────────
   const runAI = useCallback(async (inputRows: ImportRow[]) => {
-    if (!apiKey.trim()) {
-      setRows(inputRows.map((r) => ({ ...r, aiStatus: "idle" as const })));
-      setStep(2);
-      toast("No API key — fill in Account Name and Group manually.", { icon: "ℹ️" });
-      return;
-    }
     setAiLoading(true);
     setAiProgress(0);
     setRows(inputRows.map((r) => ({ ...r, aiStatus: "loading" as const })));
@@ -174,7 +141,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
 
     try {
       const narrations = inputRows.map((r) => r.narration);
-      const matches    = await enrichWithClaude(narrations, apiKey);
+      const matches    = await enrichWithOpenRouter(narrations);
       clearInterval(progressInterval);
       setAiProgress(100);
       const enriched: ImportRow[] = inputRows.map((r, i) => ({
@@ -194,7 +161,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     } finally {
       setAiLoading(false);
     }
-  }, [apiKey]);
+  }, []);
 
   // ── Parse file ────────────────────────────────────────────────────────────
   const parseFile = useCallback(async (f: File) => {
@@ -202,11 +169,45 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     setParseError(null);
     try {
       const ext  = f.name.split(".").pop()?.toLowerCase() ?? "";
-      const txns = ext === "pdf" ? await parsePDF(f) : await parseExcel(f);
+      let txns: RawTransaction[] = [];
+      let parsedBankName = "";
+
+      if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
+        const res = await parseStatementWithAI(f);
+        txns = res.transactions;
+        parsedBankName = res.bankName;
+      } else if (ext === "pdf") {
+        try {
+          const res = await parseStatementWithAI(f);
+          txns = res.transactions;
+          parsedBankName = res.bankName;
+        } catch (err: any) {
+          console.warn("AI parsing failed, falling back to local parsing", err);
+          txns = await parsePDF(f);
+        }
+      } else {
+        txns = await parseExcel(f);
+      }
+
       if (txns.length === 0) {
-        setParseError("No transactions found. Check that headers include: date, narration, and debit/credit columns.");
+        setParseError("No transactions found. Check that the statement is clear and has valid headers.");
         return;
       }
+
+      if (parsedBankName) {
+        setDetectedBankName(parsedBankName);
+        const matched = accounts.find(
+          (acc) => acc.name.trim().toLowerCase() === parsedBankName.trim().toLowerCase()
+        );
+        if (matched) {
+          setSelectedAccountId(matched._id);
+          toast.success(`Detected ${parsedBankName} - Auto-selected matched account`);
+        } else {
+          setSelectedAccountId("auto-create");
+          toast.success(`Detected ${parsedBankName} - Set to Auto-create account`);
+        }
+      }
+
       const prepared = toImportRows(txns);
       setRows(prepared);
       setStep(1);
@@ -216,7 +217,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     } finally {
       setParsing(false);
     }
-  }, [runAI]);
+  }, [runAI, accounts]);
 
   // ── Load sample ───────────────────────────────────────────────────────────
   const loadSample = useCallback(async () => {
@@ -229,19 +230,23 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
+    if (!selectedAccountId) {
+      toast.error("Please select a target Bank/Cash account first");
+      return;
+    }
     const incomplete = rows.filter((r) => !r.aiAccountName.trim() || !r.aiAccountGroup.trim());
     if (incomplete.length > 0) {
       toast.error(`${incomplete.length} rows still need Account Name and Group`);
       return;
     }
     try {
-      await saveImportedTransactions(rows);
+      await saveImportedTransactions(rows, selectedAccountId, detectedBankName);
       setStep(3);
       toast.success(`${rows.length} transactions saved`);
     } catch (err: any) {
       toast.error(err?.message || "Failed to save transactions");
     }
-  }, [rows]);
+  }, [rows, selectedAccountId, detectedBankName]);
 
   // ── Delete row ────────────────────────────────────────────────────────────
   const deleteRow = useCallback((id: string) => {
@@ -381,7 +386,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       <div>
         <h1 className="text-slate-900">AI Bank Statement Import</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Upload Excel or PDF · Claude AI suggests account mapping automatically
+          Upload Excel, PDF, or Images · OpenRouter AI suggests account mapping automatically
         </p>
       </div>
 
@@ -390,7 +395,33 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       {/* ── Step 0: Upload ─────────────────────────────────────────────────── */}
       {step === 0 && (
         <div className="space-y-4 max-w-2xl">
-          <ApiKeyInput apiKey={apiKey} onChange={setApiKey} />
+
+          {/* Bank/Cash Account Selector */}
+          <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm space-y-2">
+            <label className="block text-sm font-medium text-slate-700 flex items-center gap-1.5">
+              <span>Select Destination Bank/Cash Account</span>
+              <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={selectedAccountId}
+              onChange={(e) => setSelectedAccountId(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 text-sm font-medium text-slate-800"
+            >
+              <option value="auto-create">
+                {detectedBankName 
+                  ? `✨ [New Bank] ${detectedBankName} (Auto-create)` 
+                  : "✨ Auto-detect & Create from Statement"}
+              </option>
+              {accounts.map((acc) => (
+                <option key={acc._id} value={acc._id}>
+                  {acc.name} ({acc.group})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-400">
+              All imported transactions will be saved under this account in the Bank/Cash Book.
+            </p>
+          </div>
 
           {/* Drop zone */}
           <div
@@ -407,8 +438,10 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
             <h3 className="text-slate-800">Drop your bank statement here</h3>
             <p className="text-sm text-slate-500 mt-1 mb-5">
               <span className="font-medium text-emerald-700">Excel (.xlsx / .xls)</span>
-              {" or "}
+              {", "}
               <span className="font-medium text-red-600">PDF</span>
+              {", or "}
+              <span className="font-medium text-indigo-600">Image (PNG, JPG, WebP)</span>
               {" · Max 20 MB"}
             </p>
             <div className="flex items-center justify-center gap-3 flex-wrap">
@@ -419,6 +452,10 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
               <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors cursor-pointer">
                 <FileText size={15} /> Choose PDF
                 <input type="file" accept=".pdf" className="hidden" onChange={handleFileInput} />
+              </label>
+              <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
+                <Image size={15} /> Choose Image
+                <input type="file" accept="image/*" className="hidden" onChange={handleFileInput} />
               </label>
             </div>
           </div>
@@ -492,7 +529,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
               <Bot size={36} className={`text-indigo-500 ${aiLoading ? "animate-pulse" : ""}`} />
             </div>
             <h2 className="text-slate-900">
-              {aiLoading ? "Claude is analysing narrations…" : "Preparing preview…"}
+              {aiLoading ? "AI is analysing narrations…" : "Preparing preview…"}
             </h2>
             <p className="text-sm text-slate-500 mt-2">
               Sending {rows.length} transaction narrations with the prompt:
@@ -556,16 +593,27 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
           </div>
 
           {/* AI banner */}
-          {stats.aiDone > 0 && (
-            <div className="flex items-start gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
-              <Bot size={16} className="text-indigo-600 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-indigo-800">
-                <span className="font-semibold">Claude AI</span> suggested accounts for{" "}
-                <span className="font-semibold">{stats.aiDone} transactions</span>.{" "}
-                Double-click the <em>AI Account Name</em> or <em>AI Group</em> cell to edit any suggestion before saving.
-              </p>
-            </div>
-          )}
+          <div className="flex flex-col gap-2">
+            {stats.aiDone > 0 && (
+              <div className="flex items-start gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
+                <Bot size={16} className="text-indigo-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-indigo-800">
+                  <span className="font-semibold">OpenRouter AI</span> suggested accounts for{" "}
+                  <span className="font-semibold">{stats.aiDone} transactions</span>.{" "}
+                  Double-click the <em>AI Account Name</em> or <em>AI Group</em> cell to edit any suggestion before saving.
+                </p>
+              </div>
+            )}
+            {detectedBankName && (
+              <div className="flex items-center gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-800 shadow-sm">
+                <Bot size={16} className="text-emerald-600 flex-shrink-0 animate-bounce" />
+                <span>
+                  Detected Bank Account: <strong className="font-semibold">{detectedBankName}</strong>. 
+                  {selectedAccountId === "auto-create" ? " This account will be automatically created on save." : " Matches an existing Bank/Cash account."}
+                </span>
+              </div>
+            )}
+          </div>
 
           {/* Incomplete warning */}
           {stats.filled < stats.total && (
@@ -611,8 +659,8 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
             <div className="flex gap-2">
               <button
                 onClick={() => runAI(rows)}
-                disabled={aiLoading || !apiKey.trim()}
-                title={!apiKey.trim() ? "Enter API key first" : "Re-run AI"}
+                disabled={aiLoading}
+                title="Re-run AI"
                 className="flex items-center gap-2 px-4 py-2 border border-indigo-200 bg-indigo-50 text-indigo-700 rounded-lg text-sm hover:bg-indigo-100 transition-colors disabled:opacity-40"
               >
                 <Sparkles size={14} /> Re-run AI

@@ -12,7 +12,7 @@ import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import {
   getAllAccounts, getEntriesForAccount, getAllEntries,
-  createEntry, updateEntry, deleteEntry, clearEntriesForAccount, deleteAccount,
+  createEntry, updateEntry, deleteEntry, clearEntriesForAccount, deleteAccount, updateAccount,
   CONTRA_GROUPS,
   type BankCashAccount, type BankCashRow, type EntryPayload, type AccountGroup,
 } from "../api/bankCashBookApi";
@@ -229,7 +229,7 @@ type EditCell = { id: string; field: string; value: string };
 // ── Excel-style Table ─────────────────────────────────────────────────────────
 function ExcelTable({
   rows, openingBalance, onDelete, onCellSave, contraGroups,
-  colFilters, onFilterChange,
+  colFilters, onFilterChange, onOpeningBalanceChange,
 }: {
   rows: BankCashRow[];
   openingBalance: number;
@@ -248,10 +248,21 @@ function ExcelTable({
     contraAccountGroup: string;
   };
   onFilterChange: (filters: any) => void;
+  onOpeningBalanceChange?: (newBalance: number) => void;
 }) {
-  const [editCell, setEditCell]   = useState<EditCell | null>(null);
-  const [saving,   setSaving]     = useState(false);
+  const [editCell, setEditCell]         = useState<EditCell | null>(null);
+  const [saving,   setSaving]           = useState(false);
+  const [editingOB, setEditingOB]       = useState(false);
+  const [obInput,   setObInput]         = useState("");
   const commitRef = useRef<(() => void) | null>(null);
+
+  function handleObSave() {
+    setEditingOB(false);
+    const newVal = parseFloat(obInput);
+    if (!isNaN(newVal) && newVal !== openingBalance && onOpeningBalanceChange) {
+      onOpeningBalanceChange(newVal);
+    }
+  }
 
   const totalWithdrawal = rows.reduce((s, r) => s + r.withdrawal, 0);
   const totalDeposit    = rows.reduce((s, r) => s + r.deposit, 0);
@@ -556,11 +567,49 @@ function ExcelTable({
         </thead>
         <tbody>
           {/* Opening Balance row */}
-          <tr className="bg-[#eaf4fb]">
+          <tr className="bg-[#eaf4fb] group/ob">
             <td className={COL_NUM}>—</td>
-            <td className={`${COL_CELL} text-slate-400 italic`} colSpan={5}>Opening Balance (brought forward)</td>
-            <td className={`${COL_CELL} text-right font-bold text-slate-800 font-mono`}>
-              ₹{fmt(openingBalance)}
+            <td className={`${COL_CELL} text-slate-500 italic`} colSpan={5}>
+              Opening Balance
+              {onOpeningBalanceChange && (
+                <span className="text-[10px] ml-1.5 text-indigo-400 opacity-0 group-hover/ob:opacity-100 transition-opacity">
+                  · click balance to edit
+                </span>
+              )}
+            </td>
+            <td
+              className={`${COL_CELL} text-right font-bold text-slate-800 font-mono p-0.5 ${
+                onOpeningBalanceChange ? "cursor-cell hover:bg-[#fffde7] transition-colors" : ""
+              }`}
+              onClick={() => {
+                if (!onOpeningBalanceChange) return;
+                setEditingOB(true);
+                setObInput(String(openingBalance));
+              }}
+              title={onOpeningBalanceChange ? "Click to edit opening balance" : undefined}
+            >
+              {editingOB ? (
+                <input
+                  autoFocus
+                  type="number"
+                  value={obInput}
+                  onChange={(e) => setObInput(e.target.value)}
+                  onBlur={handleObSave}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter")  { e.preventDefault(); handleObSave(); }
+                    if (e.key === "Escape") { e.preventDefault(); setEditingOB(false); }
+                  }}
+                  className={`${CELL_INPUT} text-right font-mono font-bold w-full`}
+                  step="0.01"
+                />
+              ) : (
+                <span className="flex items-center justify-end gap-1">
+                  ₹{fmt(openingBalance)}
+                  {onOpeningBalanceChange && (
+                    <Pencil size={10} className="text-indigo-400 opacity-0 group-hover/ob:opacity-100 transition-opacity flex-shrink-0" />
+                  )}
+                </span>
+              )}
             </td>
             <td className={COL_CELL} colSpan={3} />
           </tr>
@@ -837,6 +886,22 @@ export default function BankCashBook() {
     }
   }, [accountFilter, loadRows]);
 
+  // Called when user edits the Opening Balance row
+  const handleOpeningBalanceChange = useCallback(async (newBalance: number) => {
+    if (accountFilter === "all") return; // can't edit combined opening balance
+    try {
+      await updateAccount(accountFilter, { openingBalance: newBalance });
+      toast.success("Opening balance updated", { duration: 1500, icon: "✓" });
+      // Reload accounts (to update the summary card) and entries (to recompute running balances)
+      const [freshAccounts] = await Promise.all([getAllAccounts()]);
+      setAccounts(freshAccounts);
+      await loadRows(accountFilter);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.message || "Failed to update opening balance");
+    }
+  }, [accountFilter, loadRows]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     
@@ -1081,6 +1146,7 @@ export default function BankCashBook() {
             contraGroups={groupNames}
             colFilters={colFilters}
             onFilterChange={setColFilters}
+            onOpeningBalanceChange={accountFilter !== "all" ? handleOpeningBalanceChange : undefined}
           />
         )}
       </div>

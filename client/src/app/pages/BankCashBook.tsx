@@ -412,15 +412,6 @@ function ExcelTable({
     );
   }
 
-  if (rows.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-400 bg-white border border-slate-200">
-        <CreditCard size={32} className="opacity-25" />
-        <p className="text-sm">No entries — add one to get started</p>
-      </div>
-    );
-  }
-
   return (
     <div className="overflow-auto" style={{ maxHeight: 600 }}>
       <table className="border-collapse w-full text-left" style={{ minWidth: 980 }}>
@@ -574,14 +565,21 @@ function ExcelTable({
             <td className={COL_CELL} colSpan={3} />
           </tr>
 
-          {rows.map((row, idx) => {
-            const isWithdrawal = row.withdrawal > 0;
-            const isDeposit    = row.deposit    > 0;
-            const isOdd        = idx % 2 === 0;
-            const rowBg        = isOdd ? "bg-white" : "bg-[#f7f8fc]";
-            const isRowEditing = editCell?.id === row._id;
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={10} className="text-center py-8 text-slate-400 italic bg-white border border-slate-300">
+                No matching records found
+              </td>
+            </tr>
+          ) : (
+            rows.map((row, idx) => {
+              const isWithdrawal = row.withdrawal > 0;
+              const isDeposit    = row.deposit    > 0;
+              const isOdd        = idx % 2 === 0;
+              const rowBg        = isOdd ? "bg-white" : "bg-[#f7f8fc]";
+              const isRowEditing = editCell?.id === row._id;
 
-            return (
+              return (
               <tr
                 key={row._id}
                 className={`${isRowEditing ? "bg-[#fffde7]" : rowBg} hover:bg-[#eef2ff] group transition-colors`}
@@ -655,7 +653,7 @@ function ExcelTable({
                 </td>
               </tr>
             );
-          })}
+          }))}
 
           {/* Totals row */}
           <tr className="bg-[#d0d7e3] font-bold sticky bottom-0">
@@ -1033,6 +1031,11 @@ export default function BankCashBook() {
           <div className="flex items-center justify-center py-20 gap-3 text-slate-400 bg-white">
             <RefreshCw size={18} className="animate-spin" />
             <span className="text-sm">Loading transactions…</span>
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-400 bg-white border border-slate-200">
+            <CreditCard size={32} className="opacity-25" />
+            <p className="text-sm">No entries — add one to get started</p>
           </div>
         ) : (
           <ExcelTable

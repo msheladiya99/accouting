@@ -254,6 +254,21 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       }
 
       const prepared = toImportRows(txns);
+      const hasOpBal = prepared.some((r) => isOpeningBalRow(r.narration));
+      if (!hasOpBal) {
+        const firstTxnDate = prepared[0]?.date || new Date().toISOString().slice(0, 10);
+        const opRow: ImportRow = {
+          id: uid(),
+          date: firstTxnDate,
+          narration: "Opening Balance",
+          withdrawal: 0,
+          deposit: 0,
+          aiAccountName: "",
+          aiAccountGroup: "",
+          aiStatus: "done" as const,
+        };
+        prepared.unshift(opRow);
+      }
       setRows(prepared);
       setStep(1);
       await runAI(prepared);
@@ -294,6 +309,21 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
   // ── Load sample ───────────────────────────────────────────────────────────
   const loadSample = useCallback(async () => {
     const sampleRows = toImportRows(SAMPLE_TRANSACTIONS);
+    const hasOpBal = sampleRows.some((r) => isOpeningBalRow(r.narration));
+    if (!hasOpBal) {
+      const firstTxnDate = sampleRows[0]?.date || new Date().toISOString().slice(0, 10);
+      const opRow: ImportRow = {
+        id: uid(),
+        date: firstTxnDate,
+        narration: "Opening Balance",
+        withdrawal: 0,
+        deposit: 0,
+        aiAccountName: "",
+        aiAccountGroup: "",
+        aiStatus: "done" as const,
+      };
+      sampleRows.unshift(opRow);
+    }
     setFile(new File([], "sample_hdfc_statement.xlsx"));
     setRows(sampleRows);
     setStep(1);
@@ -371,7 +401,13 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
   const onCellEditingStopped = useCallback((e: any) => {
     const { data, column, newValue } = e;
     if (!data) return;
-    setRows((prev) => prev.map((r) => r.id === data.id ? { ...r, [column.colId]: newValue } : r));
+    
+    let parsedValue = newValue;
+    if (column.colId === "withdrawal" || column.colId === "deposit") {
+      parsedValue = parseFloat(newValue) || 0;
+    }
+    
+    setRows((prev) => prev.map((r) => r.id === data.id ? { ...r, [column.colId]: parsedValue } : r));
   }, []);
 
   // ── Summary ───────────────────────────────────────────────────────────────
@@ -398,8 +434,8 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       if (isOpeningBalRow(r.narration)) {
         return {
           ...r,
-          withdrawal: 0,
-          deposit: 0,
+          withdrawal: r.withdrawal,
+          deposit: r.deposit,
           balance: running,
         };
       }
@@ -438,6 +474,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       width: 108,
       filter: "agTextColumnFilter",
       floatingFilter: true,
+      editable: true,
       cellStyle: { fontSize: "12px", color: "#64748b" } as any,
     },
     {
@@ -447,6 +484,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       minWidth: 240,
       filter: "agTextColumnFilter",
       floatingFilter: true,
+      editable: true,
       cellStyle: { fontSize: "12px", color: "#1e293b" } as any,
     },
     {
@@ -454,6 +492,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       headerName: "Withdrawals/Payment",
       width: 145,
       type: "numericColumn",
+      editable: true,
       cellRenderer: (p: ICellRendererParams<ImportRow>) =>
         p.data?.withdrawal
           ? <span className="text-red-600 font-semibold text-xs">{fmt(p.data.withdrawal)}</span>
@@ -464,6 +503,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       headerName: "Deposit/Receipt",
       width: 145,
       type: "numericColumn",
+      editable: true,
       cellRenderer: (p: ICellRendererParams<ImportRow>) =>
         p.data?.deposit
           ? <span className="text-emerald-600 font-semibold text-xs">{fmt(p.data.deposit)}</span>

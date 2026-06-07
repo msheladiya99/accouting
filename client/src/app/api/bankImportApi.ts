@@ -51,6 +51,13 @@ function colIdx(headers: string[], keywords: string[]): number {
   );
 }
 
+const MONTHS_MAP: Record<string, string> = {
+  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+  january: "01", february: "02", march: "03", april: "04", june: "06",
+  july: "07", august: "08", september: "09", october: "10", november: "11", december: "12"
+};
+
 function parseDate(val: unknown): string {
   if (!val) return "";
   if (val instanceof Date) return val.toISOString().slice(0, 10);
@@ -65,6 +72,29 @@ function parseDate(val: unknown): string {
   // YYYY-MM-DD
   const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m2) return s;
+
+  // DD-MMM-YYYY or DD MMM YYYY or DD-MMM-YY
+  const m3 = s.match(/^(\d{1,2})[\s\/\-]([a-zA-Z]{3,9})[\s\/\-](\d{2,4})$/);
+  if (m3) {
+    const [, dd, monthName, yy] = m3;
+    const mm = MONTHS_MAP[monthName.toLowerCase()];
+    if (mm) {
+      const yyyy = yy.length === 2 ? "20" + yy : yy;
+      return `${yyyy}-${mm}-${dd.padStart(2, "0")}`;
+    }
+  }
+
+  // MMM-DD-YYYY or MMM DD, YYYY
+  const m4 = s.match(/^([a-zA-Z]{3,9})[\s\/\-](\d{1,2})(?:,\s*|[\s\/\-])(\d{2,4})$/);
+  if (m4) {
+    const [, monthName, dd, yy] = m4;
+    const mm = MONTHS_MAP[monthName.toLowerCase()];
+    if (mm) {
+      const yyyy = yy.length === 2 ? "20" + yy : yy;
+      return `${yyyy}-${mm}-${dd.padStart(2, "0")}`;
+    }
+  }
+
   const d = new Date(s);
   return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
 }
@@ -208,6 +238,8 @@ export async function extractPDFText(file: File): Promise<string> {
 
 const DATE_4_RE = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/;
 const DATE_2_RE = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2})/;
+const DATE_TEXT_1_RE = /(\d{1,2}[\s\-\/][a-zA-Z]{3,9}[\s\-\/]\d{2,4})/;
+const DATE_TEXT_2_RE = /([a-zA-Z]{3,9}[\s\-\/]\d{1,2},?\s*\d{2,4})/;
 const AMT_RE  = /[\d,]+\.\d{2}/g;
 
 function isDepositNarration(narration: string): boolean {
@@ -241,7 +273,10 @@ function parsePDFText(text: string): RawTransaction[] {
       continue;
     }
 
-    let dateMatch = line.match(DATE_4_RE) || line.match(DATE_2_RE);
+    let dateMatch = line.match(DATE_4_RE) || 
+                    line.match(DATE_2_RE) || 
+                    line.match(DATE_TEXT_1_RE) || 
+                    line.match(DATE_TEXT_2_RE);
     if (!dateMatch) {
       // Line has no date. Check if it's a narration continuation for the previous transaction
       if (tempTxns.length > 0 && !isOpBal) {
@@ -273,12 +308,12 @@ function parsePDFText(text: string): RawTransaction[] {
     if (amounts.length === 0) continue;
 
     const afterDate  = line.slice(line.indexOf(dateMatch[1]) + dateMatch[1].length);
-    const narrMatch  = afterDate.match(/^[\s\-\/]*([\w\s\/\-\.#@&(),]+?)\s+[\d,]+\.\d{2}/);
+    const narrMatch  = afterDate.match(/^[\s\-\/]*([\s\S]+?)\s+[\d,]+\.\d{2}/);
     let narration    = (narrMatch?.[1] ?? afterDate.replace(AMT_RE, "").replace(/\s+/g, " ")).trim();
 
     // Strip any secondary/duplicate dates at the beginning of the narration (e.g. Value Date)
     while (true) {
-      const dateStartMatch = narration.match(/^(?:[\s\-\/]*)(?:\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2})/);
+      const dateStartMatch = narration.match(/^(?:[\s\-\/]*)(?:\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}[\s\-\/][a-zA-Z]{3,9}[\s\-\/]\d{2,4}|[a-zA-Z]{3,9}[\s\-\/]\d{1,2},?\s*\d{2,4})/);
       if (dateStartMatch) {
         narration = narration.slice(dateStartMatch[0].length).trim();
       } else {

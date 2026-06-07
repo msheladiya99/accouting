@@ -105,9 +105,7 @@ export default function FinancialYear() {
     return `FY ${startYear}-${String(endYear).slice(-2)}`;
   }, [customStart, customEnd]);
 
-  // ── Toggle year selection ───────────────────────────────────────────────────
-  const toggleYear = (y: number) =>
-    setSelectedYears((prev) => prev.includes(y) ? prev.filter((x) => x !== y) : [...prev, y]);
+
 
   // ── AG Grid columns ─────────────────────────────────────────────────────────
   const columnDefs = useMemo<ColDef<FinancialYear>[]>(() => [
@@ -344,7 +342,7 @@ export default function FinancialYear() {
         <CalendarRange size={16} className="text-slate-400 flex-shrink-0 mt-0.5" />
         <div className="text-xs text-slate-500 space-y-1">
           <p><strong className="text-slate-700">Indian Financial Year</strong> runs from <strong>April 1 to March 31</strong> of the following calendar year.</p>
-          <p>Switching the active FY in the navbar instantly filters all reports (Dashboard, Balance Sheet, Trial Balance, P&amp;L, Bank Book) to that period.</p>
+          <p>Switching the active FY in the navbar instantly filters all reports (Balance Sheet, Trial Balance, P&amp;L, Bank Book) to that period.</p>
           <p>The <strong className="text-emerald-700">Current</strong> status is determined automatically by today's date. A <strong className="text-red-600">Closed</strong> FY is locked for new entries.</p>
         </div>
       </div>

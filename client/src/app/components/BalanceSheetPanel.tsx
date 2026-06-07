@@ -258,7 +258,7 @@ function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, stri
     const netDrCr = r.closingDr - r.closingCr;
     const absVal = Math.abs(netDrCr);
 
-    const parentCategory = groupParentsMap[r.group] || "Assets";
+    const parentCategory = groupParentsMap[r.group.trim().toLowerCase()] || "Assets";
 
     if (parentCategory !== "Income" && parentCategory !== "Expense") {
       // Stock-in-hand (Asset) opening/closing stock is an exception needed for Trading account!
@@ -418,15 +418,25 @@ function computePartnerCapital(
   };
 }
 
+// ── Module-level cache for instant SWR loading on BalanceSheetPanel ─────────
+let cachedPanelData: BalanceSheetData | null = null;
+let cachedPanelCapitalAccounts: PartnerCapitalAccount[] = [];
+let cachedPanelTradingPLData: any = null;
+let cachedPanelFYId: string | null = null;
+
 // ── Main Panel ────────────────────────────────────────────────────────────────
 export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const { selectedFY, company } = useApp();
-  const [data,    setData]    = useState<BalanceSheetData | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [data,    setData]    = useState<BalanceSheetData | null>(cachedPanelFYId === selectedFY?._id ? cachedPanelData : null);
+  const [loading, setLoading] = useState(cachedPanelFYId === selectedFY?._id ? !cachedPanelData : false);
   const [error,   setError]   = useState<string | null>(null);
 
-  const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>([]);
-  const [tradingPLData, setTradingPLData] = useState<any>(null);
+  const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>(
+    cachedPanelFYId === selectedFY?._id ? cachedPanelCapitalAccounts : []
+  );
+  const [tradingPLData, setTradingPLData] = useState<any>(
+    cachedPanelFYId === selectedFY?._id ? cachedPanelTradingPLData : null
+  );
 
   // Resizing state & logic
   const [width, setWidth] = useState(850);
@@ -459,24 +469,72 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
     };
   }, [resize, stopResizing]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
-      const result = await computeBalanceSheet();
-      setData(result);
-    }
-    catch (e: any) { setError(e?.message ?? "Failed to load"); }
-    finally { setLoading(false); }
-  }, []);
+      const [ledgers, bankAccounts, bankEntries, journalEntries, groups] = await Promise.all([
+        getAllLedgers(),
+        getAllAccounts(),
+        getAllEntries(),
+        getAllJournalEntries(),
+        getAllGroups()
+      ]);
 
-  useEffect(() => { if (open && !data) load(); }, [open, data, load]);
+      const cache = { ledgers, bankAccounts, bankEntries, journalEntries, groups };
+
+      // Compute balance sheet using cache
+      const result = await computeBalanceSheet(cache);
+
+      const groupParentsMap: Record<string, string> = {};
+      groups.forEach((g) => {
+        groupParentsMap[g.groupName.trim().toLowerCase()] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
+      });
+
+      const trialSummary = await computeTrialBalance(cache);
+      const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
+
+      const capitalLedgerAccounts = ledgers.filter(l => 
+        l.groupName.toLowerCase() === 'capital' || 
+        l.groupName.toLowerCase() === 'capital account' || 
+        l.groupName.toLowerCase() === 'capital & reserves'
+      );
+
+      const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
+        computePartnerCapital(ledger, bankEntries, journalEntries)
+      ));
+
+      setTradingPLData(tpl);
+      setCapitalAccounts(accounts);
+      setData(result);
+
+      // Save to module cache
+      cachedPanelData = result;
+      cachedPanelCapitalAccounts = accounts;
+      cachedPanelTradingPLData = tpl;
+      cachedPanelFYId = selectedFY?._id || null;
+    }
+    catch (e: any) { 
+      if (!silent) {
+        setError(e?.message ?? "Failed to load"); 
+      }
+    }
+    finally { setLoading(false); }
+  }, [selectedFY?._id]);
+
+  useEffect(() => {
+    if (open) {
+      const hasCache = cachedPanelFYId === selectedFY?._id && cachedPanelData !== null;
+      load(hasCache);
+    }
+  }, [open, load]);
 
   useEffect(() => {
     const handleUpdate = () => {
       if (open) {
-        load();
+        load(true);
       } else {
+        cachedPanelData = null;
         setData(null);
       }
     };
@@ -487,45 +545,7 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
   }, [open, load]);
 
 
-  useEffect(() => {
-    async function loadExtraData() {
-      try {
-        const [trialSummary, bEntries, jEntries, allLedgers, groups] = await Promise.all([
-          computeTrialBalance(),
-          getAllEntries(),
-          getAllJournalEntries(),
-          getAllLedgers(),
-          getAllGroups()
-        ]);
-
-        const groupParentsMap: Record<string, string> = {};
-        groups.forEach((g) => {
-          groupParentsMap[g.groupName] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
-        });
-
-        const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
-        setTradingPLData(tpl);
-
-        const capitalLedgerAccounts = allLedgers.filter(l => 
-          l.groupName.toLowerCase() === 'capital' || 
-          l.groupName.toLowerCase() === 'capital account' || 
-          l.groupName.toLowerCase() === 'capital & reserves'
-        );
-
-        const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
-          computePartnerCapital(ledger, bEntries, jEntries)
-        ));
-
-        setCapitalAccounts(accounts);
-      } catch (err) {
-        console.error("Failed to load extra report data:", err);
-      }
-    }
-
-    if (data) {
-      loadExtraData();
-    }
-  }, [data, selectedFY?._id]);
+  // P&L and capital accounts are computed in the main load function above.
 
   const today = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 

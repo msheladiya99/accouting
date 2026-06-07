@@ -85,10 +85,16 @@ export interface BalanceSheetData {
 }
 
 // ── Main API ───────────────────────────────────────────────────────────────────
-export async function computeBalanceSheet(): Promise<BalanceSheetData> {
+export async function computeBalanceSheet(cache?: {
+  ledgers?: any[];
+  bankAccounts?: any[];
+  bankEntries?: any[];
+  journalEntries?: any[];
+  groups?: any[];
+}): Promise<BalanceSheetData> {
   const [trialSummary, groups] = await Promise.all([
-    computeTrialBalance(),
-    getAllGroups()
+    computeTrialBalance(cache),
+    cache?.groups ?? getAllGroups()
   ]);
   const { rows, stats } = trialSummary;
 

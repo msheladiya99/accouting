@@ -73,13 +73,18 @@ function makeBuckets() {
 }
 
 // ── Main API ───────────────────────────────────────────────────────────────────
-export async function computeTrialBalance(): Promise<TrialSummary> {
+export async function computeTrialBalance(cache?: {
+  ledgers?: any[];
+  bankAccounts?: any[];
+  bankEntries?: any[];
+  journalEntries?: any[];
+}): Promise<TrialSummary> {
   const { map, addOpeningDr, addOpeningCr, addTxnDr, addTxnCr, ensure, findKey } = makeBuckets();
 
-  // 1. Opening Balances (fetched dynamically from the database)
+  // 1. Opening Balances (fetched dynamically from the database or cache)
   const [ledgers, bankAccounts] = await Promise.all([
-    getAllLedgers(),
-    getAllAccounts()
+    cache?.ledgers ?? getAllLedgers(),
+    cache?.bankAccounts ?? getAllAccounts()
   ]);
 
   for (const l of ledgers) {
@@ -111,7 +116,7 @@ export async function computeTrialBalance(): Promise<TrialSummary> {
   }).length;
 
   // 2. Bank / Cash Book (double-entry: each entry affects both account and contra)
-  const bankEntries = await getAllEntries();
+  const bankEntries = cache?.bankEntries ?? await getAllEntries();
   for (const e of bankEntries) {
     if (e.deposit > 0) {
       // Money comes IN → Dr the bank/cash account, Cr the contra
@@ -126,7 +131,7 @@ export async function computeTrialBalance(): Promise<TrialSummary> {
   }
 
   // 3. Journal Entries
-  const journalEntries = await getAllJournalEntries();
+  const journalEntries = cache?.journalEntries ?? await getAllJournalEntries();
   for (const e of journalEntries) {
     addTxnDr(e.debitAccount,  e.debitGroup,  e.debitAmount);
     addTxnCr(e.creditAccount, e.creditGroup, e.creditAmount);

@@ -417,75 +417,88 @@ function computePartnerCapital(
   };
 }
 
+// ── Module-level cache for instant SWR loading ─────────────────────────────
+let cachedData: BalanceSheetData | null = null;
+let cachedCapitalAccounts: PartnerCapitalAccount[] = [];
+let cachedTradingPLData: any = null;
+let cachedFYId: string | null = null;
+
 // ── Main component ─────────────────────────────────────────────────────────
 export default function BalanceSheet() {
   const { selectedFY, company } = useApp();
   const financialYear = selectedFY?.label ?? "—";
 
-  const [data, setData]       = useState<BalanceSheetData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData]       = useState<BalanceSheetData | null>(cachedFYId === selectedFY?._id ? cachedData : null);
+  const [loading, setLoading] = useState(cachedFYId === selectedFY?._id ? !cachedData : true);
   const [error, setError]     = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>([]);
-  const [tradingPLData, setTradingPLData] = useState<any>(null);
+  const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>(
+    cachedFYId === selectedFY?._id ? cachedCapitalAccounts : []
+  );
+  const [tradingPLData, setTradingPLData] = useState<any>(
+    cachedFYId === selectedFY?._id ? cachedTradingPLData : null
+  );
 
-  useEffect(() => {
-    async function loadExtraData() {
-      try {
-        const [trialSummary, bEntries, jEntries, allLedgers, groups] = await Promise.all([
-          computeTrialBalance(),
-          getAllEntries(),
-          getAllJournalEntries(),
-          getAllLedgers(),
-          getAllGroups()
-        ]);
-
-        const groupParentsMap: Record<string, string> = {};
-        groups.forEach((g) => {
-          groupParentsMap[g.groupName.trim().toLowerCase()] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
-        });
-
-        const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
-        setTradingPLData(tpl);
-
-        const capitalLedgerAccounts = allLedgers.filter(l => 
-          l.groupName.toLowerCase() === 'capital' || 
-          l.groupName.toLowerCase() === 'capital account' || 
-          l.groupName.toLowerCase() === 'capital & reserves'
-        );
-
-        const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
-          computePartnerCapital(ledger, bEntries, jEntries)
-        ));
-
-        setCapitalAccounts(accounts);
-      } catch (err) {
-        console.error("Failed to load extra report data:", err);
-      }
-    }
-
-    if (data) {
-      loadExtraData();
-    }
-  }, [data, selectedFY?._id]);
-
-  const load = useCallback(async (isRefresh = false) => {
+  const load = useCallback(async (isRefresh = false, silent = false) => {
     if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+    else if (!silent) setLoading(true);
     setError(null);
     try {
-      const result = await computeBalanceSheet();
+      const [ledgers, bankAccounts, bankEntries, journalEntries, groups] = await Promise.all([
+        getAllLedgers(),
+        getAllAccounts(),
+        getAllEntries(),
+        getAllJournalEntries(),
+        getAllGroups()
+      ]);
+
+      const cache = { ledgers, bankAccounts, bankEntries, journalEntries, groups };
+
+      // Compute balance sheet using cache
+      const result = await computeBalanceSheet(cache);
+
+      const groupParentsMap: Record<string, string> = {};
+      groups.forEach((g) => {
+        groupParentsMap[g.groupName.trim().toLowerCase()] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
+      });
+
+      const trialSummary = await computeTrialBalance(cache);
+      const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
+
+      const capitalLedgerAccounts = ledgers.filter(l => 
+        l.groupName.toLowerCase() === 'capital' || 
+        l.groupName.toLowerCase() === 'capital account' || 
+        l.groupName.toLowerCase() === 'capital & reserves'
+      );
+
+      const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
+        computePartnerCapital(ledger, bankEntries, journalEntries)
+      ));
+
+      setTradingPLData(tpl);
+      setCapitalAccounts(accounts);
       setData(result);
+
+      // Save to module cache
+      cachedData = result;
+      cachedCapitalAccounts = accounts;
+      cachedTradingPLData = tpl;
+      cachedFYId = selectedFY?._id || null;
     } catch (e: any) {
-      setError(e?.message ?? "Failed to compute balance sheet");
+      if (!silent) {
+        setError(e?.message ?? "Failed to compute balance sheet");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [selectedFY?._id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const hasCache = cachedFYId === selectedFY?._id && cachedData !== null;
+    load(false, hasCache);
+  }, [load]);
 
   const today = new Date().toLocaleDateString("en-IN", {
     day: "2-digit", month: "short", year: "numeric",

@@ -28,15 +28,16 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
     }
 
     let targetAccountId = accountId;
-    if ((accountId === "auto-create" || !accountId) && bankName) {
+    if (accountId === "auto-create" || !accountId) {
+      const finalBankName = (bankName && bankName.trim()) ? bankName.trim() : "Imported Bank Account";
       // Auto-create BankCashAccount
       let acc = await BankCashAccount.findOne({
-        name: { $regex: new RegExp(`^${bankName.trim()}$`, "i") },
+        name: { $regex: new RegExp(`^${finalBankName}$`, "i") },
         companyId: req.companyId
       });
       if (!acc) {
         acc = new BankCashAccount({
-          name: bankName.trim(),
+          name: finalBankName,
           group: "Bank",
           openingBalance: statementOpeningBalance || 0,
           companyId: req.companyId
@@ -47,7 +48,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
         await acc.save();
       }
       targetAccountId = acc._id.toString();
-    } else if (targetAccountId) {
+    } else if (targetAccountId && Types.ObjectId.isValid(targetAccountId)) {
       // Update existing BankCashAccount if its opening balance is 0
       let acc = await BankCashAccount.findOne({ _id: targetAccountId, companyId: req.companyId });
       if (acc && statementOpeningBalance !== undefined && acc.openingBalance === 0) {

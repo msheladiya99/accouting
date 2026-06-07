@@ -202,12 +202,25 @@ type EditCell = { id: string; field: string; value: string };
 // ── Excel-style Table ─────────────────────────────────────────────────────────
 function ExcelTable({
   rows, openingBalance, onDelete, onCellSave, contraGroups,
+  colFilters, onFilterChange,
 }: {
   rows: BankCashRow[];
   openingBalance: number;
   onDelete: (r: BankCashRow) => void;
   onCellSave: (id: string, patch: Partial<EntryPayload>) => Promise<void>;
   contraGroups: string[];
+  colFilters: {
+    srNo: string;
+    accountName: string;
+    date: string;
+    particulars: string;
+    withdrawal: string;
+    deposit: string;
+    balance: string;
+    contraAccountName: string;
+    contraAccountGroup: string;
+  };
+  onFilterChange: (filters: any) => void;
 }) {
   const [editCell, setEditCell]   = useState<EditCell | null>(null);
   const [saving,   setSaving]     = useState(false);
@@ -408,6 +421,120 @@ function ExcelTable({
               {saving ? <Loader2 size={11} className="animate-spin inline" /> : "✓"}
             </th>
           </tr>
+          {/* Column filter row */}
+          <tr className="bg-[#f1f5f9]">
+            {/* Sr. No. filter */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9] text-center w-10">
+              <input
+                type="text"
+                placeholder="Filter..."
+                value={colFilters.srNo}
+                onChange={(e) => onFilterChange({ ...colFilters, srNo: e.target.value })}
+                className="w-full border border-slate-300 rounded px-1 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-center font-mono"
+              />
+            </td>
+            {/* Bank/cash name filter */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9]">
+              <input
+                type="text"
+                placeholder="Filter..."
+                value={colFilters.accountName}
+                onChange={(e) => onFilterChange({ ...colFilters, accountName: e.target.value })}
+                className="w-full border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </td>
+            {/* Date filter */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9]">
+              <input
+                type="text"
+                placeholder="Filter..."
+                value={colFilters.date}
+                onChange={(e) => onFilterChange({ ...colFilters, date: e.target.value })}
+                className="w-full border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
+              />
+            </td>
+            {/* Particulars filter */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9] min-w-[220px]">
+              <input
+                type="text"
+                placeholder="Filter..."
+                value={colFilters.particulars}
+                onChange={(e) => onFilterChange({ ...colFilters, particulars: e.target.value })}
+                className="w-full border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </td>
+            {/* Withdrawals filter */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9]">
+              <input
+                type="text"
+                placeholder="Filter..."
+                value={colFilters.withdrawal}
+                onChange={(e) => onFilterChange({ ...colFilters, withdrawal: e.target.value })}
+                className="w-full text-right border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
+              />
+            </td>
+            {/* Deposits filter */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9]">
+              <input
+                type="text"
+                placeholder="Filter..."
+                value={colFilters.deposit}
+                onChange={(e) => onFilterChange({ ...colFilters, deposit: e.target.value })}
+                className="w-full text-right border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
+              />
+            </td>
+            {/* Balance filter */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9]">
+              <input
+                type="text"
+                placeholder="Filter..."
+                value={colFilters.balance}
+                onChange={(e) => onFilterChange({ ...colFilters, balance: e.target.value })}
+                className="w-full text-right border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono"
+              />
+            </td>
+            {/* Account name filter */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9]">
+              <input
+                type="text"
+                placeholder="Filter..."
+                value={colFilters.contraAccountName}
+                onChange={(e) => onFilterChange({ ...colFilters, contraAccountName: e.target.value })}
+                className="w-full border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </td>
+            {/* Account group name filter */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9]">
+              <input
+                type="text"
+                placeholder="Filter..."
+                value={colFilters.contraAccountGroup}
+                onChange={(e) => onFilterChange({ ...colFilters, contraAccountGroup: e.target.value })}
+                className="w-full border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </td>
+            {/* Clear filters cell */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9] text-center w-16">
+              {Object.values(colFilters).some(v => v !== "") && (
+                <button
+                  onClick={() => onFilterChange({
+                    srNo: "",
+                    accountName: "",
+                    date: "",
+                    particulars: "",
+                    withdrawal: "",
+                    deposit: "",
+                    balance: "",
+                    contraAccountName: "",
+                    contraAccountGroup: "",
+                  })}
+                  className="px-1.5 py-0.5 text-[10px] text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors font-semibold shadow-sm"
+                >
+                  Clear
+                </button>
+              )}
+            </td>
+          </tr>
         </thead>
         <tbody>
           {/* Opening Balance row */}
@@ -541,6 +668,31 @@ export default function BankCashBook() {
   const [modal,           setModal]           = useState<{ entry?: BankCashRow } | null>(null);
   const [showImport,      setShowImport]      = useState(false);
   const [groupNames,      setGroupNames]      = useState<string[]>([]);
+  const [colFilters,      setColFilters]      = useState({
+    srNo: "",
+    accountName: "",
+    date: "",
+    particulars: "",
+    withdrawal: "",
+    deposit: "",
+    balance: "",
+    contraAccountName: "",
+    contraAccountGroup: "",
+  });
+
+  useEffect(() => {
+    setColFilters({
+      srNo: "",
+      accountName: "",
+      date: "",
+      particulars: "",
+      withdrawal: "",
+      deposit: "",
+      balance: "",
+      contraAccountName: "",
+      contraAccountGroup: "",
+    });
+  }, [accountFilter, groupTypeFilter]);
 
   useEffect(() => {
     getAllGroups()
@@ -641,7 +793,9 @@ export default function BankCashBook() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return rows.filter((r) => {
+    
+    // First apply global search and type filter
+    const temp = rows.filter((r) => {
       const matchSearch = !q ||
         r.particulars.toLowerCase().includes(q) ||
         r.contraAccountName.toLowerCase().includes(q) ||
@@ -649,7 +803,51 @@ export default function BankCashBook() {
       const matchType = groupTypeFilter === "all" || r.accountGroup === groupTypeFilter;
       return matchSearch && matchType;
     });
-  }, [rows, search, groupTypeFilter]);
+
+    // Add temporary 1-based Sr. No. to each item based on its position in the list
+    const mapped = temp.map((row, idx) => ({ row, srNo: String(idx + 1) }));
+
+    // Apply column-specific filters
+    const filteredMapped = mapped.filter(({ row, srNo }) => {
+      if (colFilters.srNo && !srNo.includes(colFilters.srNo)) return false;
+      
+      if (colFilters.accountName && !row.accountName.toLowerCase().includes(colFilters.accountName.toLowerCase())) return false;
+      
+      if (colFilters.date) {
+        const displayDate = new Date(row.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }).toLowerCase();
+        const rawDate = row.date.toLowerCase();
+        if (!displayDate.includes(colFilters.date.toLowerCase()) && !rawDate.includes(colFilters.date.toLowerCase())) return false;
+      }
+      
+      if (colFilters.particulars && !row.particulars.toLowerCase().includes(colFilters.particulars.toLowerCase())) return false;
+      
+      if (colFilters.withdrawal) {
+        const val = String(row.withdrawal);
+        const fmtVal = fmt(row.withdrawal).toLowerCase();
+        if (!val.includes(colFilters.withdrawal) && !fmtVal.includes(colFilters.withdrawal.toLowerCase())) return false;
+      }
+      
+      if (colFilters.deposit) {
+        const val = String(row.deposit);
+        const fmtVal = fmt(row.deposit).toLowerCase();
+        if (!val.includes(colFilters.deposit) && !fmtVal.includes(colFilters.deposit.toLowerCase())) return false;
+      }
+      
+      if (colFilters.balance) {
+        const val = String(row.balance);
+        const fmtVal = fmt(row.balance).toLowerCase();
+        if (!val.includes(colFilters.balance) && !fmtVal.includes(colFilters.balance.toLowerCase())) return false;
+      }
+      
+      if (colFilters.contraAccountName && !row.contraAccountName.toLowerCase().includes(colFilters.contraAccountName.toLowerCase())) return false;
+      
+      if (colFilters.contraAccountGroup && !row.contraAccountGroup.toLowerCase().includes(colFilters.contraAccountGroup.toLowerCase())) return false;
+
+      return true;
+    });
+
+    return filteredMapped.map(item => item.row);
+  }, [rows, search, groupTypeFilter, colFilters]);
 
   const summary = useMemo(() => {
     const openingBalance  = accountFilter === "all"
@@ -828,6 +1026,8 @@ export default function BankCashBook() {
             onDelete={handleDelete}
             onCellSave={handleCellSave}
             contraGroups={groupNames}
+            colFilters={colFilters}
+            onFilterChange={setColFilters}
           />
         )}
       </div>

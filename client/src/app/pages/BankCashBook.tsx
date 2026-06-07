@@ -1097,34 +1097,31 @@ export default function BankCashBook() {
       )}
 
       {showImport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowImport(false)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
-            {/* Close Button */}
-            <button
-              onClick={() => setShowImport(false)}
-              className="absolute right-4 top-4 z-50 p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
-              title="Close Import Modal"
-            >
-              <X size={18} />
-            </button>
-            <div className="overflow-y-auto flex-1 pb-6">
-              <BankImport
-                onClose={() => setShowImport(false)}
-                onImportComplete={async () => {
-                  setShowImport(false);
-                  // Reload accounts first (new account may have been auto-created)
-                  const freshAccounts = await getAllAccounts().catch(() => []);
-                  setAccounts(freshAccounts);
-                  // Reset filter to "all" so newly imported entries are visible
-                  setAccountFilter("all");
-                  setGroupTypeFilter("all");
-                  // Reload entries
-                  await loadRows("all");
-                  window.dispatchEvent(new CustomEvent("accounting-data-updated"));
-                }}
-              />
-            </div>
+        <div className="fixed inset-0 z-50 flex flex-col bg-white overflow-hidden">
+          {/* Close Button */}
+          <button
+            onClick={() => setShowImport(false)}
+            className="absolute right-6 top-6 z-50 p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+            title="Close Import Modal"
+          >
+            <X size={18} />
+          </button>
+          <div className="overflow-y-auto flex-1 pb-6">
+            <BankImport
+              onClose={() => setShowImport(false)}
+              onImportComplete={async () => {
+                setShowImport(false);
+                // Reload accounts first (new account may have been auto-created)
+                const freshAccounts = await getAllAccounts().catch(() => []);
+                setAccounts(freshAccounts);
+                // Reset filter to "all" so newly imported entries are visible
+                setAccountFilter("all");
+                setGroupTypeFilter("all");
+                // Reload entries
+                await loadRows("all");
+                window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+              }}
+            />
           </div>
         </div>
       )}

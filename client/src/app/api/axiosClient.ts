@@ -2,7 +2,7 @@ import axios from "axios";
 import { getSubdomain } from "../utils/subdomain";
 
 export const axiosClient = axios.create({
-  baseURL: "/api",
+  baseURL: import.meta.env.VITE_API_URL || "/api",
   headers: {
     "Content-Type": "application/json"
   }

@@ -89,7 +89,7 @@ export async function createEntry(payload: EntryPayload): Promise<void> {
   await axiosClient.post("/bank-cash-book/entries", payload);
 }
 
-export async function updateEntry(id: string, payload: EntryPayload): Promise<void> {
+export async function updateEntry(id: string, payload: Partial<EntryPayload>): Promise<void> {
   await axiosClient.put(`/bank-cash-book/entries/${id}`, payload);
 }
 

@@ -26,6 +26,33 @@ const fmt = (n: number) =>
 const fmtFull = (n: number) =>
   "₹" + Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const matchNumericFilter = (value: number, filterText: string): boolean => {
+  const text = filterText.trim();
+  if (!text) return true;
+
+  // Match comparison operators: >=, <=, >, <, =
+  const match = text.match(/^(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)$/);
+  if (match) {
+    const op = match[1] || "=";
+    const target = parseFloat(match[2]);
+    if (isNaN(target)) return false;
+
+    switch (op) {
+      case ">": return value > target;
+      case "<": return value < target;
+      case ">=": return value >= target;
+      case "<=": return value <= target;
+      case "=": return value === target;
+      default: return false;
+    }
+  }
+
+  // Fallback: search within string representation of raw number or formatted number
+  const valStr = String(value);
+  const fmtVal = fmt(value).toLowerCase();
+  return valStr.includes(text) || fmtVal.includes(text.toLowerCase());
+};
+
 const GROUP_COLORS: Record<AccountGroup, { bg: string; text: string; icon: React.ElementType; dot: string; badge: string }> = {
   Bank: { bg: "bg-blue-50",  text: "text-blue-700",  icon: Landmark, dot: "bg-blue-500",  badge: "bg-blue-100 text-blue-700"  },
   Cash: { bg: "bg-amber-50", text: "text-amber-700", icon: Wallet,   dot: "bg-amber-500", badge: "bg-amber-100 text-amber-700" },
@@ -821,23 +848,11 @@ export default function BankCashBook() {
       
       if (colFilters.particulars && !row.particulars.toLowerCase().includes(colFilters.particulars.toLowerCase())) return false;
       
-      if (colFilters.withdrawal) {
-        const val = String(row.withdrawal);
-        const fmtVal = fmt(row.withdrawal).toLowerCase();
-        if (!val.includes(colFilters.withdrawal) && !fmtVal.includes(colFilters.withdrawal.toLowerCase())) return false;
-      }
+      if (colFilters.withdrawal && !matchNumericFilter(row.withdrawal, colFilters.withdrawal)) return false;
       
-      if (colFilters.deposit) {
-        const val = String(row.deposit);
-        const fmtVal = fmt(row.deposit).toLowerCase();
-        if (!val.includes(colFilters.deposit) && !fmtVal.includes(colFilters.deposit.toLowerCase())) return false;
-      }
+      if (colFilters.deposit && !matchNumericFilter(row.deposit, colFilters.deposit)) return false;
       
-      if (colFilters.balance) {
-        const val = String(row.balance);
-        const fmtVal = fmt(row.balance).toLowerCase();
-        if (!val.includes(colFilters.balance) && !fmtVal.includes(colFilters.balance.toLowerCase())) return false;
-      }
+      if (colFilters.balance && !matchNumericFilter(row.balance, colFilters.balance)) return false;
       
       if (colFilters.contraAccountName && !row.contraAccountName.toLowerCase().includes(colFilters.contraAccountName.toLowerCase())) return false;
       

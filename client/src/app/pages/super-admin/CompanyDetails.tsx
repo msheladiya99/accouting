@@ -172,7 +172,7 @@ export default function CompanyDetails() {
       {/* Content Grid */}
       <Grid container spacing={3}>
         {/* Company Overview Card */}
-        <Grid item xs={12} md={5}>
+        <Grid size={{ xs: 12, md: 5 }}>
           <Card sx={{ borderRadius: "20px", border: "1px solid #f1f5f9", boxShadow: "none" }}>
             <CardContent sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
               <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem", mb: 0.5 }}>
@@ -208,7 +208,7 @@ export default function CompanyDetails() {
         </Grid>
 
         {/* Users List Card */}
-        <Grid item xs={12} md={7}>
+        <Grid size={{ xs: 12, md: 7 }}>
           <Card sx={{ borderRadius: "20px", border: "1px solid #f1f5f9", boxShadow: "none" }}>
             <CardContent sx={{ p: 3 }}>
               <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem", mb: 2 }}>

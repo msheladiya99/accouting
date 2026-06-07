@@ -79,10 +79,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const setCompany = (c: Company) => {
+    const isDifferent = company && company.id !== c.id;
     setCompanyState(c);
     localStorage.setItem("ap_company", JSON.stringify(c));
-    // Clear selected FY when switching company so it gets re-resolved
-    localStorage.removeItem("ap_selected_fy");
+    if (isDifferent) {
+      // Clear selected FY when switching company so it gets re-resolved
+      localStorage.removeItem("ap_selected_fy");
+    }
   };
 
   // If on a subdomain, auto-load company details from backend

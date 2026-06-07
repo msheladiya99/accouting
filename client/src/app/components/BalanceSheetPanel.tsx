@@ -9,7 +9,7 @@ import {
   type BalanceSheetData,
 } from "../api/balanceSheetApi";
 import { computeTrialBalance, type TrialRow } from "../api/trialBalanceApi";
-import { getAllEntries } from "../api/bankCashBookApi";
+import { getAllEntries, getAllAccounts } from "../api/bankCashBookApi";
 import { getAllJournalEntries } from "../api/journalVoucherApi";
 import { getAllLedgers } from "../api/ledgerApi";
 import { getAllGroups } from "../api/accountGroupApi";
@@ -230,7 +230,7 @@ function flattenUnmatched(unmatchedGroups: any[]): ReportRow[] {
 // ── Extra Calculations for Trading & P&L and Capital Accounts ───────────────
 interface CapitalTxn {
   particulars: string;
-  amount: number;
+  amount?: number;
 }
 
 interface PartnerCapitalAccount {
@@ -398,8 +398,8 @@ function computePartnerCapital(
     ...formattedCredits
   ];
 
-  const creditsSum = finalCredits.reduce((s, c) => s + c.amount, 0);
-  const debitsSum = formattedDebits.reduce((s, d) => s + d.amount, 0);
+  const creditsSum = finalCredits.reduce((s, c) => s + (c.amount ?? 0), 0);
+  const debitsSum = formattedDebits.reduce((s, d) => s + (d.amount ?? 0), 0);
   const closingBalance = creditsSum - debitsSum;
 
   const finalDebits = [
@@ -412,8 +412,8 @@ function computePartnerCapital(
     debits: finalDebits,
     credits: finalCredits,
     total: Math.max(
-      finalDebits.reduce((s, d) => s + d.amount, 0),
-      finalCredits.reduce((s, c) => s + c.amount, 0)
+      finalDebits.reduce((s, d) => s + (d.amount ?? 0), 0),
+      finalCredits.reduce((s, c) => s + (c.amount ?? 0), 0)
     )
   };
 }
@@ -618,7 +618,7 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
               <p className="text-[11px] text-slate-500 leading-tight">As at {today} · {selectedFY?.label ?? "—"}</p>
             </div>
             <button
-              onClick={load}
+              onClick={() => load()}
               disabled={loading}
               title="Refresh"
               className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
@@ -641,7 +641,7 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
             <div className="m-4 flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 text-red-700 rounded-lg">
               <AlertTriangle size={14} className="flex-shrink-0" />
               <p className="text-xs">{error}</p>
-              <button onClick={load} className="text-xs underline ml-auto">Retry</button>
+              <button onClick={() => load()} className="text-xs underline ml-auto">Retry</button>
             </div>
           )}
 

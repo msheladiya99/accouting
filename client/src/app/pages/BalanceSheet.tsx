@@ -7,7 +7,7 @@ import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeBalanceSheet, BalanceSheetData, BSGroup, BSLedger } from "../api/balanceSheetApi";
 import { computeTrialBalance, TrialRow } from "../api/trialBalanceApi";
-import { getAllEntries } from "../api/bankCashBookApi";
+import { getAllEntries, getAllAccounts } from "../api/bankCashBookApi";
 import { getAllJournalEntries } from "../api/journalVoucherApi";
 import { getAllLedgers } from "../api/ledgerApi";
 import { getAllGroups } from "../api/accountGroupApi";
@@ -229,7 +229,7 @@ function flattenUnmatched(unmatchedGroups: any[]): ReportRow[] {
 // â”€â”€ Extra Calculations for Trading & P&L and Capital Accounts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 interface CapitalTxn {
   particulars: string;
-  amount: number;
+  amount?: number;
 }
 
 interface PartnerCapitalAccount {
@@ -397,8 +397,8 @@ function computePartnerCapital(
     ...formattedCredits
   ];
 
-  const creditsSum = finalCredits.reduce((s, c) => s + c.amount, 0);
-  const debitsSum = formattedDebits.reduce((s, d) => s + d.amount, 0);
+  const creditsSum = finalCredits.reduce((s, c) => s + (c.amount ?? 0), 0);
+  const debitsSum = formattedDebits.reduce((s, d) => s + (d.amount ?? 0), 0);
   const closingBalance = creditsSum - debitsSum;
 
   const finalDebits = [
@@ -411,8 +411,8 @@ function computePartnerCapital(
     debits: finalDebits,
     credits: finalCredits,
     total: Math.max(
-      finalDebits.reduce((s, d) => s + d.amount, 0),
-      finalCredits.reduce((s, c) => s + c.amount, 0)
+      finalDebits.reduce((s, d) => s + (d.amount ?? 0), 0),
+      finalCredits.reduce((s, c) => s + (c.amount ?? 0), 0)
     )
   };
 }

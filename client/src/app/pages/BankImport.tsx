@@ -120,6 +120,10 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
   const [newAccBal, setNewAccBal]           = useState("");
   const [creatingAcc, setCreatingAcc]       = useState(false);
 
+  const [selectedRows, setSelectedRows] = useState<ImportRow[]>([]);
+  const [bulkAccName, setBulkAccName] = useState("");
+  const [bulkAccGroup, setBulkAccGroup] = useState("");
+
   useEffect(() => {
     getAllAccounts()
       .then((accs) => {
@@ -250,6 +254,21 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       }
 
       const prepared = toImportRows(txns);
+      const hasOpBal = prepared.some((r) => isOpeningBalRow(r.narration));
+      if (!hasOpBal) {
+        const firstTxnDate = prepared[0]?.date || new Date().toISOString().slice(0, 10);
+        const opRow: ImportRow = {
+          id: uid(),
+          date: firstTxnDate,
+          narration: "Opening Balance",
+          withdrawal: 0,
+          deposit: 0,
+          aiAccountName: "",
+          aiAccountGroup: "",
+          aiStatus: "done" as const,
+        };
+        prepared.unshift(opRow);
+      }
       setRows(prepared);
       setStep(1);
       await runAI(prepared);
@@ -290,6 +309,21 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
   // ── Load sample ───────────────────────────────────────────────────────────
   const loadSample = useCallback(async () => {
     const sampleRows = toImportRows(SAMPLE_TRANSACTIONS);
+    const hasOpBal = sampleRows.some((r) => isOpeningBalRow(r.narration));
+    if (!hasOpBal) {
+      const firstTxnDate = sampleRows[0]?.date || new Date().toISOString().slice(0, 10);
+      const opRow: ImportRow = {
+        id: uid(),
+        date: firstTxnDate,
+        narration: "Opening Balance",
+        withdrawal: 0,
+        deposit: 0,
+        aiAccountName: "",
+        aiAccountGroup: "",
+        aiStatus: "done" as const,
+      };
+      sampleRows.unshift(opRow);
+    }
     setFile(new File([], "sample_hdfc_statement.xlsx"));
     setRows(sampleRows);
     setStep(1);
@@ -331,11 +365,49 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     setRows((prev) => prev.filter((r) => r.id !== id));
   }, []);
 
+  const onSelectionChanged = useCallback((event: any) => {
+    setSelectedRows(event.api.getSelectedRows());
+  }, []);
+
+  const handleApplyBulkEdit = useCallback(() => {
+    if (!bulkAccName.trim() && !bulkAccGroup) {
+      toast.error("Please enter an Account Name or select an Account Group to apply");
+      return;
+    }
+
+    setRows((prev) =>
+      prev.map((r) => {
+        const isSelected = selectedRows.some((sr) => sr.id === r.id);
+        if (isSelected && !isOpeningBalRow(r.narration)) {
+          return {
+            ...r,
+            aiAccountName: bulkAccName.trim() ? bulkAccName.trim() : r.aiAccountName,
+            aiAccountGroup: bulkAccGroup ? bulkAccGroup : r.aiAccountGroup,
+          };
+        }
+        return r;
+      })
+    );
+
+    // Clear selection after applying
+    gridRef.current?.api.deselectAll();
+    setSelectedRows([]);
+    setBulkAccName("");
+    setBulkAccGroup("");
+    toast.success(`Updated ${selectedRows.length} selected transactions`);
+  }, [selectedRows, bulkAccName, bulkAccGroup]);
+
   // ── Inline edit ───────────────────────────────────────────────────────────
   const onCellEditingStopped = useCallback((e: any) => {
     const { data, column, newValue } = e;
     if (!data) return;
-    setRows((prev) => prev.map((r) => r.id === data.id ? { ...r, [column.colId]: newValue } : r));
+    
+    let parsedValue = newValue;
+    if (column.colId === "withdrawal" || column.colId === "deposit") {
+      parsedValue = parseFloat(newValue) || 0;
+    }
+    
+    setRows((prev) => prev.map((r) => r.id === data.id ? { ...r, [column.colId]: parsedValue } : r));
   }, []);
 
   // ── Summary ───────────────────────────────────────────────────────────────
@@ -362,8 +434,8 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       if (isOpeningBalRow(r.narration)) {
         return {
           ...r,
-          withdrawal: 0,
-          deposit: 0,
+          withdrawal: r.withdrawal,
+          deposit: r.deposit,
           balance: running,
         };
       }
@@ -402,6 +474,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       width: 108,
       filter: "agTextColumnFilter",
       floatingFilter: true,
+      editable: true,
       cellStyle: { fontSize: "12px", color: "#64748b" } as any,
     },
     {
@@ -411,6 +484,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       minWidth: 240,
       filter: "agTextColumnFilter",
       floatingFilter: true,
+      editable: true,
       cellStyle: { fontSize: "12px", color: "#1e293b" } as any,
     },
     {
@@ -418,6 +492,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       headerName: "Withdrawals/Payment",
       width: 145,
       type: "numericColumn",
+      editable: true,
       cellRenderer: (p: ICellRendererParams<ImportRow>) =>
         p.data?.withdrawal
           ? <span className="text-red-600 font-semibold text-xs">{fmt(p.data.withdrawal)}</span>
@@ -428,6 +503,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       headerName: "Deposit/Receipt",
       width: 145,
       type: "numericColumn",
+      editable: true,
       cellRenderer: (p: ICellRendererParams<ImportRow>) =>
         p.data?.deposit
           ? <span className="text-emerald-600 font-semibold text-xs">{fmt(p.data.deposit)}</span>
@@ -956,6 +1032,44 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
             </div>
           )}
 
+          {/* Bulk Edit Bar */}
+          {selectedRows.length > 0 && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 shadow-sm flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Bot size={16} className="text-indigo-600 animate-bounce" />
+                <span className="text-sm font-semibold text-indigo-900">
+                  Bulk Edit ({selectedRows.length} selected rows):
+                </span>
+              </div>
+              <div className="flex items-center gap-3 flex-1 min-w-[300px]">
+                <input
+                  type="text"
+                  placeholder="Set Account Name for selected..."
+                  value={bulkAccName}
+                  onChange={(e) => setBulkAccName(e.target.value)}
+                  className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 font-medium"
+                />
+                <select
+                  value={bulkAccGroup}
+                  onChange={(e) => setBulkAccGroup(e.target.value)}
+                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 font-medium"
+                >
+                  <option value="">-- Set Group --</option>
+                  {LEDGER_GROUPS.map((g) => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleApplyBulkEdit}
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Grid */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
             <div
@@ -968,6 +1082,9 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
                 rowData={rowsWithBalance}
                 columnDefs={columnDefs}
                 defaultColDef={{ resizable: true, sortable: true }}
+                rowSelection={{ mode: "multiRow" }}
+                suppressRowClickSelection={true}
+                onSelectionChanged={onSelectionChanged}
                 rowHeight={48}
                 headerHeight={44}
                 floatingFiltersHeight={38}

@@ -30,27 +30,50 @@ const matchNumericFilter = (value: number, filterText: string): boolean => {
   const text = filterText.trim();
   if (!text) return true;
 
-  // Match comparison operators: >=, <=, >, <, =
-  const match = text.match(/^(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)$/);
-  if (match) {
-    const op = match[1] || "=";
-    const target = parseFloat(match[2]);
-    if (isNaN(target)) return false;
+  // Split by whitespace or commas/and/&& to support multiple conditions, e.g. ">100 <500"
+  const tokens = text.split(/\s+(?:and|&&)\s+|\s*,\s*|\s+/i).filter(Boolean);
+  if (tokens.length === 0) return true;
 
-    switch (op) {
-      case ">": return value > target;
-      case "<": return value < target;
-      case ">=": return value >= target;
-      case "<=": return value <= target;
-      case "=": return value === target;
-      default: return false;
+  // All tokens must match (AND condition)
+  for (const token of tokens) {
+    const match = token.match(/^(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)$/);
+    if (match) {
+      const op = match[1];
+      const target = parseFloat(match[2]);
+      if (isNaN(target)) return false;
+
+      if (op) {
+        let tokenMatch = false;
+        switch (op) {
+          case ">": tokenMatch = value > target; break;
+          case "<": tokenMatch = value < target; break;
+          case ">=": tokenMatch = value >= target; break;
+          case "<=": tokenMatch = value <= target; break;
+          case "=": tokenMatch = value === target; break;
+        }
+        if (!tokenMatch) return false;
+      } else {
+        // No operator explicitly provided (e.g. "100")
+        // Match either exact value or substring of value/formatted value
+        const valStr = String(value);
+        const fmtVal = fmt(value).toLowerCase();
+        const tokenLower = token.toLowerCase();
+        const exactMatch = value === target;
+        const substringMatch = valStr.includes(tokenLower) || fmtVal.includes(tokenLower);
+        if (!exactMatch && !substringMatch) return false;
+      }
+    } else {
+      // If token doesn't match operator structure, do substring matching
+      const valStr = String(value);
+      const fmtVal = fmt(value).toLowerCase();
+      const tokenLower = token.toLowerCase();
+      if (!valStr.includes(tokenLower) && !fmtVal.includes(tokenLower)) {
+        return false;
+      }
     }
   }
 
-  // Fallback: search within string representation of raw number or formatted number
-  const valStr = String(value);
-  const fmtVal = fmt(value).toLowerCase();
-  return valStr.includes(text) || fmtVal.includes(text.toLowerCase());
+  return true;
 };
 
 const GROUP_COLORS: Record<AccountGroup, { bg: string; text: string; icon: React.ElementType; dot: string; badge: string }> = {
@@ -231,6 +254,7 @@ function ExcelTable({
   rows, openingBalance, onDelete, onCellSave, contraGroups,
   colFilters, onFilterChange, onOpeningBalanceChange,
   selectedIds, onSelectionChange,
+  changedEntryIds,
 }: {
   rows: BankCashRow[];
   openingBalance: number;
@@ -252,6 +276,7 @@ function ExcelTable({
   onOpeningBalanceChange?: (newBalance: number) => void;
   selectedIds: Set<string>;
   onSelectionChange: (ids: Set<string>) => void;
+  changedEntryIds: Set<string>;
 }) {
   const [editCell, setEditCell]         = useState<EditCell | null>(null);
   const [saving,   setSaving]           = useState(false);
@@ -454,7 +479,7 @@ function ExcelTable({
         <thead className="sticky top-0 z-10">
           {/* Column-letter row (Excel A B C style) */}
           <tr>
-            {["", "", "A", "B", "C", "D", "E", "F", "G", "H", ""].map((l, i) => (
+            {["", "", "A", "B", "C", "D", "E", "F", "G", "H", "", ""].map((l, i) => (
               <th key={i} className="border border-slate-300 bg-[#bdc5d5] text-slate-500 text-[10px] font-semibold text-center py-0.5 px-1 select-none w-8">
                 {l}
               </th>
@@ -482,8 +507,9 @@ function ExcelTable({
             <th className={`${COL_HEADER} text-right`}>Balance</th>
             <th className={`${COL_HEADER}`}>Account name</th>
             <th className={`${COL_HEADER}`}>Account group name</th>
-            <th className={`${COL_HEADER} text-center w-16`}>
-              {saving ? <Loader2 size={11} className="animate-spin inline" /> : "✓"}
+            <th className={`${COL_HEADER} text-center w-10`}>✓</th>
+            <th className={`${COL_HEADER} text-center w-12`}>
+              {saving ? <Loader2 size={11} className="animate-spin inline" /> : ""}
             </th>
           </tr>
           {/* Column filter row */}
@@ -580,8 +606,10 @@ function ExcelTable({
                 className="w-full border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </td>
+            {/* Checkmark spacer cell */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9] w-10" />
             {/* Clear filters cell */}
-            <td className="border border-slate-300 p-1 bg-[#f1f5f9] text-center w-16">
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9] text-center w-12">
               {Object.values(colFilters).some(v => v !== "") && (
                 <button
                   onClick={() => onFilterChange({
@@ -648,12 +676,12 @@ function ExcelTable({
                 </span>
               )}
             </td>
-            <td className={COL_CELL} colSpan={3} />
+            <td className={COL_CELL} colSpan={4} />
           </tr>
 
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={10} className="text-center py-8 text-slate-400 italic bg-white border border-slate-300">
+              <td colSpan={12} className="text-center py-8 text-slate-400 italic bg-white border border-slate-300">
                 No matching records found
               </td>
             </tr>
@@ -741,8 +769,17 @@ function ExcelTable({
                   </span>
                 </EditableCell>
 
+                {/* Permanent Checkmark (Only shown if modified) */}
+                <td className={`${COL_CELL} text-center w-10 bg-emerald-50/10`}>
+                  {changedEntryIds.has(row._id) && (
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-50 border border-emerald-100 animate-in zoom-in-50 duration-200">
+                      <Check size={12} className="text-emerald-600 stroke-[3]" />
+                    </span>
+                  )}
+                </td>
+
                 {/* Delete button */}
-                <td className={`${COL_CELL} text-center`}>
+                <td className={`${COL_CELL} text-center w-12`}>
                   <div className="flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => onDelete(row)} title="Delete row"
                       className="p-1 rounded hover:bg-red-100 text-slate-400 hover:text-red-500 transition-colors">
@@ -755,13 +792,12 @@ function ExcelTable({
           }))}
 
           {/* Totals row */}
-          <tr className="bg-[#d0d7e3] font-bold sticky bottom-0">
-            <td className={`${COL_NUM} font-bold text-slate-600`} />
-            <td className={`${COL_NUM} font-bold text-slate-600`}>Σ</td>
-            <td className={`${COL_CELL} font-bold text-slate-700`} colSpan={3}>
+          <tr className="bg-[#f8fafc] font-semibold border-t-2 border-slate-300">
+            <td className={COL_NUM}>Σ</td>
+            <td className={`${COL_CELL} text-slate-500`} colSpan={4}>
               Total ({rows.length} entries)
             </td>
-            <td className={`${COL_CELL} text-right font-mono font-bold text-red-700`}>
+            <td className={`${COL_CELL} text-right font-mono font-bold text-red-600`}>
               ₹{fmt(totalWithdrawal)}
             </td>
             <td className={`${COL_CELL} text-right font-mono font-bold text-emerald-700`}>
@@ -794,6 +830,7 @@ export default function BankCashBook() {
   const [showImport,      setShowImport]      = useState(false);
   const [groupNames,      setGroupNames]      = useState<string[]>([]);
   const [selectedIds,     setSelectedIds]     = useState<Set<string>>(new Set());
+  const [changedEntryIds, setChangedEntryIds] = useState<Set<string>>(new Set());
   const [bulkAccName,     setBulkAccName]     = useState("");
   const [bulkAccGroup,    setBulkAccGroup]    = useState("");
   const [bulkSaving,      setBulkSaving]      = useState(false);
@@ -853,7 +890,10 @@ export default function BankCashBook() {
     getAllAccounts().then(setAccounts).catch(() => toast.error("Failed to load accounts"));
   }, [selectedFY?._id]);
 
-  useEffect(() => { loadRows(accountFilter); }, [accountFilter, loadRows]);
+  useEffect(() => {
+    setChangedEntryIds(new Set());
+    loadRows(accountFilter);
+  }, [accountFilter, loadRows]);
 
   const handleSubmit = useCallback(async (data: EntryPayload) => {
     const w = Number(data.withdrawal ?? 0);
@@ -934,6 +974,11 @@ export default function BankCashBook() {
     try {
       await updateEntry(id, patch);
       toast.success("Saved", { duration: 1200, icon: "✓" });
+      setChangedEntryIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
@@ -973,6 +1018,11 @@ export default function BankCashBook() {
         return updateEntry(id, patch);
       }));
       toast.success(`Updated ${ids.length} entries`);
+      setChangedEntryIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.add(id));
+        return next;
+      });
       setSelectedIds(new Set());
       setBulkAccName("");
       setBulkAccGroup("");
@@ -1277,6 +1327,7 @@ export default function BankCashBook() {
             onOpeningBalanceChange={accountFilter !== "all" ? handleOpeningBalanceChange : undefined}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
+            changedEntryIds={changedEntryIds}
           />
         )}
       </div>

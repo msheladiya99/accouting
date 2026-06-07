@@ -254,6 +254,7 @@ function ExcelTable({
   rows, openingBalance, onDelete, onCellSave, contraGroups,
   colFilters, onFilterChange, onOpeningBalanceChange,
   selectedIds, onSelectionChange,
+  changedEntryIds,
 }: {
   rows: BankCashRow[];
   openingBalance: number;
@@ -275,6 +276,7 @@ function ExcelTable({
   onOpeningBalanceChange?: (newBalance: number) => void;
   selectedIds: Set<string>;
   onSelectionChange: (ids: Set<string>) => void;
+  changedEntryIds: Set<string>;
 }) {
   const [editCell, setEditCell]         = useState<EditCell | null>(null);
   const [saving,   setSaving]           = useState(false);
@@ -767,11 +769,13 @@ function ExcelTable({
                   </span>
                 </EditableCell>
 
-                {/* Permanent Checkmark */}
+                {/* Permanent Checkmark (Only shown if modified) */}
                 <td className={`${COL_CELL} text-center w-10 bg-emerald-50/10`}>
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-50 border border-emerald-100">
-                    <Check size={12} className="text-emerald-600 stroke-[3]" />
-                  </span>
+                  {changedEntryIds.has(row._id) && (
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-50 border border-emerald-100 animate-in zoom-in-50 duration-200">
+                      <Check size={12} className="text-emerald-600 stroke-[3]" />
+                    </span>
+                  )}
                 </td>
 
                 {/* Delete button */}
@@ -826,6 +830,7 @@ export default function BankCashBook() {
   const [showImport,      setShowImport]      = useState(false);
   const [groupNames,      setGroupNames]      = useState<string[]>([]);
   const [selectedIds,     setSelectedIds]     = useState<Set<string>>(new Set());
+  const [changedEntryIds, setChangedEntryIds] = useState<Set<string>>(new Set());
   const [bulkAccName,     setBulkAccName]     = useState("");
   const [bulkAccGroup,    setBulkAccGroup]    = useState("");
   const [bulkSaving,      setBulkSaving]      = useState(false);
@@ -885,7 +890,10 @@ export default function BankCashBook() {
     getAllAccounts().then(setAccounts).catch(() => toast.error("Failed to load accounts"));
   }, [selectedFY?._id]);
 
-  useEffect(() => { loadRows(accountFilter); }, [accountFilter, loadRows]);
+  useEffect(() => {
+    setChangedEntryIds(new Set());
+    loadRows(accountFilter);
+  }, [accountFilter, loadRows]);
 
   const handleSubmit = useCallback(async (data: EntryPayload) => {
     const w = Number(data.withdrawal ?? 0);
@@ -966,6 +974,11 @@ export default function BankCashBook() {
     try {
       await updateEntry(id, patch);
       toast.success("Saved", { duration: 1200, icon: "✓" });
+      setChangedEntryIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
@@ -1005,6 +1018,11 @@ export default function BankCashBook() {
         return updateEntry(id, patch);
       }));
       toast.success(`Updated ${ids.length} entries`);
+      setChangedEntryIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.add(id));
+        return next;
+      });
       setSelectedIds(new Set());
       setBulkAccName("");
       setBulkAccGroup("");
@@ -1309,6 +1327,7 @@ export default function BankCashBook() {
             onOpeningBalanceChange={accountFilter !== "all" ? handleOpeningBalanceChange : undefined}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
+            changedEntryIds={changedEntryIds}
           />
         )}
       </div>

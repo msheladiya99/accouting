@@ -7,26 +7,17 @@ import {
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
 import {
-  CalendarRange, Zap, RefreshCw, CheckCircle2, Lock,
-  Trash2, TrendingUp, Clock, Calendar,
+  CalendarRange, RefreshCw, CheckCircle2, Lock,
+  Trash2, TrendingUp, Clock, Calendar, Plus,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
   type FinancialYear,
-  getAllFYs, generateFYs, closeFY, deleteFY,
+  getAllFYs, generateFYs, closeFY, deleteFY, createFY,
 } from "../api/financialYearApi";
 import { useApp } from "../context/AppContext";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
-
-// Base years to auto-generate (shown in the Generate panel)
-const AUTO_GENERATE_YEARS = [
-  { baseYear: 2024, label: "FY 2024-25" },
-  { baseYear: 2025, label: "FY 2025-26" },
-  { baseYear: 2026, label: "FY 2026-27" },
-  { baseYear: 2027, label: "FY 2027-28" },
-  { baseYear: 2028, label: "FY 2028-29" },
-];
 
 const statusMeta: Record<string, { label: string; bg: string; dot: string; text: string }> = {
   current: { label: "Current", bg: "bg-emerald-50", dot: "bg-emerald-500", text: "text-emerald-700" },
@@ -38,8 +29,9 @@ const statusMeta: Record<string, { label: string; bg: string; dot: string; text:
 export default function FinancialYear() {
   const { selectedFY, setSelectedFY, availableFYs, setAvailableFYs } = useApp();
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [selectedYears, setSelectedYears] = useState<number[]>([2025, 2026, 2027]);
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [customCreating, setCustomCreating] = useState(false);
   const gridRef = useRef<AgGridReact>(null);
 
   // ── Load ────────────────────────────────────────────────────────────────────
@@ -56,25 +48,6 @@ export default function FinancialYear() {
   }, [setAvailableFYs]);
 
   useEffect(() => { reload(); }, [reload]);
-
-  // ── Generate ────────────────────────────────────────────────────────────────
-  const handleGenerate = useCallback(async () => {
-    if (selectedYears.length === 0) return toast.error("Select at least one year to generate");
-    setGenerating(true);
-    try {
-      const added = await generateFYs(selectedYears);
-      if (added.length === 0) {
-        toast("All selected FYs already exist", { icon: "ℹ️" });
-      } else {
-        toast.success(`Generated ${added.length} financial year${added.length > 1 ? "s" : ""}`);
-      }
-      await reload();
-    } catch (e: any) {
-      toast.error(e.message || "Generation failed");
-    } finally {
-      setGenerating(false);
-    }
-  }, [selectedYears, reload]);
 
   // ── Set Active ──────────────────────────────────────────────────────────────
   const handleSetActive = useCallback((fy: FinancialYear) => {
@@ -105,6 +78,32 @@ export default function FinancialYear() {
       toast.error(e.message);
     }
   }, [availableFYs, setAvailableFYs]);
+
+  // ── Create Custom FY ────────────────────────────────────────────────────────
+  const handleCreateCustom = useCallback(async () => {
+    if (!customStart || !customEnd) return toast.error("Please enter both start and end dates");
+    if (new Date(customStart) >= new Date(customEnd)) return toast.error("End date must be after start date");
+    setCustomCreating(true);
+    try {
+      await createFY(customStart, customEnd);
+      toast.success("Financial Year created successfully");
+      setCustomStart("");
+      setCustomEnd("");
+      await reload();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to create financial year");
+    } finally {
+      setCustomCreating(false);
+    }
+  }, [customStart, customEnd, reload]);
+
+  const previewLabel = useMemo(() => {
+    if (!customStart || !customEnd) return "—";
+    const startYear = new Date(customStart).getFullYear();
+    const endYear = new Date(customEnd).getFullYear();
+    if (isNaN(startYear) || isNaN(endYear)) return "Invalid Date";
+    return `FY ${startYear}-${String(endYear).slice(-2)}`;
+  }, [customStart, customEnd]);
 
   // ── Toggle year selection ───────────────────────────────────────────────────
   const toggleYear = (y: number) =>
@@ -323,51 +322,60 @@ export default function FinancialYear() {
         </div>
       </div>
 
-      {/* Auto-generate panel */}
+      {/* Custom Creation Panel */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-slate-50">
           <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
-            <Zap size={15} className="text-indigo-600" />
+            <CalendarRange size={15} className="text-indigo-600" />
           </div>
           <div>
-            <h3 className="text-slate-900">Auto-Generate Financial Years</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Select years to generate April–March periods</p>
+            <h3 className="text-slate-900">Create Custom Financial Year</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Enter start & end dates to define a custom period</p>
           </div>
         </div>
-        <div className="p-5">
-          <div className="flex flex-wrap gap-2 mb-4">
-            {AUTO_GENERATE_YEARS.map(({ baseYear, label }) => {
-              const exists = availableFYs.some((f) => f._id === `fy-${baseYear}-${String(baseYear + 1).slice(-2)}`);
-              const selected = selectedYears.includes(baseYear);
-              return (
-                <button
-                  key={baseYear}
-                  onClick={() => !exists && toggleYear(baseYear)}
-                  disabled={exists}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all
-                    ${exists
-                      ? "bg-emerald-50 border-emerald-200 text-emerald-700 cursor-default"
-                      : selected
-                        ? "bg-indigo-600 border-indigo-600 text-white shadow-sm"
-                        : "bg-slate-50 border-slate-200 text-slate-700 hover:border-indigo-300 hover:bg-indigo-50"}`}
-                >
-                  {exists
-                    ? <><CheckCircle2 size={14} /> {label} <span className="text-[10px] opacity-70">(exists)</span></>
-                    : <><CalendarRange size={14} /> {label}</>
-                  }
-                </button>
-              );
-            })}
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Start Date</label>
+              <input
+                type="date"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase mb-1.5">End Date</label>
+              <input
+                type="date"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
           </div>
-          <button
-            onClick={handleGenerate}
-            disabled={generating || selectedYears.filter((y) => !availableFYs.some((f) => f._id === `fy-${y}-${String(y + 1).slice(-2)}`)).length === 0}
-            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {generating
-              ? <><RefreshCw size={14} className="animate-spin" /> Generating…</>
-              : <><Zap size={14} /> Generate Selected FYs</>}
-          </button>
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-400 font-medium">Auto-generated Label</p>
+              <p className="text-sm font-bold text-slate-700 mt-0.5">{previewLabel}</p>
+            </div>
+            {customStart && customEnd && (
+              <span className="text-[10px] px-2 py-0.5 bg-indigo-50 text-indigo-700 font-semibold rounded-full border border-indigo-100">
+                {Math.round((new Date(customEnd).getTime() - new Date(customStart).getTime()) / (1000 * 60 * 60 * 24)) + 1} days
+              </span>
+            )}
+          </div>
+          <div className="pt-2 flex justify-start">
+            <button
+              onClick={handleCreateCustom}
+              disabled={customCreating || !customStart || !customEnd}
+              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {customCreating
+                ? <><RefreshCw size={14} className="animate-spin" /> Creating…</>
+                : <><Plus size={14} /> Create Custom FY</>}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -382,7 +382,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       width: 65,
       sortable: false,
       valueGetter: (p) => (p.node?.rowIndex ?? 0) + 1,
-      cellStyle: { color: "#94a3b8", fontSize: "11px", textAlign: "center" },
+      cellStyle: { color: "#94a3b8", fontSize: "11px", textAlign: "center" } as any,
     },
     {
       headerName: "Bank/cash name",
@@ -394,7 +394,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
         const acc = accounts.find((a) => a._id === selectedAccountId);
         return acc ? acc.name : "";
       },
-      cellStyle: { fontSize: "12px", color: "#334155", fontWeight: "500" },
+      cellStyle: { fontSize: "12px", color: "#334155", fontWeight: "500" } as any,
     },
     {
       field: "date",
@@ -402,7 +402,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       width: 108,
       filter: "agTextColumnFilter",
       floatingFilter: true,
-      cellStyle: { fontSize: "12px", color: "#64748b" },
+      cellStyle: { fontSize: "12px", color: "#64748b" } as any,
     },
     {
       field: "narration",
@@ -411,7 +411,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       minWidth: 240,
       filter: "agTextColumnFilter",
       floatingFilter: true,
-      cellStyle: { fontSize: "12px", color: "#1e293b" },
+      cellStyle: { fontSize: "12px", color: "#1e293b" } as any,
     },
     {
       field: "withdrawal",
@@ -960,7 +960,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
             <div
               className="ag-theme-quartz"
-              style={{ height: Math.max(420, Math.min(rows.length * 48 + 120, 640)) }}
+              style={{ height: Math.max(450, Math.min(rows.length * 48 + 120, 750)) }}
             >
               <AgGridReact<ImportRow>
                 theme="legacy"

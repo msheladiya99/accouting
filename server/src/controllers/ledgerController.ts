@@ -322,6 +322,7 @@ export async function updateBulkOpeningBalances(req: AuthenticatedRequest, res: 
       });
 
       if (ledger) {
+        ledger.ledgerName = trimmedName;
         ledger.groupName = groupName;
         ledger.openingDr = openingDr || 0;
         ledger.openingCr = openingCr || 0;

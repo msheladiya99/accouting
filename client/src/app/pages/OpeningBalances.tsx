@@ -381,22 +381,17 @@ function parseOpeningBalancesSheetRows(
     const ledgerName = ledgerCol >= 0 ? String(row[ledgerCol] ?? "").trim() : "";
     if (!ledgerName) continue;
 
-    // Try to match against existing database ledgers
+    // Try to match against existing database ledgers to map to the correct ID
     const existing = existingLedgers.find(
       (el) => el.ledgerName.trim().toLowerCase() === ledgerName.toLowerCase()
     );
 
-    let finalLedgerName = ledgerName;
-    let finalGroup = "Assets";
+    const group = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "";
+    const finalGroup = group || "Assets"; // Use Excel's group exactly, default to "Assets" only if empty
+    
     let finalId = `imported-${Date.now()}-${Math.random()}-${i}`;
-
     if (existing) {
-      finalLedgerName = existing.ledgerName;
-      finalGroup = existing.group;
       finalId = existing.id;
-    } else {
-      const group = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "Assets";
-      finalGroup = findBestGroupMatch(group, groupsList);
     }
 
     const toNum = (val: unknown) => {
@@ -410,7 +405,7 @@ function parseOpeningBalancesSheetRows(
 
     parsed.push({
       id: finalId,
-      ledgerName: finalLedgerName,
+      ledgerName: ledgerName,
       group: finalGroup,
       amountDr,
       amountCr,

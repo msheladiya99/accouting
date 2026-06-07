@@ -85,17 +85,23 @@ export interface BalanceSheetData {
 }
 
 // ── Main API ───────────────────────────────────────────────────────────────────
-export async function computeBalanceSheet(): Promise<BalanceSheetData> {
+export async function computeBalanceSheet(cache?: {
+  ledgers?: any[];
+  bankAccounts?: any[];
+  bankEntries?: any[];
+  journalEntries?: any[];
+  groups?: any[];
+}): Promise<BalanceSheetData> {
   const [trialSummary, groups] = await Promise.all([
-    computeTrialBalance(),
-    getAllGroups()
+    computeTrialBalance(cache),
+    cache?.groups ?? getAllGroups()
   ]);
   const { rows, stats } = trialSummary;
 
   // Build dynamic mapping of groupName -> parentCategory
   const groupParentsMap: Record<string, string> = {};
   groups.forEach((g) => {
-    groupParentsMap[g.groupName] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
+    groupParentsMap[g.groupName.trim().toLowerCase()] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
   });
 
   // Accumulate net values by group
@@ -109,7 +115,7 @@ export async function computeBalanceSheet(): Promise<BalanceSheetData> {
   for (const row of rows) {
     const netDr = row.closingDr;
     const netCr = row.closingCr;
-    let parentCategory = groupParentsMap[row.group] || "Assets";
+    let parentCategory = groupParentsMap[row.group.trim().toLowerCase()] || "Assets";
 
     // Classify Profit & Loss A/c dynamically based on net balance: debit balance (loss) is an Asset, credit balance (profit) is Capital
     if (row.group === "Profit & Loss A/c") {

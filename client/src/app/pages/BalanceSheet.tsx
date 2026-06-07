@@ -10,6 +10,30 @@ import { computeTrialBalance, TrialRow } from "../api/trialBalanceApi";
 import { getAllEntries } from "../api/bankCashBookApi";
 import { getAllJournalEntries } from "../api/journalVoucherApi";
 import { getAllLedgers } from "../api/ledgerApi";
+import { getAllGroups } from "../api/accountGroupApi";
+
+const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
+  "Capital Account": "Capital",
+  "Profit & Loss A/c": "Capital",
+  "Current Liabilities": "Liabilities",
+  "Loans (Liability)": "Liabilities",
+  "Fixed Assets": "Assets",
+  "Investments": "Assets",
+  "Current Assets": "Assets",
+  "Cash Ledger A/C.": "Assets",
+  "Stock-in-hand": "Assets",
+  "Suspense Account": "Assets",
+  "Misc. Expenses (Asset)": "Assets",
+  "Sales Account": "Income",
+  "Purchase Account": "Expense",
+  "Income (Trading)": "Income",
+  "Income": "Income",
+  "Income (Other Then Sales)": "Income",
+  "Expenses (Direct)": "Expense",
+  "Expense Account": "Expense",
+  "Partner Interest": "Expense",
+  "Partner Remuneration": "Expense"
+};
 
 const fmt = (v: number) =>
   `\u20B9${Math.abs(v).toLocaleString("en-IN")}`;
@@ -215,7 +239,7 @@ interface PartnerCapitalAccount {
   total: number;
 }
 
-function computeTradingPL(rows: TrialRow[]) {
+function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, string>) {
   const openingStockRows: any[] = [];
   const closingStockRows: any[] = [];
   const purchaseRows: any[] = [];
@@ -233,14 +257,22 @@ function computeTradingPL(rows: TrialRow[]) {
     const netDrCr = r.closingDr - r.closingCr;
     const absVal = Math.abs(netDrCr);
 
-    if (groupName === "stock-in-hand" || groupName === "inventory") {
-      if (r.openingDr > 0) {
-        openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
+    const parentCategory = groupParentsMap[r.group.trim().toLowerCase()] || "Assets";
+
+    if (parentCategory !== "Income" && parentCategory !== "Expense") {
+      // Stock-in-hand (Asset) opening/closing stock is an exception needed for Trading account!
+      if (groupName === "stock-in-hand" || groupName === "inventory") {
+        if (r.openingDr > 0) {
+          openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
+        }
+        if (r.closingDr > 0) {
+          closingStockRows.push({ name: r.ledgerName, amount: r.closingDr });
+        }
       }
-      if (r.closingDr > 0) {
-        closingStockRows.push({ name: r.ledgerName, amount: r.closingDr });
-      }
-    } else if (groupName === "purchase account" || groupName === "purchases") {
+      return;
+    }
+
+    if (groupName === "purchase account" || groupName === "purchases") {
       if (absVal > 0.001) {
         purchaseRows.push({ name: r.ledgerName, amount: absVal });
       }
@@ -252,16 +284,11 @@ function computeTradingPL(rows: TrialRow[]) {
       if (absVal > 0.001) {
         salesRows.push({ name: r.ledgerName, amount: absVal });
       }
-    } else if (
-      groupName === "income" || 
-      groupName === "income (trading)" || 
-      groupName === "income (other then sales)" ||
-      groupName === "indirect incomes"
-    ) {
+    } else if (parentCategory === "Income") {
       if (absVal > 0.001) {
         indirectIncomeRows.push({ name: r.ledgerName, amount: absVal });
       }
-    } else {
+    } else if (parentCategory === "Expense") {
       if (absVal > 0.001) {
         if (ledgerName.includes("depreciation")) {
           depreciationRows.push({ name: r.ledgerName, amount: absVal });
@@ -390,69 +417,88 @@ function computePartnerCapital(
   };
 }
 
+// ── Module-level cache for instant SWR loading ─────────────────────────────
+let cachedData: BalanceSheetData | null = null;
+let cachedCapitalAccounts: PartnerCapitalAccount[] = [];
+let cachedTradingPLData: any = null;
+let cachedFYId: string | null = null;
+
 // ── Main component ─────────────────────────────────────────────────────────
 export default function BalanceSheet() {
   const { selectedFY, company } = useApp();
   const financialYear = selectedFY?.label ?? "—";
 
-  const [data, setData]       = useState<BalanceSheetData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData]       = useState<BalanceSheetData | null>(cachedFYId === selectedFY?._id ? cachedData : null);
+  const [loading, setLoading] = useState(cachedFYId === selectedFY?._id ? !cachedData : true);
   const [error, setError]     = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>([]);
-  const [tradingPLData, setTradingPLData] = useState<any>(null);
+  const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>(
+    cachedFYId === selectedFY?._id ? cachedCapitalAccounts : []
+  );
+  const [tradingPLData, setTradingPLData] = useState<any>(
+    cachedFYId === selectedFY?._id ? cachedTradingPLData : null
+  );
 
-  useEffect(() => {
-    async function loadExtraData() {
-      try {
-        const [trialSummary, bEntries, jEntries, allLedgers] = await Promise.all([
-          computeTrialBalance(),
-          getAllEntries(),
-          getAllJournalEntries(),
-          getAllLedgers()
-        ]);
-
-        const tpl = computeTradingPL(trialSummary.rows);
-        setTradingPLData(tpl);
-
-        const capitalLedgerAccounts = allLedgers.filter(l => 
-          l.groupName.toLowerCase() === 'capital' || 
-          l.groupName.toLowerCase() === 'capital account' || 
-          l.groupName.toLowerCase() === 'capital & reserves'
-        );
-
-        const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
-          computePartnerCapital(ledger, bEntries, jEntries)
-        ));
-
-        setCapitalAccounts(accounts);
-      } catch (err) {
-        console.error("Failed to load extra report data:", err);
-      }
-    }
-
-    if (data) {
-      loadExtraData();
-    }
-  }, [data, selectedFY?._id]);
-
-  const load = useCallback(async (isRefresh = false) => {
+  const load = useCallback(async (isRefresh = false, silent = false) => {
     if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+    else if (!silent) setLoading(true);
     setError(null);
     try {
-      const result = await computeBalanceSheet();
+      const [ledgers, bankAccounts, bankEntries, journalEntries, groups] = await Promise.all([
+        getAllLedgers(),
+        getAllAccounts(),
+        getAllEntries(),
+        getAllJournalEntries(),
+        getAllGroups()
+      ]);
+
+      const cache = { ledgers, bankAccounts, bankEntries, journalEntries, groups };
+
+      // Compute balance sheet using cache
+      const result = await computeBalanceSheet(cache);
+
+      const groupParentsMap: Record<string, string> = {};
+      groups.forEach((g) => {
+        groupParentsMap[g.groupName.trim().toLowerCase()] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
+      });
+
+      const trialSummary = await computeTrialBalance(cache);
+      const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
+
+      const capitalLedgerAccounts = ledgers.filter(l => 
+        l.groupName.toLowerCase() === 'capital' || 
+        l.groupName.toLowerCase() === 'capital account' || 
+        l.groupName.toLowerCase() === 'capital & reserves'
+      );
+
+      const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
+        computePartnerCapital(ledger, bankEntries, journalEntries)
+      ));
+
+      setTradingPLData(tpl);
+      setCapitalAccounts(accounts);
       setData(result);
+
+      // Save to module cache
+      cachedData = result;
+      cachedCapitalAccounts = accounts;
+      cachedTradingPLData = tpl;
+      cachedFYId = selectedFY?._id || null;
     } catch (e: any) {
-      setError(e?.message ?? "Failed to compute balance sheet");
+      if (!silent) {
+        setError(e?.message ?? "Failed to compute balance sheet");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [selectedFY?._id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const hasCache = cachedFYId === selectedFY?._id && cachedData !== null;
+    load(false, hasCache);
+  }, [load]);
 
   const today = new Date().toLocaleDateString("en-IN", {
     day: "2-digit", month: "short", year: "numeric",

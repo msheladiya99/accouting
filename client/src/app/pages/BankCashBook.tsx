@@ -12,7 +12,7 @@ import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import {
   getAllAccounts, getEntriesForAccount, getAllEntries,
-  createEntry, updateEntry, deleteEntry, clearEntriesForAccount,
+  createEntry, updateEntry, deleteEntry, clearEntriesForAccount, deleteAccount,
   CONTRA_GROUPS,
   type BankCashAccount, type BankCashRow, type EntryPayload, type AccountGroup,
 } from "../api/bankCashBookApi";
@@ -804,6 +804,27 @@ export default function BankCashBook() {
     }
   }, [accountFilter, loadRows]);
 
+  const handleDeleteAccount = useCallback(async (acc: BankCashAccount) => {
+    if (!window.confirm(
+      `⚠️ WARNING: This will permanently delete the account "${acc.name}" AND ALL its associated entries.\n\nThis cannot be undone. Are you sure?`
+    )) return;
+    try {
+      await deleteAccount(acc._id);
+      toast.success(`Deleted account "${acc.name}"`);
+      setAccountFilter("all");
+      setGroupTypeFilter("all");
+      const [entriesData, accountsData] = await Promise.all([
+        getAllEntries(),
+        getAllAccounts()
+      ]);
+      setRows(entriesData);
+      setAccounts(accountsData);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.message || "Failed to delete account");
+    }
+  }, [loadRows]);
+
   // Called by ExcelTable when user edits a cell inline
   const handleCellSave = useCallback(async (id: string, patch: Partial<EntryPayload>) => {
     try {
@@ -930,6 +951,13 @@ export default function BankCashBook() {
                   <button
                     onClick={() => handleClearEntries(acc)}
                     title={`Clear all entries for ${acc.name}`}
+                    className="flex items-center px-2.5 py-2 border border-l-0 border-slate-200 bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                  >
+                    <RefreshCw size={12} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteAccount(acc)}
+                    title={`Delete account "${acc.name}" and all entries`}
                     className="flex items-center px-2 py-2 rounded-r-lg border border-l-0 border-red-200 bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors"
                   >
                     <Trash2 size={12} />
@@ -955,6 +983,13 @@ export default function BankCashBook() {
                   <button
                     onClick={() => handleClearEntries(acc)}
                     title={`Clear all entries for ${acc.name}`}
+                    className="flex items-center px-2.5 py-2 border border-l-0 border-slate-200 bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                  >
+                    <RefreshCw size={12} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteAccount(acc)}
+                    title={`Delete account "${acc.name}" and all entries`}
                     className="flex items-center px-2 py-2 rounded-r-lg border border-l-0 border-red-200 bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors"
                   >
                     <Trash2 size={12} />

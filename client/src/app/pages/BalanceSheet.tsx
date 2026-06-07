@@ -395,7 +395,7 @@ function computePartnerCapital(
   const finalCredits = [
     { particulars: "BY OPENING BALANCE", amount: Math.abs(openingBalance) },
     ...formattedCredits
-  ];
+  ]; 
 
   const creditsSum = finalCredits.reduce((s, c) => s + (c.amount ?? 0), 0);
   const debitsSum = formattedDebits.reduce((s, d) => s + (d.amount ?? 0), 0);

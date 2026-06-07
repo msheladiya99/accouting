@@ -52,6 +52,7 @@ apiRouter.use([
 apiRouter.get("/financial-year", financialYearController.getAllFYs);
 apiRouter.get("/financial-year/current", financialYearController.getCurrentFY);
 apiRouter.get("/financial-year/:id", financialYearController.getFYById);
+apiRouter.post("/financial-year", financialYearController.createFY);
 apiRouter.post("/financial-year/generate", financialYearController.generateFYs);
 apiRouter.put("/financial-year/:id/close", financialYearController.closeFY);
 apiRouter.delete("/financial-year/:id", financialYearController.deleteFY);

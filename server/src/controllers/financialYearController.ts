@@ -135,3 +135,43 @@ export async function deleteFY(req: AuthenticatedRequest, res: Response): Promis
     res.status(500).json({ message: error.message || "Failed to delete financial year" });
   }
 }
+
+export async function createFY(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { startDate, endDate } = req.body;
+  try {
+    if (!startDate || !endDate) {
+      res.status(400).json({ message: "Start date and End date are required" });
+      return;
+    }
+
+    const startYear = new Date(startDate).getFullYear();
+    const endYear = new Date(endDate).getFullYear();
+    if (isNaN(startYear) || isNaN(endYear)) {
+      res.status(400).json({ message: "Invalid date formats" });
+      return;
+    }
+
+    const label = `${startYear}-${String(endYear).slice(-2)}`;
+    const cid = req.companyId as string;
+
+    const exists = await FinancialYear.findOne({ financialYear: label, companyId: cid });
+    if (exists) {
+      res.status(400).json({ message: `Financial year ${label} already exists` });
+      return;
+    }
+
+    const fy = new FinancialYear({
+      companyId: cid,
+      financialYear: label,
+      label: `FY ${label}`,
+      startDate,
+      endDate,
+      status: computeStatus(startDate, endDate)
+    });
+
+    await fy.save();
+    res.status(201).json(fy);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to create financial year" });
+  }
+}

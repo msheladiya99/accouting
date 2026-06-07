@@ -68,3 +68,8 @@ export async function closeFY(id: string): Promise<FinancialYear> {
 export async function deleteFY(id: string): Promise<void> {
   await axiosClient.delete(`/financial-year/${id}`);
 }
+
+export async function createFY(startDate: string, endDate: string): Promise<FinancialYear> {
+  const res = await axiosClient.post<FinancialYear>("/financial-year", { startDate, endDate });
+  return res.data;
+}

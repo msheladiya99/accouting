@@ -383,7 +383,7 @@ export default function OpeningBalances() {
     setLoading(true);
     try {
       const [ledgers, groupsData] = await Promise.all([
-        getAllLedgers(),
+        getAllLedgers({ raw: true }),
         getAllGroups()
       ]);
       const mappedRows: OBRow[] = ledgers.map((l) => ({

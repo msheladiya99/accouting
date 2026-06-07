@@ -267,6 +267,9 @@ export async function updateEntry(req: AuthenticatedRequest, res: Response): Pro
     if (contraAccountName) entry.contraAccountName = contraAccountName;
     if (contraAccountGroup) entry.contraAccountGroup = contraAccountGroup;
 
+    // Persist modification status (checkmark)
+    (entry as any).isChanged = true;
+
     await entry.save();
     res.json(entry);
   } catch (error: any) {

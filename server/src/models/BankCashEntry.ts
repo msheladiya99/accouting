@@ -9,7 +9,8 @@ const bankCashEntrySchema = new Schema(
     withdrawal: { type: Number, required: true, default: 0 },
     deposit: { type: Number, required: true, default: 0 },
     contraAccountName: { type: String, required: true },
-    contraAccountGroup: { type: String, required: true }
+    contraAccountGroup: { type: String, required: true },
+    isChanged: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

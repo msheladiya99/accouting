@@ -477,7 +477,7 @@ function ExcelTable({
         <thead className="sticky top-0 z-10">
           {/* Column-letter row (Excel A B C style) */}
           <tr>
-            {["", "", "A", "B", "C", "D", "E", "F", "G", "H", ""].map((l, i) => (
+            {["", "", "A", "B", "C", "D", "E", "F", "G", "H", "", ""].map((l, i) => (
               <th key={i} className="border border-slate-300 bg-[#bdc5d5] text-slate-500 text-[10px] font-semibold text-center py-0.5 px-1 select-none w-8">
                 {l}
               </th>
@@ -505,8 +505,9 @@ function ExcelTable({
             <th className={`${COL_HEADER} text-right`}>Balance</th>
             <th className={`${COL_HEADER}`}>Account name</th>
             <th className={`${COL_HEADER}`}>Account group name</th>
-            <th className={`${COL_HEADER} text-center w-16`}>
-              {saving ? <Loader2 size={11} className="animate-spin inline" /> : "✓"}
+            <th className={`${COL_HEADER} text-center w-10`}>✓</th>
+            <th className={`${COL_HEADER} text-center w-12`}>
+              {saving ? <Loader2 size={11} className="animate-spin inline" /> : ""}
             </th>
           </tr>
           {/* Column filter row */}
@@ -603,8 +604,10 @@ function ExcelTable({
                 className="w-full border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </td>
+            {/* Checkmark spacer cell */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9] w-10" />
             {/* Clear filters cell */}
-            <td className="border border-slate-300 p-1 bg-[#f1f5f9] text-center w-16">
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9] text-center w-12">
               {Object.values(colFilters).some(v => v !== "") && (
                 <button
                   onClick={() => onFilterChange({
@@ -671,12 +674,12 @@ function ExcelTable({
                 </span>
               )}
             </td>
-            <td className={COL_CELL} colSpan={3} />
+            <td className={COL_CELL} colSpan={4} />
           </tr>
 
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={10} className="text-center py-8 text-slate-400 italic bg-white border border-slate-300">
+              <td colSpan={12} className="text-center py-8 text-slate-400 italic bg-white border border-slate-300">
                 No matching records found
               </td>
             </tr>
@@ -764,8 +767,15 @@ function ExcelTable({
                   </span>
                 </EditableCell>
 
+                {/* Permanent Checkmark */}
+                <td className={`${COL_CELL} text-center w-10 bg-emerald-50/10`}>
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-50 border border-emerald-100">
+                    <Check size={12} className="text-emerald-600 stroke-[3]" />
+                  </span>
+                </td>
+
                 {/* Delete button */}
-                <td className={`${COL_CELL} text-center`}>
+                <td className={`${COL_CELL} text-center w-12`}>
                   <div className="flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => onDelete(row)} title="Delete row"
                       className="p-1 rounded hover:bg-red-100 text-slate-400 hover:text-red-500 transition-colors">
@@ -778,13 +788,12 @@ function ExcelTable({
           }))}
 
           {/* Totals row */}
-          <tr className="bg-[#d0d7e3] font-bold sticky bottom-0">
-            <td className={`${COL_NUM} font-bold text-slate-600`} />
-            <td className={`${COL_NUM} font-bold text-slate-600`}>Σ</td>
-            <td className={`${COL_CELL} font-bold text-slate-700`} colSpan={3}>
+          <tr className="bg-[#f8fafc] font-semibold border-t-2 border-slate-300">
+            <td className={COL_NUM}>Σ</td>
+            <td className={`${COL_CELL} text-slate-500`} colSpan={4}>
               Total ({rows.length} entries)
             </td>
-            <td className={`${COL_CELL} text-right font-mono font-bold text-red-700`}>
+            <td className={`${COL_CELL} text-right font-mono font-bold text-red-600`}>
               ₹{fmt(totalWithdrawal)}
             </td>
             <td className={`${COL_CELL} text-right font-mono font-bold text-emerald-700`}>

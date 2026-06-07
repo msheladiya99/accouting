@@ -17,7 +17,7 @@ import {
 import toast from "react-hot-toast";
 import {
   type Ledger, type LedgerPayload,
-  getAllLedgers, createLedger, updateLedger, deleteLedger,
+  getAllLedgers, createLedger, updateLedger, deleteLedger, bulkDeleteLedgers,
 } from "../api/ledgerApi";
 import {
   getAllGroups, createGroup, SUPER_GROUPS, type AccountGroup
@@ -325,11 +325,13 @@ export default function LedgerMaster() {
   const [groupFilter, setGroupFilter] = useState<string>("All");
   const [modal, setModal]       = useState<{ mode: "add" | "edit"; ledger?: Ledger } | null>(null);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const gridRef                 = useRef<AgGridReact<Ledger>>(null);
 
   // ── Load ────────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
+    setSelectedIds([]);
     try {
       const [ledgersData, groupsData] = await Promise.all([getAllLedgers(), getAllGroups()]);
       setRows(ledgersData);
@@ -396,6 +398,29 @@ export default function LedgerMaster() {
     } catch (e: any) {
       toast.error(e.message);
     }
+  }, []);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Delete the ${selectedIds.length} selected ledger(s)? This cannot be undone.`)) return;
+    setLoading(true);
+    try {
+      await bulkDeleteLedgers(selectedIds);
+      setRows((p) => p.filter((r) => !selectedIds.includes(r._id)));
+      toast.success(`${selectedIds.length} ledger(s) deleted`);
+      setSelectedIds([]);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.message || "Failed to delete selected ledgers");
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedIds]);
+
+  const onSelectionChanged = useCallback(() => {
+    const selectedNodes = gridRef.current?.api.getSelectedNodes() || [];
+    const ids = selectedNodes.map((node) => node.data?._id).filter(Boolean) as string[];
+    setSelectedIds(ids);
   }, []);
 
   // ── Inline edit stop ────────────────────────────────────────────────────────
@@ -555,6 +580,14 @@ export default function LedgerMaster() {
           >
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
+          {selectedIds.length > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 transition-colors shadow-sm animate-in fade-in slide-in-from-right-2 duration-200"
+            >
+              <Trash2 size={15} /> Delete Selected ({selectedIds.length})
+            </button>
+          )}
           <button
             onClick={() => setGroupModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors"
@@ -676,6 +709,9 @@ export default function LedgerMaster() {
                 sortable: true,
                 floatingFilterComponentParams: { suppressFilterButton: false },
               }}
+              rowSelection={{ mode: "multiRow" }}
+              suppressRowClickSelection={true}
+              onSelectionChanged={onSelectionChanged}
               onCellEditingStopped={onCellEditingStopped}
               rowHeight={52}
               headerHeight={44}

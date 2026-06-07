@@ -10,6 +10,7 @@ import { BankCashAccount } from "../models/BankCashAccount";
 import { BankCashEntry } from "../models/BankCashEntry";
 import { JournalEntry } from "../models/JournalEntry";
 import { AccountGroup } from "../models/AccountGroup";
+import { SuperAdmin } from "../models/SuperAdmin";
 import path from "path";
 
 dotenv.config();
@@ -48,7 +49,7 @@ async function seed() {
     if (mongoose.connection.db) {
       const collections = await mongoose.connection.db.listCollections().toArray();
       const collectionNames = collections.map(c => c.name);
-      const collectionsToDrop = ["users", "companies", "financialyears", "ledgers", "bankcashaccounts", "bankcashentries", "journalentries", "accountgroups"];
+      const collectionsToDrop = ["users", "companies", "financialyears", "ledgers", "bankcashaccounts", "bankcashentries", "journalentries", "accountgroups", "superadmins"];
       for (const name of collectionsToDrop) {
         if (collectionNames.includes(name)) {
           console.log(`Dropping collection ${name} to clear legacy indexes...`);
@@ -64,33 +65,27 @@ async function seed() {
       await BankCashEntry.deleteMany({});
       await JournalEntry.deleteMany({});
       await AccountGroup.deleteMany({});
+      await SuperAdmin.deleteMany({});
     }
 
-    // 2. Seed Users
-    console.log("Seeding users...");
-    const usersData = [
-      { name: "Aryan Sharma", email: "admin@acmecorp.com", password: "admin123", role: "Admin", status: "Active", avatar: "AS" },
-      { name: "Priya Mehta", email: "priya@acmecorp.com", password: "acc123", role: "Accountant", status: "Active", avatar: "PM" },
-      { name: "Ravi Kumar", email: "ravi@acmecorp.com", password: "acc123", role: "Accountant", status: "Active", avatar: "RK" },
-      { name: "Sneha Patel", email: "sneha@acmecorp.com", password: "view123", role: "Viewer", status: "Active", avatar: "SP" },
-      { name: "Vikram Rao", email: "vikram@acmecorp.com", password: "view123", role: "Viewer", status: "Inactive", avatar: "VR" }
-    ];
-
-    const seededUsers: any[] = [];
-    for (const u of usersData) {
-      const hashedPassword = await bcrypt.hash(u.password, 10);
-      const user = new User({ ...u, password: hashedPassword });
-      await user.save();
-      seededUsers.push(user);
-    }
-    console.log(`Seeded ${seededUsers.length} users.`);
+    // 2. Seed Super Admin
+    console.log("Seeding super admin...");
+    const superAdminPasswordHash = await bcrypt.hash("admin123", 10);
+    const superAdmin = new SuperAdmin({
+      name: "System Super Admin",
+      email: "superadmin@accountpro.com",
+      passwordHash: superAdminPasswordHash,
+      role: "SUPER_ADMIN"
+    });
+    await superAdmin.save();
+    console.log("Seeded Super Admin user.");
 
     // 3. Seed Companies
     console.log("Seeding companies...");
     const companiesData = [
-      { companyName: "Acme Corp Ltd.", panNumber: "AABCA1234C" },
-      { companyName: "XYZ Technologies Pvt. Ltd.", panNumber: "BBBXT5678D" },
-      { companyName: "Global Traders Inc.", panNumber: "CCGTI9012E" }
+      { companyName: "Acme Corp Ltd.", panNumber: "AABCA1234C", subdomain: "acme", status: "active" },
+      { companyName: "XYZ Technologies Pvt. Ltd.", panNumber: "BBBXT5678D", subdomain: "xyz", status: "active" },
+      { companyName: "Global Traders Inc.", panNumber: "CCGTI9012E", subdomain: "global", status: "active" }
     ];
 
     const seededCompanies: any[] = [];
@@ -102,6 +97,34 @@ async function seed() {
     console.log(`Seeded ${seededCompanies.length} companies.`);
 
     const defaultCompanyId = seededCompanies[0]._id.toString();
+    const xyzCompanyId = seededCompanies[1]._id.toString();
+    const globalCompanyId = seededCompanies[2]._id.toString();
+
+    // 4. Seed Users
+    console.log("Seeding users scoped to companies...");
+    const usersData = [
+      // Acme Corp Ltd.
+      { name: "Aryan Sharma", email: "admin@acmecorp.com", password: "admin123", role: "Admin", status: "Active", avatar: "AS", companyId: defaultCompanyId },
+      { name: "Priya Mehta", email: "priya@acmecorp.com", password: "acc123", role: "Accountant", status: "Active", avatar: "PM", companyId: defaultCompanyId },
+      { name: "Ravi Kumar", email: "ravi@acmecorp.com", password: "acc123", role: "Accountant", status: "Active", avatar: "RK", companyId: defaultCompanyId },
+      { name: "Sneha Patel", email: "sneha@acmecorp.com", password: "view123", role: "Viewer", status: "Active", avatar: "SP", companyId: defaultCompanyId },
+      { name: "Vikram Rao", email: "vikram@acmecorp.com", password: "view123", role: "Viewer", status: "Inactive", avatar: "VR", companyId: defaultCompanyId },
+      
+      // XYZ Technologies
+      { name: "XYZ Admin", email: "admin@xyzcorp.com", password: "admin123", role: "Admin", status: "Active", avatar: "XY", companyId: xyzCompanyId },
+      
+      // Global Traders
+      { name: "Global Admin", email: "admin@global.com", password: "admin123", role: "Admin", status: "Active", avatar: "GL", companyId: globalCompanyId }
+    ];
+
+    const seededUsers: any[] = [];
+    for (const u of usersData) {
+      const hashedPassword = await bcrypt.hash(u.password, 10);
+      const user = new User({ ...u, password: hashedPassword });
+      await user.save();
+      seededUsers.push(user);
+    }
+    console.log(`Seeded ${seededUsers.length} users.`);
 
     // Seed default account groups for all seeded companies
     console.log("Seeding default account groups for all companies...");

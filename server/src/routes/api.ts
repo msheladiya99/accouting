@@ -9,12 +9,17 @@ import * as bankCashController from "../controllers/bankCashController";
 import * as journalController from "../controllers/journalController";
 import * as importController from "../controllers/importController";
 import * as accountGroupController from "../controllers/accountGroupController";
+import superAdminRouter from "./super-admin";
 
 export const apiRouter = Router();
 
 // Public routes
 apiRouter.post("/auth/login", authController.login);
 apiRouter.post("/auth/logout", authController.logout);
+apiRouter.get("/company/current", companyController.getCurrentCompany);
+
+// Super Admin routes
+apiRouter.use("/super-admin", superAdminRouter);
 
 // Protected routes (require auth token verification)
 apiRouter.use(authMiddleware as any);

@@ -7,6 +7,8 @@ import {
   getCurrentFY,
   buildFY,
 } from "../api/financialYearApi";
+import { getSubdomain } from "../utils/subdomain";
+import { getCurrentCompany } from "../api/companyApi";
 
 // ── Company ───────────────────────────────────────────────────────────────────
 export interface Company {
@@ -82,6 +84,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Clear selected FY when switching company so it gets re-resolved
     localStorage.removeItem("ap_selected_fy");
   };
+
+  // If on a subdomain, auto-load company details from backend
+  useEffect(() => {
+    const subdomain = getSubdomain();
+    if (subdomain) {
+      (async () => {
+        try {
+          const c = await getCurrentCompany();
+          setCompany({
+            id:       c._id,
+            name:     c.companyName,
+            address:  "—",
+            phone:    "—",
+            email:    "—",
+            taxId:    c.panNumber,
+            currency: "INR",
+          });
+        } catch (err) {
+          console.error("Failed to resolve subdomain company context:", err);
+        }
+      })();
+    }
+  }, []);
 
   const handleSetSelectedFY = (fy: FinancialYear | null) => {
     setSelectedFY(fy);

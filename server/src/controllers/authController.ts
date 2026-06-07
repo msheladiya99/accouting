@@ -15,7 +15,13 @@ export async function login(req: AuthenticatedRequest, res: Response): Promise<v
       return;
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const companyId = (req as any).companyId || req.headers["x-company-id"];
+    const query: any = { email: email.toLowerCase() };
+    if (companyId) {
+      query.companyId = companyId;
+    }
+
+    const user = await User.findOne(query);
     if (!user) {
       res.status(401).json({ message: "Invalid email or password" });
       return;

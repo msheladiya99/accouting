@@ -40,8 +40,8 @@ export async function authMiddleware(
       name: decoded.name
     };
 
-    // Inject companyId from headers
-    const companyId = req.headers["x-company-id"];
+    // Inject companyId from context or headers
+    const companyId = (req as any).companyId || req.headers["x-company-id"];
     if (companyId) {
       req.companyId = companyId as string;
 
@@ -101,6 +101,18 @@ export async function companyRequired(
     }
   } catch (error) {
     res.status(400).json({ message: "Invalid company ID selection" });
+    return;
+  }
+  next();
+}
+
+export function requireSuperAdmin(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void {
+  if (!req.user || req.user.role !== "SUPER_ADMIN") {
+    res.status(403).json({ message: "Access denied. Superadmin role required." });
     return;
   }
   next();

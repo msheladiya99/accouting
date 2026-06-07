@@ -149,3 +149,21 @@ export async function deleteCompany(req: AuthenticatedRequest, res: Response): P
     res.status(500).json({ message: error.message || "Failed to delete company" });
   }
 }
+
+export async function getCurrentCompany(req: AuthenticatedRequest, res: Response): Promise<void> {
+  try {
+    const companyId = (req as any).companyId || req.headers["x-company-id"];
+    if (!companyId) {
+      res.status(400).json({ message: "No company context found" });
+      return;
+    }
+    const company = await Company.findById(companyId);
+    if (!company) {
+      res.status(404).json({ message: "Company not found" });
+      return;
+    }
+    res.json(company);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to retrieve current company details" });
+  }
+}

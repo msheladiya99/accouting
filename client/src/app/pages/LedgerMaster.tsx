@@ -467,6 +467,19 @@ export default function LedgerMaster() {
     }, {}),
   [rows]);
 
+  const rowSelection = useMemo(() => ({
+    mode: "multiRow" as const,
+    checkboxes: true,
+    headerCheckbox: true,
+    enableClickSelection: false,
+  }), []);
+
+  const selectionColumnDef = useMemo(() => ({
+    width: 48,
+    pinned: "left" as const,
+    suppressHeaderMenuButton: true,
+  }), []);
+
   // ── Column definitions ──────────────────────────────────────────────────────
   const columnDefs = useMemo<ColDef<Ledger>[]>(() => [
     {
@@ -709,8 +722,8 @@ export default function LedgerMaster() {
                 sortable: true,
                 floatingFilterComponentParams: { suppressFilterButton: false },
               }}
-              rowSelection={{ mode: "multiRow" }}
-              suppressRowClickSelection={true}
+              rowSelection={rowSelection}
+              selectionColumnDef={selectionColumnDef}
               onSelectionChanged={onSelectionChanged}
               onCellEditingStopped={onCellEditingStopped}
               rowHeight={52}

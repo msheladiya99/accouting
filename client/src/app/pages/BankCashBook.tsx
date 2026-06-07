@@ -230,6 +230,7 @@ type EditCell = { id: string; field: string; value: string };
 function ExcelTable({
   rows, openingBalance, onDelete, onCellSave, contraGroups,
   colFilters, onFilterChange, onOpeningBalanceChange,
+  selectedIds, onSelectionChange,
 }: {
   rows: BankCashRow[];
   openingBalance: number;
@@ -249,6 +250,8 @@ function ExcelTable({
   };
   onFilterChange: (filters: any) => void;
   onOpeningBalanceChange?: (newBalance: number) => void;
+  selectedIds: Set<string>;
+  onSelectionChange: (ids: Set<string>) => void;
 }) {
   const [editCell, setEditCell]         = useState<EditCell | null>(null);
   const [saving,   setSaving]           = useState(false);
@@ -423,13 +426,35 @@ function ExcelTable({
     );
   }
 
+  const allSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r._id));
+  const someSelected = rows.some((r) => selectedIds.has(r._id));
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      const next = new Set(selectedIds);
+      rows.forEach((r) => next.delete(r._id));
+      onSelectionChange(next);
+    } else {
+      const next = new Set(selectedIds);
+      rows.forEach((r) => next.add(r._id));
+      onSelectionChange(next);
+    }
+  }
+
+  function toggleRow(id: string) {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onSelectionChange(next);
+  }
+
   return (
     <div className="overflow-auto" style={{ maxHeight: 600 }}>
-      <table className="border-collapse w-full text-left" style={{ minWidth: 980 }}>
+      <table className="border-collapse w-full text-left" style={{ minWidth: 1020 }}>
         <thead className="sticky top-0 z-10">
           {/* Column-letter row (Excel A B C style) */}
           <tr>
-            {["", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J"].map((l, i) => (
+            {["", "", "A", "B", "C", "D", "E", "F", "G", "H", ""].map((l, i) => (
               <th key={i} className="border border-slate-300 bg-[#bdc5d5] text-slate-500 text-[10px] font-semibold text-center py-0.5 px-1 select-none w-8">
                 {l}
               </th>
@@ -437,6 +462,17 @@ function ExcelTable({
           </tr>
           {/* Header row */}
           <tr>
+            {/* Select-All checkbox */}
+            <th className={`${COL_HEADER} text-center w-10`}>
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                onChange={toggleSelectAll}
+                className="w-3.5 h-3.5 cursor-pointer accent-indigo-600"
+                title="Select / Deselect all"
+              />
+            </th>
             <th className={`${COL_HEADER} text-center w-10`}>Sr. No.</th>
             <th className={`${COL_HEADER}`}>Bank/cash name</th>
             <th className={`${COL_HEADER}`}>Date</th>
@@ -452,6 +488,8 @@ function ExcelTable({
           </tr>
           {/* Column filter row */}
           <tr className="bg-[#f1f5f9]">
+            {/* Checkbox filter spacer */}
+            <td className="border border-slate-300 p-1 bg-[#f1f5f9] w-10" />
             {/* Sr. No. filter */}
             <td className="border border-slate-300 p-1 bg-[#f1f5f9] text-center w-10">
               <input
@@ -566,10 +604,9 @@ function ExcelTable({
           </tr>
         </thead>
         <tbody>
-          {/* Opening Balance row */}
           <tr className="bg-[#eaf4fb] group/ob">
             <td className={COL_NUM}>—</td>
-            <td className={`${COL_CELL} text-slate-500 italic`} colSpan={5}>
+            <td className={`${COL_CELL} text-slate-500 italic`} colSpan={6}>
               Opening Balance
               {onOpeningBalanceChange && (
                 <span className="text-[10px] ml-1.5 text-indigo-400 opacity-0 group-hover/ob:opacity-100 transition-opacity">
@@ -625,7 +662,8 @@ function ExcelTable({
               const isWithdrawal = row.withdrawal > 0;
               const isDeposit    = row.deposit    > 0;
               const isOdd        = idx % 2 === 0;
-              const rowBg        = isOdd ? "bg-white" : "bg-[#f7f8fc]";
+              const isChecked    = selectedIds.has(row._id);
+              const rowBg        = isChecked ? "bg-indigo-50" : isOdd ? "bg-white" : "bg-[#f7f8fc]";
               const isRowEditing = editCell?.id === row._id;
 
               return (
@@ -633,8 +671,20 @@ function ExcelTable({
                 key={row._id}
                 className={`${isRowEditing ? "bg-[#fffde7]" : rowBg} hover:bg-[#eef2ff] group transition-colors`}
               >
-                {/* Row number */}
-                <td className={COL_NUM}>{idx + 1}</td>
+                {/* Checkbox */}
+                <td className={`${COL_NUM} text-center`}>
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => toggleRow(row._id)}
+                    className="w-3.5 h-3.5 cursor-pointer accent-indigo-600"
+                  />
+                </td>
+
+                {/* Sr. No. */}
+                <td className={`${COL_NUM} text-slate-400 font-mono text-center`}>
+                  {idx + 1}
+                </td>
 
                 {/* Bank/cash name — read-only */}
                 <td className={`${COL_CELL} font-medium text-slate-800`}>
@@ -706,6 +756,7 @@ function ExcelTable({
 
           {/* Totals row */}
           <tr className="bg-[#d0d7e3] font-bold sticky bottom-0">
+            <td className={`${COL_NUM} font-bold text-slate-600`} />
             <td className={`${COL_NUM} font-bold text-slate-600`}>Σ</td>
             <td className={`${COL_CELL} font-bold text-slate-700`} colSpan={3}>
               Total ({rows.length} entries)
@@ -742,6 +793,10 @@ export default function BankCashBook() {
   const [modal,           setModal]           = useState<{ entry?: BankCashRow } | null>(null);
   const [showImport,      setShowImport]      = useState(false);
   const [groupNames,      setGroupNames]      = useState<string[]>([]);
+  const [selectedIds,     setSelectedIds]     = useState<Set<string>>(new Set());
+  const [bulkAccName,     setBulkAccName]     = useState("");
+  const [bulkAccGroup,    setBulkAccGroup]    = useState("");
+  const [bulkSaving,      setBulkSaving]      = useState(false);
   const [colFilters,      setColFilters]      = useState({
     srNo: "",
     accountName: "",
@@ -901,6 +956,34 @@ export default function BankCashBook() {
       toast.error(e.message || "Failed to update opening balance");
     }
   }, [accountFilter, loadRows]);
+
+  const handleBulkEdit = useCallback(async () => {
+    if (!bulkAccName.trim() && !bulkAccGroup) {
+      toast.error("Enter an Account Name or select a Group to apply");
+      return;
+    }
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkSaving(true);
+    try {
+      await Promise.all(ids.map((id) => {
+        const patch: Partial<EntryPayload> = {};
+        if (bulkAccName.trim())  patch.contraAccountName  = bulkAccName.trim();
+        if (bulkAccGroup)        patch.contraAccountGroup = bulkAccGroup as any;
+        return updateEntry(id, patch);
+      }));
+      toast.success(`Updated ${ids.length} entries`);
+      setSelectedIds(new Set());
+      setBulkAccName("");
+      setBulkAccGroup("");
+      await loadRows(accountFilter);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.message || "Bulk update failed");
+    } finally {
+      setBulkSaving(false);
+    }
+  }, [selectedIds, bulkAccName, bulkAccGroup, accountFilter, loadRows]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -1110,6 +1193,51 @@ export default function BankCashBook() {
         </div>
       </div>
 
+      {/* ── Bulk Edit Toolbar ────────────────────────────────────────────────── */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 flex-wrap bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <Check size={15} className="text-indigo-600" />
+            <span className="text-sm font-semibold text-indigo-900">
+              {selectedIds.size} row{selectedIds.size > 1 ? "s" : ""} selected
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-1 flex-wrap min-w-0">
+            <input
+              type="text"
+              placeholder="Set Account Name..."
+              value={bulkAccName}
+              onChange={(e) => setBulkAccName(e.target.value)}
+              className="flex-1 min-w-[160px] px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 font-medium"
+            />
+            <select
+              value={bulkAccGroup}
+              onChange={(e) => setBulkAccGroup(e.target.value)}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 font-medium"
+            >
+              <option value="">-- Set Account Group --</option>
+              {groupNames.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
+            <button
+              type="button"
+              onClick={handleBulkEdit}
+              disabled={bulkSaving}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+            >
+              {bulkSaving ? <RefreshCw size={12} className="animate-spin" /> : <Check size={12} />}
+              Apply to {selectedIds.size} rows
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold rounded-lg transition-colors"
+            >
+              <X size={12} /> Deselect All
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Excel-style Table ─────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-slate-300 shadow-sm overflow-hidden">
         {/* Workbook title bar */}
@@ -1147,6 +1275,8 @@ export default function BankCashBook() {
             colFilters={colFilters}
             onFilterChange={setColFilters}
             onOpeningBalanceChange={accountFilter !== "all" ? handleOpeningBalanceChange : undefined}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
           />
         )}
       </div>

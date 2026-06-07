@@ -447,6 +447,19 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     });
   }, [rows, selectedAccountId, accounts]);
 
+  const rowSelection = useMemo(() => ({
+    mode: "multiRow" as const,
+    checkboxes: true,
+    headerCheckbox: true,
+    enableClickSelection: false,
+  }), []);
+
+  const selectionColumnDef = useMemo(() => ({
+    width: 48,
+    pinned: "left" as const,
+    suppressHeaderMenuButton: true,
+  }), []);
+
   // ── Column defs ───────────────────────────────────────────────────────────
   const columnDefs = useMemo<ColDef<ImportRow>[]>(() => [
     {
@@ -1032,6 +1045,29 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
             </div>
           )}
 
+          {/* Select All / Deselect All quick actions */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => gridRef.current?.api.selectAll()}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+            >
+              <CheckCircle2 size={13} /> Select All
+            </button>
+            <button
+              type="button"
+              onClick={() => { gridRef.current?.api.deselectAll(); setSelectedRows([]); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold rounded-lg transition-colors"
+            >
+              <X size={13} /> Deselect All
+            </button>
+            {selectedRows.length > 0 && (
+              <span className="text-xs text-indigo-700 font-semibold bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full">
+                {selectedRows.length} selected
+              </span>
+            )}
+          </div>
+
           {/* Bulk Edit Bar */}
           {selectedRows.length > 0 && (
             <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 shadow-sm flex items-center justify-between gap-4 flex-wrap">
@@ -1082,8 +1118,8 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
                 rowData={rowsWithBalance}
                 columnDefs={columnDefs}
                 defaultColDef={{ resizable: true, sortable: true }}
-                rowSelection={{ mode: "multiRow" }}
-                suppressRowClickSelection={true}
+                rowSelection={rowSelection}
+                selectionColumnDef={selectionColumnDef}
                 onSelectionChanged={onSelectionChanged}
                 rowHeight={48}
                 headerHeight={44}

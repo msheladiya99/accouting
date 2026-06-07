@@ -7,6 +7,7 @@ const userSchema = new Schema(
     password: { type: String, required: true },
     role: { type: String, enum: ["Admin", "Accountant", "Viewer"], default: "Viewer" },
     status: { type: String, enum: ["Active", "Inactive"], default: "Active" },
+    companyId: { type: Schema.Types.ObjectId, ref: "Company" },
     avatar: { type: String },
     lastLogin: { type: Date }
   },

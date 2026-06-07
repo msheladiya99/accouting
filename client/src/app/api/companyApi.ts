@@ -37,3 +37,8 @@ export async function updateCompany(id: string, payload: Partial<CreateCompanyPa
 export async function deleteCompany(id: string): Promise<void> {
   await axiosClient.delete(`/company/${id}`);
 }
+
+export async function getCurrentCompany(): Promise<Company> {
+  const res = await axiosClient.get<Company>("/company/current");
+  return res.data;
+}

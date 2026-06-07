@@ -1,7 +1,8 @@
 import axios from "axios";
+import { getSubdomain } from "../utils/subdomain";
 
 export const axiosClient = axios.create({
-  baseURL: "/api",
+  baseURL: import.meta.env.VITE_API_URL || "/api",
   headers: {
     "Content-Type": "application/json"
   }
@@ -13,6 +14,11 @@ axiosClient.interceptors.request.use(
     const token = localStorage.getItem("ap_token");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    const subdomain = getSubdomain();
+    if (subdomain) {
+      config.headers["x-tenant-id"] = subdomain;
     }
 
     const savedCompany = localStorage.getItem("ap_company");
@@ -54,9 +60,14 @@ axiosClient.interceptors.response.use(
       // If 401 unauthorized, clean up token and redirect to login
       if (error.response.status === 401) {
         localStorage.removeItem("ap_token");
-        // If not already on login page, redirect
-        if (!window.location.pathname.endsWith("/login")) {
-          window.location.href = "/login";
+        // If not already on login page or superadmin page, redirect to appropriate login
+        const path = window.location.pathname;
+        if (!path.endsWith("/login") && !path.endsWith("/superadmin")) {
+          if (path.startsWith("/super-admin")) {
+            window.location.href = "/superadmin";
+          } else {
+            window.location.href = "/login";
+          }
         }
       }
       

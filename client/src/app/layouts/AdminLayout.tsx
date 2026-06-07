@@ -105,14 +105,14 @@ export default function AdminLayout() {
             <Calculator size={18} className="text-white" />
           </div>
           {!sidebarCollapsed && (
-            <div className="lg:block hidden">
-              <p className="text-white text-sm font-semibold leading-tight">AccountPro</p>
-              <p className="text-indigo-300 text-xs">Professional Suite</p>
+            <div className="lg:block hidden min-w-0 flex-1">
+              <p className="text-white text-sm font-semibold leading-tight truncate" title={company.name}>{company.name}</p>
+              <p className="text-indigo-300 text-[10px] mt-0.5">Basic Accounting</p>
             </div>
           )}
-          <div className="lg:hidden block">
-            <p className="text-white text-sm font-semibold leading-tight">AccountPro</p>
-            <p className="text-indigo-300 text-xs">Professional Suite</p>
+          <div className="lg:hidden block min-w-0 flex-1">
+            <p className="text-white text-sm font-semibold leading-tight truncate" title={company.name}>{company.name}</p>
+            <p className="text-indigo-300 text-[10px] mt-0.5">Basic Accounting</p>
           </div>
         </div>
 

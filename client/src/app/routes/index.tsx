@@ -17,9 +17,30 @@ import CompanySelect from "../pages/CompanySelect";
 import UserManagement from "../pages/UserManagement";
 import Settings from "../pages/Settings";
 
+// Superadmin Pages
+import { SuperAdminLayout } from "../layouts/SuperAdminLayout";
+import SuperAdminLogin from "../pages/super-admin/Login";
+import SuperAdminDashboard from "../pages/super-admin/Dashboard";
+import CompanyManagement from "../pages/super-admin/CompanyManagement";
+import CreateCompany from "../pages/super-admin/CreateCompany";
+import CompanyDetails from "../pages/super-admin/CompanyDetails";
+
 export const router = createBrowserRouter([
   { path: "/login",          Component: Login         },
   { path: "/company-select", Component: CompanySelect },
+  { path: "/superadmin",     Component: SuperAdminLogin },
+  {
+    path: "/super-admin",
+    Component: SuperAdminLayout,
+    children: [
+      { index: true, element: <Navigate to="dashboard" replace /> },
+      { path: "dashboard", Component: SuperAdminDashboard },
+      { path: "companies", Component: CompanyManagement },
+      { path: "companies/create", Component: CreateCompany },
+      { path: "companies/:id", Component: CompanyDetails },
+      { path: "*", element: <Navigate to="dashboard" replace /> }
+    ]
+  },
   {
     path: "/",
     Component: AdminLayout,

@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { connectDB } from "./config/db";
 import { apiRouter } from "./routes/api";
+import { tenantMiddleware } from "./middleware/tenant";
 
 dotenv.config();
 
@@ -15,6 +16,9 @@ app.use(cors());
 // Parse incoming JSON and URL-encoded requests with limits
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+// Resolve subdomain tenant contexts globally
+app.use(tenantMiddleware);
 
 // Routes
 app.use("/api", apiRouter);

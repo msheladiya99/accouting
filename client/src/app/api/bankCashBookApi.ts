@@ -28,6 +28,7 @@ export interface BankCashEntry {
   contraAccountName: string;
   contraAccountGroup: ContraGroup;
   createdAt: string;
+  isChanged?: boolean;
 }
 
 // ── Entry with computed fields (display) ──────────────────────────────────────

@@ -254,7 +254,6 @@ function ExcelTable({
   rows, openingBalance, onDelete, onCellSave, contraGroups,
   colFilters, onFilterChange, onOpeningBalanceChange,
   selectedIds, onSelectionChange,
-  changedEntryIds,
 }: {
   rows: BankCashRow[];
   openingBalance: number;
@@ -271,12 +270,12 @@ function ExcelTable({
     balance: string;
     contraAccountName: string;
     contraAccountGroup: string;
+    modified: string;
   };
   onFilterChange: (filters: any) => void;
   onOpeningBalanceChange?: (newBalance: number) => void;
   selectedIds: Set<string>;
   onSelectionChange: (ids: Set<string>) => void;
-  changedEntryIds: Set<string>;
 }) {
   const [editCell, setEditCell]         = useState<EditCell | null>(null);
   const [saving,   setSaving]           = useState(false);
@@ -606,8 +605,19 @@ function ExcelTable({
                 className="w-full border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </td>
-            {/* Checkmark spacer cell */}
-            <td className="border border-slate-300 p-1 bg-[#f1f5f9] w-10" />
+            {/* Checkmark filter */}
+            <td className="border border-slate-300 p-0.5 bg-[#f1f5f9] w-10 text-center">
+              <select
+                value={colFilters.modified}
+                onChange={(e) => onFilterChange({ ...colFilters, modified: e.target.value })}
+                className="w-full border border-slate-300 rounded px-0.5 py-0.5 text-[10px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white font-semibold text-slate-700 cursor-pointer"
+                style={{ appearance: "none", textAlign: "center", textAlignLast: "center" }}
+              >
+                <option value="">All</option>
+                <option value="edited">✓</option>
+                <option value="blank">Blank</option>
+              </select>
+            </td>
             {/* Clear filters cell */}
             <td className="border border-slate-300 p-1 bg-[#f1f5f9] text-center w-12">
               {Object.values(colFilters).some(v => v !== "") && (
@@ -622,6 +632,7 @@ function ExcelTable({
                     balance: "",
                     contraAccountName: "",
                     contraAccountGroup: "",
+                    modified: "",
                   })}
                   className="px-1.5 py-0.5 text-[10px] text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors font-semibold shadow-sm"
                 >
@@ -771,7 +782,7 @@ function ExcelTable({
 
                 {/* Permanent Checkmark (Only shown if modified) */}
                 <td className={`${COL_CELL} text-center w-10 bg-emerald-50/10`}>
-                  {changedEntryIds.has(row._id) && (
+                  {row.isChanged && (
                     <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-50 border border-emerald-100 animate-in zoom-in-50 duration-200">
                       <Check size={12} className="text-emerald-600 stroke-[3]" />
                     </span>
@@ -830,7 +841,6 @@ export default function BankCashBook() {
   const [showImport,      setShowImport]      = useState(false);
   const [groupNames,      setGroupNames]      = useState<string[]>([]);
   const [selectedIds,     setSelectedIds]     = useState<Set<string>>(new Set());
-  const [changedEntryIds, setChangedEntryIds] = useState<Set<string>>(new Set());
   const [bulkAccName,     setBulkAccName]     = useState("");
   const [bulkAccGroup,    setBulkAccGroup]    = useState("");
   const [bulkSaving,      setBulkSaving]      = useState(false);
@@ -844,6 +854,7 @@ export default function BankCashBook() {
     balance: "",
     contraAccountName: "",
     contraAccountGroup: "",
+    modified: "",
   });
 
   useEffect(() => {
@@ -857,6 +868,7 @@ export default function BankCashBook() {
       balance: "",
       contraAccountName: "",
       contraAccountGroup: "",
+      modified: "",
     });
   }, [accountFilter, groupTypeFilter]);
 
@@ -891,7 +903,6 @@ export default function BankCashBook() {
   }, [selectedFY?._id]);
 
   useEffect(() => {
-    setChangedEntryIds(new Set());
     loadRows(accountFilter);
   }, [accountFilter, loadRows]);
 
@@ -974,11 +985,6 @@ export default function BankCashBook() {
     try {
       await updateEntry(id, patch);
       toast.success("Saved", { duration: 1200, icon: "✓" });
-      setChangedEntryIds((prev) => {
-        const next = new Set(prev);
-        next.add(id);
-        return next;
-      });
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
@@ -1018,11 +1024,6 @@ export default function BankCashBook() {
         return updateEntry(id, patch);
       }));
       toast.success(`Updated ${ids.length} entries`);
-      setChangedEntryIds((prev) => {
-        const next = new Set(prev);
-        ids.forEach((id) => next.add(id));
-        return next;
-      });
       setSelectedIds(new Set());
       setBulkAccName("");
       setBulkAccGroup("");
@@ -1074,6 +1075,12 @@ export default function BankCashBook() {
       if (colFilters.contraAccountName && !row.contraAccountName.toLowerCase().includes(colFilters.contraAccountName.toLowerCase())) return false;
       
       if (colFilters.contraAccountGroup && !row.contraAccountGroup.toLowerCase().includes(colFilters.contraAccountGroup.toLowerCase())) return false;
+      
+      if (colFilters.modified) {
+        const isModified = !!row.isChanged;
+        if (colFilters.modified === "edited" && !isModified) return false;
+        if (colFilters.modified === "blank" && isModified) return false;
+      }
 
       return true;
     });
@@ -1327,7 +1334,6 @@ export default function BankCashBook() {
             onOpeningBalanceChange={accountFilter !== "all" ? handleOpeningBalanceChange : undefined}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
-            changedEntryIds={changedEntryIds}
           />
         )}
       </div>

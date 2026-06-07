@@ -257,7 +257,7 @@ function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, stri
     const netDrCr = r.closingDr - r.closingCr;
     const absVal = Math.abs(netDrCr);
 
-    const parentCategory = groupParentsMap[r.group] || "Assets";
+    const parentCategory = groupParentsMap[r.group.trim().toLowerCase()] || "Assets";
 
     if (parentCategory !== "Income" && parentCategory !== "Expense") {
       // Stock-in-hand (Asset) opening/closing stock is an exception needed for Trading account!
@@ -443,7 +443,7 @@ export default function BalanceSheet() {
 
         const groupParentsMap: Record<string, string> = {};
         groups.forEach((g) => {
-          groupParentsMap[g.groupName] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
+          groupParentsMap[g.groupName.trim().toLowerCase()] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
         });
 
         const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);

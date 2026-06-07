@@ -271,6 +271,7 @@ function ExcelTable({
     balance: string;
     contraAccountName: string;
     contraAccountGroup: string;
+    modified: string;
   };
   onFilterChange: (filters: any) => void;
   onOpeningBalanceChange?: (newBalance: number) => void;
@@ -606,8 +607,19 @@ function ExcelTable({
                 className="w-full border border-slate-300 rounded px-1.5 py-0.5 text-[11px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </td>
-            {/* Checkmark spacer cell */}
-            <td className="border border-slate-300 p-1 bg-[#f1f5f9] w-10" />
+            {/* Checkmark filter */}
+            <td className="border border-slate-300 p-0.5 bg-[#f1f5f9] w-10 text-center">
+              <select
+                value={colFilters.modified}
+                onChange={(e) => onFilterChange({ ...colFilters, modified: e.target.value })}
+                className="w-full border border-slate-300 rounded px-0.5 py-0.5 text-[10px] outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-white font-semibold text-slate-700 cursor-pointer"
+                style={{ appearance: "none", textAlign: "center", textAlignLast: "center" }}
+              >
+                <option value="">All</option>
+                <option value="edited">✓</option>
+                <option value="blank">Blank</option>
+              </select>
+            </td>
             {/* Clear filters cell */}
             <td className="border border-slate-300 p-1 bg-[#f1f5f9] text-center w-12">
               {Object.values(colFilters).some(v => v !== "") && (
@@ -622,6 +634,7 @@ function ExcelTable({
                     balance: "",
                     contraAccountName: "",
                     contraAccountGroup: "",
+                    modified: "",
                   })}
                   className="px-1.5 py-0.5 text-[10px] text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors font-semibold shadow-sm"
                 >
@@ -844,6 +857,7 @@ export default function BankCashBook() {
     balance: "",
     contraAccountName: "",
     contraAccountGroup: "",
+    modified: "",
   });
 
   useEffect(() => {
@@ -857,6 +871,7 @@ export default function BankCashBook() {
       balance: "",
       contraAccountName: "",
       contraAccountGroup: "",
+      modified: "",
     });
   }, [accountFilter, groupTypeFilter]);
 
@@ -891,9 +906,12 @@ export default function BankCashBook() {
   }, [selectedFY?._id]);
 
   useEffect(() => {
-    setChangedEntryIds(new Set());
     loadRows(accountFilter);
   }, [accountFilter, loadRows]);
+
+  useEffect(() => {
+    setChangedEntryIds(new Set());
+  }, [accountFilter]);
 
   const handleSubmit = useCallback(async (data: EntryPayload) => {
     const w = Number(data.withdrawal ?? 0);
@@ -904,6 +922,11 @@ export default function BankCashBook() {
       if (modal?.entry) {
         await updateEntry(modal.entry._id, { ...data, withdrawal: w, deposit: d });
         toast.success("Entry updated");
+        setChangedEntryIds((prev) => {
+          const next = new Set(prev);
+          next.add(modal.entry!._id);
+          return next;
+        });
       } else {
         await createEntry({ ...data, withdrawal: w, deposit: d });
         toast.success("Entry added");
@@ -1074,6 +1097,12 @@ export default function BankCashBook() {
       if (colFilters.contraAccountName && !row.contraAccountName.toLowerCase().includes(colFilters.contraAccountName.toLowerCase())) return false;
       
       if (colFilters.contraAccountGroup && !row.contraAccountGroup.toLowerCase().includes(colFilters.contraAccountGroup.toLowerCase())) return false;
+      
+      if (colFilters.modified) {
+        const isModified = changedEntryIds.has(row._id);
+        if (colFilters.modified === "edited" && !isModified) return false;
+        if (colFilters.modified === "blank" && isModified) return false;
+      }
 
       return true;
     });

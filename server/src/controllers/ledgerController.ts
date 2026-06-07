@@ -1,11 +1,178 @@
 import { Response } from "express";
 import { Ledger } from "../models/Ledger";
 import { AuthenticatedRequest } from "../middleware/auth";
+import { JournalEntry } from "../models/JournalEntry";
+import { BankCashEntry } from "../models/BankCashEntry";
+import { AccountGroup } from "../models/AccountGroup";
+import { FinancialYear } from "../models/FinancialYear";
+
+const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
+  "Capital Account": "Capital",
+  "Profit & Loss A/c": "Capital",
+  "Current Liabilities": "Liabilities",
+  "Loans (Liability)": "Liabilities",
+  "Fixed Assets": "Assets",
+  "Investments": "Assets",
+  "Current Assets": "Assets",
+  "Cash Ledger A/C.": "Assets",
+  "Stock-in-hand": "Assets",
+  "Suspense Account": "Assets",
+  "Misc. Expenses (Asset)": "Assets",
+  "Sales Account": "Income",
+  "Purchase Account": "Expense",
+  "Income (Trading)": "Income",
+  "Income": "Income",
+  "Income (Other Then Sales)": "Income",
+  "Expenses (Direct)": "Expense",
+  "Expense Account": "Expense",
+  "Partner Interest": "Expense",
+  "Partner Remuneration": "Expense"
+};
+
+async function getCalculatedLedgerBalances(
+  companyId: string,
+  startDate: string,
+  targetLedgers: any[]
+): Promise<any[]> {
+  const { Types: MongoTypes } = require("mongoose");
+  let companyIdFilter: any;
+  try {
+    companyIdFilter = { $in: [companyId, new MongoTypes.ObjectId(companyId)] };
+  } catch {
+    companyIdFilter = companyId;
+  }
+
+  // 1. Check if there are any financial years prior to this one
+  const priorFYExists = await FinancialYear.exists({
+    companyId: companyIdFilter,
+    startDate: { $lt: startDate }
+  });
+
+  if (!priorFYExists) {
+    return targetLedgers;
+  }
+
+  // 2. Fetch all ledgers to compute priorNetProfit
+  const allLedgers = await Ledger.find({ companyId: companyIdFilter });
+
+  // 3. Fetch all account groups to determine ledger categories
+  const groups = await AccountGroup.find({ companyId: companyIdFilter });
+  const groupToCategoryMap: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {};
+  groups.forEach((g) => {
+    groupToCategoryMap[g.groupName] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
+  });
+
+  // 4. Fetch all prior transactions (Journal and Bank/Cash)
+  const priorJournalEntries = await JournalEntry.find({
+    companyId: companyIdFilter,
+    date: { $lt: startDate }
+  });
+
+  const priorBankCashEntries = await BankCashEntry.find({
+    companyId: companyIdFilter,
+    date: { $lt: startDate }
+  });
+
+  // 5. Sum up prior transactions for all ledgers
+  const ledgerMap: Record<string, { dr: number; cr: number }> = {};
+  allLedgers.forEach((l) => {
+    ledgerMap[l.ledgerName] = { dr: 0, cr: 0 };
+  });
+
+  priorJournalEntries.forEach((e) => {
+    if (ledgerMap[e.debitAccount]) {
+      ledgerMap[e.debitAccount].dr += e.debitAmount;
+    }
+    if (ledgerMap[e.creditAccount]) {
+      ledgerMap[e.creditAccount].cr += e.creditAmount;
+    }
+  });
+
+  priorBankCashEntries.forEach((e) => {
+    if (ledgerMap[e.contraAccountName]) {
+      if (e.withdrawal > 0) {
+        ledgerMap[e.contraAccountName].dr += e.withdrawal;
+      }
+      if (e.deposit > 0) {
+        ledgerMap[e.contraAccountName].cr += e.deposit;
+      }
+    }
+  });
+
+  // 6. Calculate cumulative prior net profit/loss
+  let priorRevenue = 0;
+  let priorExpenses = 0;
+
+  allLedgers.forEach((l) => {
+    const category = groupToCategoryMap[l.groupName] || "Assets";
+    const txns = ledgerMap[l.ledgerName] || { dr: 0, cr: 0 };
+    const originalDr = l.openingDr || 0;
+    const originalCr = l.openingCr || 0;
+
+    if (category === "Income") {
+      priorRevenue += (originalCr - originalDr) + txns.cr - txns.dr;
+    } else if (category === "Expense") {
+      priorExpenses += (originalDr - originalCr) + txns.dr - txns.cr;
+    }
+  });
+
+  const priorNetProfit = priorRevenue - priorExpenses;
+
+  // 7. Map target ledgers to their calculated opening balances
+  return targetLedgers.map((l) => {
+    const category = groupToCategoryMap[l.groupName] || "Assets";
+    const ledgerObj = l.toObject ? l.toObject() : l;
+
+    if (category === "Income" || category === "Expense") {
+      ledgerObj.openingDr = 0;
+      ledgerObj.openingCr = 0;
+    } else if (l.ledgerName === "Profit & Loss A/c" || l.groupName === "Profit & Loss A/c") {
+      const txns = ledgerMap[l.ledgerName] || { dr: 0, cr: 0 };
+      const originalDr = l.openingDr || 0;
+      const originalCr = l.openingCr || 0;
+
+      const netPL = (originalCr - originalDr) + (txns.cr - txns.dr) + priorNetProfit;
+      if (netPL > 0) {
+        ledgerObj.openingCr = netPL;
+        ledgerObj.openingDr = 0;
+      } else {
+        ledgerObj.openingDr = Math.abs(netPL);
+        ledgerObj.openingCr = 0;
+      }
+    } else {
+      const txns = ledgerMap[l.ledgerName] || { dr: 0, cr: 0 };
+      const originalDr = l.openingDr || 0;
+      const originalCr = l.openingCr || 0;
+
+      const totalDr = originalDr + txns.dr;
+      const totalCr = originalCr + txns.cr;
+
+      if (totalDr > totalCr) {
+        ledgerObj.openingDr = totalDr - totalCr;
+        ledgerObj.openingCr = 0;
+      } else {
+        ledgerObj.openingCr = totalCr - totalDr;
+        ledgerObj.openingDr = 0;
+      }
+    }
+    return ledgerObj;
+  });
+}
 
 export async function getAllLedgers(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
+    const { raw } = req.query;
     const ledgers = await Ledger.find({ companyId: req.companyId }).sort({ createdAt: -1 });
-    res.json(ledgers);
+    if (raw === "true" || !req.financialYear) {
+      res.json(ledgers);
+      return;
+    }
+    const calculated = await getCalculatedLedgerBalances(
+      req.companyId as string,
+      req.financialYear.startDate,
+      ledgers
+    );
+    res.json(calculated);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to retrieve ledgers" });
   }
@@ -13,13 +180,23 @@ export async function getAllLedgers(req: AuthenticatedRequest, res: Response): P
 
 export async function getLedgerById(req: AuthenticatedRequest, res: Response): Promise<void> {
   const { id } = req.params;
+  const { raw } = req.query;
   try {
     const ledger = await Ledger.findOne({ _id: id, companyId: req.companyId });
     if (!ledger) {
       res.status(404).json({ message: "Ledger not found" });
       return;
     }
-    res.json(ledger);
+    if (raw === "true" || !req.financialYear) {
+      res.json(ledger);
+      return;
+    }
+    const calculated = await getCalculatedLedgerBalances(
+      req.companyId as string,
+      req.financialYear.startDate,
+      [ledger]
+    );
+    res.json(calculated[0]);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to retrieve ledger" });
   }

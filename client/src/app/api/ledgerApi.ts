@@ -75,13 +75,13 @@ export async function createLedger(payload: LedgerPayload): Promise<Ledger> {
   return res.data;
 }
 
-export async function getAllLedgers(): Promise<Ledger[]> {
-  const res = await axiosClient.get<Ledger[]>("/ledger");
+export async function getAllLedgers(params?: { raw?: boolean }): Promise<Ledger[]> {
+  const res = await axiosClient.get<Ledger[]>("/ledger", { params });
   return res.data;
 }
 
-export async function getLedgerById(id: string): Promise<Ledger> {
-  const res = await axiosClient.get<Ledger>(`/ledger/${id}`);
+export async function getLedgerById(id: string, params?: { raw?: boolean }): Promise<Ledger> {
+  const res = await axiosClient.get<Ledger>(`/ledger/${id}`, { params });
   return res.data;
 }
 

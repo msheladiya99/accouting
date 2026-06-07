@@ -30,27 +30,50 @@ const matchNumericFilter = (value: number, filterText: string): boolean => {
   const text = filterText.trim();
   if (!text) return true;
 
-  // Match comparison operators: >=, <=, >, <, =
-  const match = text.match(/^(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)$/);
-  if (match) {
-    const op = match[1] || "=";
-    const target = parseFloat(match[2]);
-    if (isNaN(target)) return false;
+  // Split by whitespace or commas/and/&& to support multiple conditions, e.g. ">100 <500"
+  const tokens = text.split(/\s+(?:and|&&)\s+|\s*,\s*|\s+/i).filter(Boolean);
+  if (tokens.length === 0) return true;
 
-    switch (op) {
-      case ">": return value > target;
-      case "<": return value < target;
-      case ">=": return value >= target;
-      case "<=": return value <= target;
-      case "=": return value === target;
-      default: return false;
+  // All tokens must match (AND condition)
+  for (const token of tokens) {
+    const match = token.match(/^(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)$/);
+    if (match) {
+      const op = match[1];
+      const target = parseFloat(match[2]);
+      if (isNaN(target)) return false;
+
+      if (op) {
+        let tokenMatch = false;
+        switch (op) {
+          case ">": tokenMatch = value > target; break;
+          case "<": tokenMatch = value < target; break;
+          case ">=": tokenMatch = value >= target; break;
+          case "<=": tokenMatch = value <= target; break;
+          case "=": tokenMatch = value === target; break;
+        }
+        if (!tokenMatch) return false;
+      } else {
+        // No operator explicitly provided (e.g. "100")
+        // Match either exact value or substring of value/formatted value
+        const valStr = String(value);
+        const fmtVal = fmt(value).toLowerCase();
+        const tokenLower = token.toLowerCase();
+        const exactMatch = value === target;
+        const substringMatch = valStr.includes(tokenLower) || fmtVal.includes(tokenLower);
+        if (!exactMatch && !substringMatch) return false;
+      }
+    } else {
+      // If token doesn't match operator structure, do substring matching
+      const valStr = String(value);
+      const fmtVal = fmt(value).toLowerCase();
+      const tokenLower = token.toLowerCase();
+      if (!valStr.includes(tokenLower) && !fmtVal.includes(tokenLower)) {
+        return false;
+      }
     }
   }
 
-  // Fallback: search within string representation of raw number or formatted number
-  const valStr = String(value);
-  const fmtVal = fmt(value).toLowerCase();
-  return valStr.includes(text) || fmtVal.includes(text.toLowerCase());
+  return true;
 };
 
 const GROUP_COLORS: Record<AccountGroup, { bg: string; text: string; icon: React.ElementType; dot: string; badge: string }> = {

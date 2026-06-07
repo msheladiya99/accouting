@@ -302,6 +302,10 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       toast.error("Please select a target Bank/Cash account first");
       return;
     }
+    if (selectedAccountId === "auto-create" && !detectedBankName.trim()) {
+      toast.error("A bank name is required to auto-create a bank account. Please select an existing bank account or enter a name.");
+      return;
+    }
     const activeTxns = rows.filter((r) => !isOpeningBalRow(r.narration));
     const incomplete = activeTxns.filter((r) => !r.aiAccountName.trim() || !r.aiAccountGroup.trim());
     if (incomplete.length > 0) {
@@ -805,6 +809,129 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
             ))}
           </div>
 
+          {/* Destination Bank/Cash Account Selector in Step 2 */}
+          <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                <span>Destination Bank/Cash Account</span>
+                <span className="text-red-500">*</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowCreateForm(!showCreateForm)}
+                className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1"
+              >
+                {showCreateForm ? "Cancel" : "+ Create New Account"}
+              </button>
+            </div>
+
+            {showCreateForm && (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-3 transition-all">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase">Account Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Bank of Baroda"
+                      value={newAccName}
+                      onChange={(e) => setNewAccName(e.target.value)}
+                      className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase">Group</label>
+                    <select
+                      value={newAccGroup}
+                      onChange={(e) => setNewAccGroup(e.target.value as any)}
+                      className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800"
+                    >
+                      <option value="Bank">Bank</option>
+                      <option value="Cash">Cash</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 uppercase">Opening Balance</label>
+                  <input
+                    type="number"
+                    placeholder="0.00"
+                    value={newAccBal}
+                    onChange={(e) => setNewAccBal(e.target.value)}
+                    className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateForm(false);
+                      setNewAccName("");
+                      setNewAccBal("");
+                    }}
+                    className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs hover:bg-slate-100"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateAccount}
+                    disabled={creatingAcc}
+                    className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 font-medium"
+                  >
+                    {creatingAcc ? "Creating..." : "Create Account"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!showCreateForm && (
+              <div className="space-y-3">
+                <select
+                  value={selectedAccountId}
+                  onChange={(e) => setSelectedAccountId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 text-sm font-medium text-slate-800"
+                >
+                  <option value="auto-create">
+                    {detectedBankName 
+                      ? `✨ [New Bank] ${detectedBankName} (Auto-create)` 
+                      : "✨ Auto-detect & Create from Statement"}
+                  </option>
+                  {accounts.map((acc) => (
+                    <option key={acc._id} value={acc._id}>
+                      {acc.name} ({acc.group})
+                    </option>
+                  ))}
+                </select>
+
+                {selectedAccountId === "auto-create" ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Bot size={16} className="text-amber-600 flex-shrink-0 animate-bounce" />
+                      <span className="font-semibold">Auto-creating a new Bank Account on Save</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold text-slate-600 whitespace-nowrap">Account Name:</label>
+                      <input
+                        type="text"
+                        placeholder="Enter bank account name to create..."
+                        value={detectedBankName}
+                        onChange={(e) => setDetectedBankName(e.target.value)}
+                        className="flex-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 font-medium"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 text-xs text-emerald-800 shadow-sm">
+                    <CheckCircle2 size={14} className="text-emerald-600 flex-shrink-0" />
+                    <span>
+                      Importing into existing Bank/Cash account: <strong className="font-semibold">{accounts.find(a => a._id === selectedAccountId)?.name}</strong>
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* AI banner */}
           <div className="flex flex-col gap-2">
             {stats.aiDone > 0 && (
@@ -815,15 +942,6 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
                   <span className="font-semibold">{stats.aiDone} transactions</span>.{" "}
                   Double-click the <em>AI Account Name</em> or <em>AI Group</em> cell to edit any suggestion before saving.
                 </p>
-              </div>
-            )}
-            {detectedBankName && (
-              <div className="flex items-center gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-800 shadow-sm">
-                <Bot size={16} className="text-emerald-600 flex-shrink-0 animate-bounce" />
-                <span>
-                  Detected Bank Account: <strong className="font-semibold">{detectedBankName}</strong>. 
-                  {selectedAccountId === "auto-create" ? " This account will be automatically created on save." : " Matches an existing Bank/Cash account."}
-                </span>
               </div>
             )}
           </div>

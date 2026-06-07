@@ -29,7 +29,11 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
 
     let targetAccountId = accountId;
     if (accountId === "auto-create" || !accountId) {
-      const finalBankName = (bankName && bankName.trim()) ? bankName.trim() : "Imported Bank Account";
+      if (!bankName || !bankName.trim()) {
+        res.status(400).json({ message: "Bank name is required to auto-create a bank account. Please select an existing account or enter a valid name." });
+        return;
+      }
+      const finalBankName = bankName.trim();
       // Auto-create BankCashAccount
       let acc = await BankCashAccount.findOne({
         name: { $regex: new RegExp(`^${finalBankName}$`, "i") },

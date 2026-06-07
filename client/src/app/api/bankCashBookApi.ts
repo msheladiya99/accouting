@@ -106,3 +106,7 @@ export async function clearEntriesForAccount(accountId: string): Promise<{ delet
   const res = await axiosClient.delete<{ deletedCount: number; message: string }>(`/bank-cash-book/accounts/${accountId}/entries`);
   return res.data;
 }
+
+export async function deleteAccount(accountId: string): Promise<void> {
+  await axiosClient.delete(`/bank-cash-book/accounts/${accountId}`);
+}

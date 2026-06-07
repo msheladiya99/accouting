@@ -287,6 +287,21 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
   }
 }
 
+export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { ids } = req.body;
+  try {
+    if (!Array.isArray(ids)) {
+      res.status(400).json({ message: "Request body must contain an array of ledger IDs under 'ids'" });
+      return;
+    }
+
+    const result = await Ledger.deleteMany({ _id: { $in: ids }, companyId: req.companyId });
+    res.json({ message: `${result.deletedCount} ledgers deleted successfully`, count: result.deletedCount });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to bulk delete ledgers" });
+  }
+}
+
 export async function updateBulkOpeningBalances(req: AuthenticatedRequest, res: Response): Promise<void> {
   const balances = req.body; // Array of { ledgerName, groupName, openingDr, openingCr }
   try {

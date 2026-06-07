@@ -311,8 +311,46 @@ function EditRowModal({ row, groups, onClose, onSave }: { row: OBRow; groups: st
   );
 }
 
+function findBestGroupMatch(excelGroup: string, groupsList: string[]): string {
+  const clean = (s: string) => s.toLowerCase().trim();
+  const excelClean = clean(excelGroup);
+  if (!excelClean) return groupsList[0] || "Assets";
+
+  // 1. Exact match (case insensitive)
+  let match = groupsList.find((g) => clean(g) === excelClean);
+  if (match) return match;
+
+  // 2. Normalize and check exact match (remove non-alphanumeric and plural 's' at the end)
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/s$/, "");
+  const excelNorm = norm(excelGroup);
+
+  match = groupsList.find((g) => norm(g) === excelNorm);
+  if (match) return match;
+
+  // 3. Substring match (either excel group contains system group or system group contains excel group)
+  match = groupsList.find((g) => {
+    const gNorm = norm(g);
+    return gNorm.includes(excelNorm) || excelNorm.includes(gNorm);
+  });
+  if (match) return match;
+
+  // 4. Fallback to starts-with or ends-with check
+  match = groupsList.find((g) => {
+    const gClean = clean(g);
+    return gClean.startsWith(excelClean) || excelClean.startsWith(gClean);
+  });
+  if (match) return match;
+
+  // 5. Default
+  return groupsList[0] || "Assets";
+}
+
 // ── Helpers for parsing Excel / CSV ───────────────────────────────────────────
-function parseOpeningBalancesSheetRows(rows: unknown[][], groupsList: string[]): OBRow[] {
+function parseOpeningBalancesSheetRows(
+  rows: unknown[][],
+  groupsList: string[],
+  existingLedgers: OBRow[]
+): OBRow[] {
   if (rows.length < 2) return [];
 
   let headerIdx = 0;
@@ -325,7 +363,7 @@ function parseOpeningBalancesSheetRows(rows: unknown[][], groupsList: string[]):
   }
 
   const headers = (rows[headerIdx] as string[]).map((h) => String(h ?? "").trim().toLowerCase());
-  
+
   const findColIdx = (keywords: string[]) =>
     headers.findIndex((h) => keywords.some((k) => h.includes(k)));
 
@@ -343,8 +381,23 @@ function parseOpeningBalancesSheetRows(rows: unknown[][], groupsList: string[]):
     const ledgerName = ledgerCol >= 0 ? String(row[ledgerCol] ?? "").trim() : "";
     if (!ledgerName) continue;
 
-    const group = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "Assets";
-    const matchedGroup = groupsList.find((g) => g.toLowerCase() === group.toLowerCase()) || groupsList[0] || "Assets";
+    // Try to match against existing database ledgers
+    const existing = existingLedgers.find(
+      (el) => el.ledgerName.trim().toLowerCase() === ledgerName.toLowerCase()
+    );
+
+    let finalLedgerName = ledgerName;
+    let finalGroup = "Assets";
+    let finalId = `imported-${Date.now()}-${Math.random()}-${i}`;
+
+    if (existing) {
+      finalLedgerName = existing.ledgerName;
+      finalGroup = existing.group;
+      finalId = existing.id;
+    } else {
+      const group = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "Assets";
+      finalGroup = findBestGroupMatch(group, groupsList);
+    }
 
     const toNum = (val: unknown) => {
       if (val === null || val === undefined || val === "") return 0;
@@ -356,9 +409,9 @@ function parseOpeningBalancesSheetRows(rows: unknown[][], groupsList: string[]):
     const amountCr = crCol >= 0 ? toNum(row[crCol]) : 0;
 
     parsed.push({
-      id: `imported-${Date.now()}-${Math.random()}-${i}`,
-      ledgerName,
-      group: matchedGroup,
+      id: finalId,
+      ledgerName: finalLedgerName,
+      group: finalGroup,
       amountDr,
       amountCr,
     });
@@ -376,11 +429,13 @@ export default function OpeningBalances() {
   const [saving, setSaving] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [editRow, setEditRow] = useState<OBRow | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const gridRef = useRef<AgGridReact<OBRow>>(null);
 
   // ── Load data ───────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
+    setSelectedIds([]);
     try {
       const [ledgers, groupsData] = await Promise.all([
         getAllLedgers({ raw: true }),
@@ -435,6 +490,20 @@ export default function OpeningBalances() {
     toast.success("Row deleted locally");
   }, []);
 
+  const handleBulkDelete = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Delete the ${selectedIds.length} selected row(s) locally? You must click 'Save Balances' to commit these changes.`)) return;
+    setRows((prev) => prev.filter((r) => !selectedIds.includes(r.id)));
+    setSelectedIds([]);
+    toast.success(`Deleted ${selectedIds.length} row(s) locally`);
+  }, [selectedIds]);
+
+  const onSelectionChanged = useCallback(() => {
+    const selectedNodes = gridRef.current?.api.getSelectedNodes() || [];
+    const ids = selectedNodes.map((node) => node.data?.id).filter(Boolean) as string[];
+    setSelectedIds(ids);
+  }, []);
+
   const saveEditRow = useCallback((updated: OBRow) => {
     setRows((prev) => prev.map((r) => r.id === updated.id ? updated : r));
     toast.success("Entry updated locally");
@@ -457,7 +526,7 @@ export default function OpeningBalances() {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" });
         
-        const parsed = parseOpeningBalancesSheetRows(raw, groups);
+        const parsed = parseOpeningBalancesSheetRows(raw, groups, rows);
         if (parsed.length === 0) {
           toast.error("No valid rows found in sheet. Make sure headers are: Ledger Name, Group, Amount Dr, Amount Cr");
           return;
@@ -476,13 +545,24 @@ export default function OpeningBalances() {
   // ── Template & Data Export ──────────────────────────────────────────────────
   const handleExportTemplate = () => {
     const headers = [["Sr No", "Ledger Name", "Group", "Amount Dr", "Amount Cr"]];
-    const sampleData = [
-      [1, "HDFC Current Account", "Bank Accounts (Banks)", 2850000, 0],
-      [2, "Share Capital", "Capital Account", 0, 5000000],
-      [3, "Fixed Assets", "Fixed Assets", 3830000, 0],
-      [4, "GST / Tax Payable", "Duties & Taxes", 0, 125000]
-    ];
-    const ws = XLSX.utils.aoa_to_sheet([...headers, ...sampleData]);
+    let templateData: any[] = [];
+    if (rows.length > 0) {
+      templateData = rows.map((r, i) => [
+        i + 1,
+        r.ledgerName,
+        r.group,
+        r.amountDr || "",
+        r.amountCr || "",
+      ]);
+    } else {
+      templateData = [
+        [1, "HDFC Current Account", "Bank Accounts (Banks)", 2850000, 0],
+        [2, "Share Capital", "Capital Account", 0, 5000000],
+        [3, "Fixed Assets", "Fixed Assets", 3830000, 0],
+        [4, "GST / Tax Payable", "Duties & Taxes", 0, 125000]
+      ];
+    }
+    const ws = XLSX.utils.aoa_to_sheet([...headers, ...templateData]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Opening Balances Template");
     XLSX.writeFile(wb, "Opening_Balances_Template.xlsx");
@@ -720,6 +800,14 @@ export default function OpeningBalances() {
           >
             <LayoutList size={14} /> Bulk Entry
           </button>
+          {selectedIds.length > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="flex items-center gap-2 px-3 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 transition-colors shadow-sm animate-in fade-in slide-in-from-right-2 duration-200"
+            >
+              <Trash2 size={14} /> Delete Selected ({selectedIds.length})
+            </button>
+          )}
           {/* Add Manual Row */}
           <button
             onClick={addRow}
@@ -801,6 +889,9 @@ export default function OpeningBalances() {
               rowData={rows}
               columnDefs={columnDefs}
               defaultColDef={{ resizable: true, sortable: true }}
+              rowSelection={{ mode: "multiRow" }}
+              suppressRowClickSelection={true}
+              onSelectionChanged={onSelectionChanged}
               onCellEditingStopped={onCellEditingStopped}
               pinnedBottomRowData={pinnedBottom}
               rowHeight={48}

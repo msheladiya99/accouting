@@ -10,6 +10,30 @@ import { computeTrialBalance, TrialRow } from "../api/trialBalanceApi";
 import { getAllEntries } from "../api/bankCashBookApi";
 import { getAllJournalEntries } from "../api/journalVoucherApi";
 import { getAllLedgers } from "../api/ledgerApi";
+import { getAllGroups } from "../api/accountGroupApi";
+
+const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
+  "Capital Account": "Capital",
+  "Profit & Loss A/c": "Capital",
+  "Current Liabilities": "Liabilities",
+  "Loans (Liability)": "Liabilities",
+  "Fixed Assets": "Assets",
+  "Investments": "Assets",
+  "Current Assets": "Assets",
+  "Cash Ledger A/C.": "Assets",
+  "Stock-in-hand": "Assets",
+  "Suspense Account": "Assets",
+  "Misc. Expenses (Asset)": "Assets",
+  "Sales Account": "Income",
+  "Purchase Account": "Expense",
+  "Income (Trading)": "Income",
+  "Income": "Income",
+  "Income (Other Then Sales)": "Income",
+  "Expenses (Direct)": "Expense",
+  "Expense Account": "Expense",
+  "Partner Interest": "Expense",
+  "Partner Remuneration": "Expense"
+};
 
 const fmt = (v: number) =>
   `\u20B9${Math.abs(v).toLocaleString("en-IN")}`;
@@ -215,7 +239,7 @@ interface PartnerCapitalAccount {
   total: number;
 }
 
-function computeTradingPL(rows: TrialRow[]) {
+function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, string>) {
   const openingStockRows: any[] = [];
   const closingStockRows: any[] = [];
   const purchaseRows: any[] = [];
@@ -233,14 +257,22 @@ function computeTradingPL(rows: TrialRow[]) {
     const netDrCr = r.closingDr - r.closingCr;
     const absVal = Math.abs(netDrCr);
 
-    if (groupName === "stock-in-hand" || groupName === "inventory") {
-      if (r.openingDr > 0) {
-        openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
+    const parentCategory = groupParentsMap[r.group] || "Assets";
+
+    if (parentCategory !== "Income" && parentCategory !== "Expense") {
+      // Stock-in-hand (Asset) opening/closing stock is an exception needed for Trading account!
+      if (groupName === "stock-in-hand" || groupName === "inventory") {
+        if (r.openingDr > 0) {
+          openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
+        }
+        if (r.closingDr > 0) {
+          closingStockRows.push({ name: r.ledgerName, amount: r.closingDr });
+        }
       }
-      if (r.closingDr > 0) {
-        closingStockRows.push({ name: r.ledgerName, amount: r.closingDr });
-      }
-    } else if (groupName === "purchase account" || groupName === "purchases") {
+      return;
+    }
+
+    if (groupName === "purchase account" || groupName === "purchases") {
       if (absVal > 0.001) {
         purchaseRows.push({ name: r.ledgerName, amount: absVal });
       }
@@ -252,16 +284,11 @@ function computeTradingPL(rows: TrialRow[]) {
       if (absVal > 0.001) {
         salesRows.push({ name: r.ledgerName, amount: absVal });
       }
-    } else if (
-      groupName === "income" || 
-      groupName === "income (trading)" || 
-      groupName === "income (other then sales)" ||
-      groupName === "indirect incomes"
-    ) {
+    } else if (parentCategory === "Income") {
       if (absVal > 0.001) {
         indirectIncomeRows.push({ name: r.ledgerName, amount: absVal });
       }
-    } else {
+    } else if (parentCategory === "Expense") {
       if (absVal > 0.001) {
         if (ledgerName.includes("depreciation")) {
           depreciationRows.push({ name: r.ledgerName, amount: absVal });
@@ -406,14 +433,20 @@ export default function BalanceSheet() {
   useEffect(() => {
     async function loadExtraData() {
       try {
-        const [trialSummary, bEntries, jEntries, allLedgers] = await Promise.all([
+        const [trialSummary, bEntries, jEntries, allLedgers, groups] = await Promise.all([
           computeTrialBalance(),
           getAllEntries(),
           getAllJournalEntries(),
-          getAllLedgers()
+          getAllLedgers(),
+          getAllGroups()
         ]);
 
-        const tpl = computeTradingPL(trialSummary.rows);
+        const groupParentsMap: Record<string, string> = {};
+        groups.forEach((g) => {
+          groupParentsMap[g.groupName] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
+        });
+
+        const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
         setTradingPLData(tpl);
 
         const capitalLedgerAccounts = allLedgers.filter(l => 

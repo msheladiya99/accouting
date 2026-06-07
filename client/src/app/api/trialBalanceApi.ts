@@ -37,10 +37,22 @@ type Bucket = {
 function makeBuckets() {
   const map = new Map<string, Bucket>();
 
-  const ensure = (name: string, group: string) => {
-    if (!map.has(name)) {
-      map.set(name, { group, openingDr: 0, openingCr: 0, transactionDr: 0, transactionCr: 0 });
+  const findKey = (name: string) => {
+    const nameLower = name.toLowerCase();
+    for (const key of map.keys()) {
+      if (key.toLowerCase() === nameLower) {
+        return key;
+      }
     }
+    return null;
+  };
+
+  const ensure = (name: string, group: string) => {
+    const existingKey = findKey(name);
+    if (existingKey) {
+      return map.get(existingKey)!;
+    }
+    map.set(name, { group, openingDr: 0, openingCr: 0, transactionDr: 0, transactionCr: 0 });
     return map.get(name)!;
   };
 
@@ -57,12 +69,12 @@ function makeBuckets() {
     ensure(name, group).transactionCr += amt;
   };
 
-  return { map, addOpeningDr, addOpeningCr, addTxnDr, addTxnCr, ensure };
+  return { map, addOpeningDr, addOpeningCr, addTxnDr, addTxnCr, ensure, findKey };
 }
 
 // ── Main API ───────────────────────────────────────────────────────────────────
 export async function computeTrialBalance(): Promise<TrialSummary> {
-  const { map, addOpeningDr, addOpeningCr, addTxnDr, addTxnCr, ensure } = makeBuckets();
+  const { map, addOpeningDr, addOpeningCr, addTxnDr, addTxnCr, ensure, findKey } = makeBuckets();
 
   // 1. Opening Balances (fetched dynamically from the database)
   const [ledgers, bankAccounts] = await Promise.all([
@@ -71,30 +83,32 @@ export async function computeTrialBalance(): Promise<TrialSummary> {
   ]);
 
   for (const l of ledgers) {
-    const groupLower = (l.groupName || "").toLowerCase();
-    if (groupLower === "bank" || groupLower === "cash") {
-      continue;
-    }
-    // Ensure the ledger exists in the buckets map even if opening balances are 0
+    // Process all ledgers, including Bank and Cash groups
     ensure(l.ledgerName, l.groupName);
     if (l.openingDr && l.openingDr > 0) addOpeningDr(l.ledgerName, l.groupName, l.openingDr);
     if (l.openingCr && l.openingCr > 0) addOpeningCr(l.ledgerName, l.groupName, l.openingCr);
   }
 
   for (const acc of bankAccounts) {
-    ensure(acc.name, acc.group);
-    if (acc.openingBalance && acc.openingBalance > 0) {
-      addOpeningDr(acc.name, acc.group, acc.openingBalance);
-    } else if (acc.openingBalance && acc.openingBalance < 0) {
-      addOpeningCr(acc.name, acc.group, Math.abs(acc.openingBalance));
+    // Check case-insensitively if this account was already processed in the ledgers loop
+    const existingKey = findKey(acc.name);
+    if (!existingKey) {
+      ensure(acc.name, acc.group);
+      if (acc.openingBalance && acc.openingBalance > 0) {
+        addOpeningDr(acc.name, acc.group, acc.openingBalance);
+      } else if (acc.openingBalance && acc.openingBalance < 0) {
+        addOpeningCr(acc.name, acc.group, Math.abs(acc.openingBalance));
+      }
     }
   }
 
   const openingLedgers = ledgers.filter(l => {
-    const gl = (l.groupName || "").toLowerCase();
-    if (gl === "bank" || gl === "cash") return false;
     return (l.openingDr || 0) > 0 || (l.openingCr || 0) > 0;
-  }).length + bankAccounts.filter(acc => (acc.openingBalance || 0) !== 0).length;
+  }).length + bankAccounts.filter(acc => {
+    const matched = ledgers.some(l => l.ledgerName.toLowerCase() === acc.name.toLowerCase());
+    if (matched) return false;
+    return (acc.openingBalance || 0) !== 0;
+  }).length;
 
   // 2. Bank / Cash Book (double-entry: each entry affects both account and contra)
   const bankEntries = await getAllEntries();

@@ -615,6 +615,19 @@ export default function OpeningBalances() {
     );
   }, []);
 
+  const rowSelection = useMemo(() => ({
+    mode: "multiRow" as const,
+    checkboxes: true,
+    headerCheckbox: true,
+    enableClickSelection: false,
+  }), []);
+
+  const selectionColumnDef = useMemo(() => ({
+    width: 48,
+    pinned: "left" as const,
+    suppressHeaderMenuButton: true,
+  }), []);
+
   // ── Column definitions ──────────────────────────────────────────────────────
   const columnDefs = useMemo<ColDef<OBRow>[]>(() => [
     {
@@ -884,8 +897,8 @@ export default function OpeningBalances() {
               rowData={rows}
               columnDefs={columnDefs}
               defaultColDef={{ resizable: true, sortable: true }}
-              rowSelection={{ mode: "multiRow" }}
-              suppressRowClickSelection={true}
+              rowSelection={rowSelection}
+              selectionColumnDef={selectionColumnDef}
               onSelectionChanged={onSelectionChanged}
               onCellEditingStopped={onCellEditingStopped}
               pinnedBottomRowData={pinnedBottom}

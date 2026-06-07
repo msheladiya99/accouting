@@ -94,7 +94,7 @@ export default function CreateCompany() {
       <form onSubmit={handleSubmit}>
         <Grid container spacing={3}>
           {/* Company Settings */}
-          <Grid item xs={12} md={6}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <Card sx={{ borderRadius: "20px", border: "1px solid #f1f5f9", boxShadow: "none" }}>
               <CardContent sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
                 <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem", mb: 0.5, display: "flex", alignItems: "center", gap: 1 }}>
@@ -143,7 +143,7 @@ export default function CreateCompany() {
           </Grid>
 
           {/* Admin User Settings */}
-          <Grid item xs={12} md={6}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <Card sx={{ borderRadius: "20px", border: "1px solid #f1f5f9", boxShadow: "none" }}>
               <CardContent sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
                 <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem", mb: 0.5 }}>
@@ -189,7 +189,7 @@ export default function CreateCompany() {
           </Grid>
 
           {/* Submit */}
-          <Grid item xs={12} sx={{ display: "flex", justifyContent: "flex-end", gap: 2, pt: 1 }}>
+          <Grid size={{ xs: 12 }} sx={{ display: "flex", justifyContent: "flex-end", gap: 2, pt: 1 }}>
             <Button
               variant="outlined"
               onClick={() => navigate("/super-admin/companies")}

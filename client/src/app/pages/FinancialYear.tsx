@@ -105,9 +105,7 @@ export default function FinancialYear() {
     return `FY ${startYear}-${String(endYear).slice(-2)}`;
   }, [customStart, customEnd]);
 
-  // ── Toggle year selection ───────────────────────────────────────────────────
-  const toggleYear = (y: number) =>
-    setSelectedYears((prev) => prev.includes(y) ? prev.filter((x) => x !== y) : [...prev, y]);
+
 
   // ── AG Grid columns ─────────────────────────────────────────────────────────
   const columnDefs = useMemo<ColDef<FinancialYear>[]>(() => [
@@ -231,10 +229,6 @@ export default function FinancialYear() {
     },
   ], [selectedFY, handleSetActive, handleClose, handleDelete]);
 
-  // ── Stats ───────────────────────────────────────────────────────────────────
-  const current = availableFYs.find((f) => f.status === "current");
-  const previous = availableFYs.find((f) => f.status === "previous");
-
   return (
     <div className="p-4 lg:p-6 space-y-6">
       {/* Page header */}
@@ -252,74 +246,6 @@ export default function FinancialYear() {
         >
           <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
         </button>
-      </div>
-
-      {/* Current & Previous FY highlight cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Current FY */}
-        <div className={`rounded-xl p-5 shadow-sm border col-span-1 sm:col-span-1
-          ${current ? "bg-emerald-50 border-emerald-200" : "bg-white border-slate-100"}`}>
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-              <CheckCircle2 size={16} className="text-emerald-600" />
-            </div>
-            <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Current FY</span>
-          </div>
-          <p className="text-xl font-bold text-slate-900">{current?.label ?? "—"}</p>
-          {current && (
-            <p className="text-xs text-emerald-700 mt-1">
-              {new Date(current.startDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
-              {" – "}
-              {new Date(current.endDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-            </p>
-          )}
-        </div>
-
-        {/* Previous FY */}
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center">
-              <Clock size={16} className="text-slate-500" />
-            </div>
-            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Previous FY</span>
-          </div>
-          <p className="text-xl font-bold text-slate-900">{previous?.label ?? "—"}</p>
-          {previous && (
-            <p className="text-xs text-slate-500 mt-1">
-              {new Date(previous.startDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
-              {" – "}
-              {new Date(previous.endDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-            </p>
-          )}
-        </div>
-
-        {/* Active in navbar */}
-        <div className={`rounded-xl p-5 shadow-sm border col-span-1 sm:col-span-1
-          ${selectedFY ? "bg-indigo-50 border-indigo-200" : "bg-white border-slate-100"}`}>
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
-              <TrendingUp size={16} className="text-indigo-600" />
-            </div>
-            <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Reports Loading For</span>
-          </div>
-          <p className="text-xl font-bold text-slate-900">{selectedFY?.label ?? "—"}</p>
-          <p className="text-xs text-indigo-600 mt-1 capitalize">{selectedFY?.status} year</p>
-        </div>
-
-        {/* Total configured */}
-        <div className="bg-white rounded-xl p-5 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-              <Calendar size={16} className="text-purple-600" />
-            </div>
-            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Total FYs</span>
-          </div>
-          <p className="text-xl font-bold text-slate-900">{availableFYs.length}</p>
-          <p className="text-xs text-slate-500 mt-1">
-            {availableFYs.filter((f) => f.status === "future").length} upcoming ·{" "}
-            {availableFYs.filter((f) => f.status === "closed").length} closed
-          </p>
-        </div>
       </div>
 
       {/* Custom Creation Panel */}
@@ -416,7 +342,7 @@ export default function FinancialYear() {
         <CalendarRange size={16} className="text-slate-400 flex-shrink-0 mt-0.5" />
         <div className="text-xs text-slate-500 space-y-1">
           <p><strong className="text-slate-700">Indian Financial Year</strong> runs from <strong>April 1 to March 31</strong> of the following calendar year.</p>
-          <p>Switching the active FY in the navbar instantly filters all reports (Dashboard, Balance Sheet, Trial Balance, P&amp;L, Bank Book) to that period.</p>
+          <p>Switching the active FY in the navbar instantly filters all reports (Balance Sheet, Trial Balance, P&amp;L, Bank Book) to that period.</p>
           <p>The <strong className="text-emerald-700">Current</strong> status is determined automatically by today's date. A <strong className="text-red-600">Closed</strong> FY is locked for new entries.</p>
         </div>
       </div>

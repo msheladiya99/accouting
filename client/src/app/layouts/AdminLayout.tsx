@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router";
 import { useApp } from "../context/AppContext";
 import { useAuth } from "../context/AuthContext";
 import {
-  LayoutDashboard, Building2, BookOpen, Landmark, Upload,
+  Building2, BookOpen, Landmark, Upload,
   FileText, BarChart3, TrendingUp, PieChart, Download, LineChart,
   ChevronLeft, ChevronRight, Bell, Search, ChevronDown,
   LogOut, Settings, User, Menu, X, Calculator, CalendarRange,
@@ -18,7 +18,6 @@ const BS_PANEL_PATHS = new Set([
 ]);
 
 const ALL_NAV_ITEMS = [
-  { path: "/",               icon: LayoutDashboard, label: "Dashboard"        },
   { path: "/financial-year", icon: CalendarRange,   label: "Financial Year"   },
   { path: "/ledger-master",  icon: BookMarked,      label: "Ledger Master"    },
   { path: "/opening-balances",icon: BookOpen,       label: "Opening Balances" },

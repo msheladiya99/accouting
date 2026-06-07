@@ -1,6 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router";
 import AdminLayout from "../layouts/AdminLayout";
-import Dashboard from "../pages/Dashboard";
 import CompanySetup from "../pages/CompanySetup";
 import FinancialYear from "../pages/FinancialYear";
 import OpeningBalances from "../pages/OpeningBalances";
@@ -45,7 +44,7 @@ export const router = createBrowserRouter([
     path: "/",
     Component: AdminLayout,
     children: [
-      { index: true, Component: Dashboard },
+      { index: true, element: <Navigate to="financial-year" replace /> },
       { path: "company-setup", Component: CompanySetup },
       { path: "financial-year", Component: FinancialYear },
       { path: "ledger-master", Component: LedgerMaster },

@@ -124,12 +124,12 @@ router.get("/dashboard", authMiddleware as any, requireSuperAdmin as any, async 
       totalLedgers,
       recentCompanies
     ] = await Promise.all([
-      Company.countDocuments(),
-      Company.countDocuments({ status: "active" }),
-      Company.countDocuments({ status: "suspended" }),
+      Company.countDocuments({ parentCompanyId: null }),
+      Company.countDocuments({ status: "active", parentCompanyId: null }),
+      Company.countDocuments({ status: "suspended", parentCompanyId: null }),
       User.countDocuments(),
       Ledger.countDocuments(),
-      Company.find().sort({ createdAt: -1 }).limit(5).lean()
+      Company.find({ parentCompanyId: null }).sort({ createdAt: -1 }).limit(5).lean()
     ]);
 
     const totalRevenue = activeFirms * 2000; // estimated monthly revenue
@@ -146,7 +146,7 @@ router.get("/dashboard", authMiddleware as any, requireSuperAdmin as any, async 
       };
     }).reverse();
 
-    const allCompanies = await Company.find({}, "createdAt").lean();
+    const allCompanies = await Company.find({ parentCompanyId: null }, "createdAt").lean();
     allCompanies.forEach((c) => {
       if (!c.createdAt) return;
       const firmDate = new Date(c.createdAt);
@@ -194,7 +194,7 @@ router.get("/dashboard", authMiddleware as any, requireSuperAdmin as any, async 
 // List all companies
 router.get("/companies", authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const companies = await Company.find().sort({ createdAt: -1 }).lean();
+    const companies = await Company.find({ parentCompanyId: null }).sort({ createdAt: -1 }).lean();
     
     const enrichedCompanies = await Promise.all(
       companies.map(async (c) => {
@@ -277,7 +277,8 @@ router.post("/companies", authMiddleware as any, requireSuperAdmin as any, async
       companyName: firmName,
       subdomain: finalSubdomain,
       panNumber: panNumber.toUpperCase(),
-      status: "active"
+      status: "active",
+      parentCompanyId: null
     });
     await company.save();
 

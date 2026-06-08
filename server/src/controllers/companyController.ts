@@ -57,7 +57,7 @@ const DEFAULT_GROUPS_SEEDS = [
 
 export async function getAllCompanies(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
-    const companies = await Company.find({}).sort({ createdAt: -1 });
+    const companies = await Company.find({ parentCompanyId: req.companyId }).sort({ createdAt: -1 });
     res.json(companies);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to retrieve companies" });
@@ -88,7 +88,8 @@ export async function createCompany(req: AuthenticatedRequest, res: Response): P
 
     const company = new Company({
       companyName,
-      panNumber: panNumber.toUpperCase()
+      panNumber: panNumber.toUpperCase(),
+      parentCompanyId: req.companyId
     });
 
     await company.save();

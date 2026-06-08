@@ -104,11 +104,12 @@ export default function SuperAdminLogin() {
     <div className="min-h-screen flex flex-col md:flex-row bg-[#f8fafc] font-sans antialiased">
       
       {/* Left Column - Deep Purple Sidebar */}
-      <div className="hidden md:flex md:w-1/2 bg-[#7c3aed] text-white p-12 md:p-16 flex-col justify-between relative overflow-hidden">
+      <div className="hidden md:flex md:w-1/2 bg-gradient-to-br from-[#7836ec] to-[#5a1cb9] text-white p-12 md:p-16 flex-col justify-between relative overflow-hidden">
         {/* Modern decorative overlapping translucent circles */}
-        <div className="absolute top-[-10%] left-[-10%] w-[350px] h-[350px] lg:w-[450px] lg:h-[450px] bg-white/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-[-10%] right-[-15%] w-[400px] h-[400px] lg:w-[500px] lg:h-[500px] bg-white/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute top-[30%] right-[-10%] w-[250px] h-[250px] bg-white/5 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute -top-16 -left-16 w-80 h-80 rounded-full bg-white/[0.06] pointer-events-none" />
+        <div className="absolute -right-32 top-[35%] w-[400px] h-[400px] rounded-full bg-white/[0.06] pointer-events-none" />
+        <div className="absolute -right-20 -bottom-20 w-80 h-80 rounded-full bg-white/[0.06] pointer-events-none" />
+        <div className="absolute -left-20 bottom-[15%] w-64 h-64 rounded-full bg-black/[0.04] pointer-events-none" />
 
         {/* Top Spacer */}
         <div />
@@ -169,7 +170,7 @@ export default function SuperAdminLogin() {
       <div className="w-full md:w-1/2 flex items-center justify-center p-6 md:p-12 min-h-screen md:min-h-0 relative bg-slate-50">
         
         {/* Floating background shape on mobile to match style */}
-        <div className="md:hidden absolute top-0 left-0 right-0 h-48 bg-[#7c3aed] -skew-y-6 transform origin-top-left -z-10 shadow-lg" />
+        <div className="md:hidden absolute top-0 left-0 right-0 h-48 bg-gradient-to-r from-[#7836ec] to-[#5a1cb9] -skew-y-6 transform origin-top-left -z-10 shadow-lg" />
         
         <div className="w-full max-w-md bg-white rounded-[2rem] p-8 md:p-12 shadow-[0_20px_50px_rgba(124,58,237,0.06)] border border-slate-100/50 flex flex-col justify-between relative">
           

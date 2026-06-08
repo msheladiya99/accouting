@@ -2,6 +2,7 @@ import { Response } from "express";
 import { Company } from "../models/Company";
 import { Ledger } from "../models/Ledger";
 import { AccountGroup } from "../models/AccountGroup";
+import { BankCashAccount } from "../models/BankCashAccount";
 import { AuthenticatedRequest } from "../middleware/auth";
 
 const DEFAULT_GROUPS_SEEDS = [
@@ -107,6 +108,15 @@ export async function createCompany(req: AuthenticatedRequest, res: Response): P
       companyId: company._id
     }));
     await Ledger.insertMany(defaultLedgers);
+
+    // Automatically create default Cash account
+    const defaultCash = new BankCashAccount({
+      name: "Cash Account",
+      group: "Cash",
+      openingBalance: 0,
+      companyId: company._id
+    });
+    await defaultCash.save();
 
     res.status(201).json(company);
   } catch (error: any) {

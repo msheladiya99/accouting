@@ -13,6 +13,7 @@ import { FYBanner } from "../components/FYBanner";
 import {
   getAllAccounts, getEntriesForAccount, getAllEntries,
   createEntry, updateEntry, deleteEntry, clearEntriesForAccount, deleteAccount, updateAccount,
+  createAccount,
   CONTRA_GROUPS,
   type BankCashAccount, type BankCashRow, type EntryPayload, type AccountGroup,
 } from "../api/bankCashBookApi";
@@ -133,24 +134,16 @@ function EntryModal({
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
               Bank / Cash Account <span className="text-red-500">*</span>
             </label>
-            <div className="grid grid-cols-2 gap-2">
-              {accounts.map((acc) => {
-                const m = GROUP_COLORS[acc.group];
-                const Icon = m.icon;
-                const isSelected = selectedAccountId === acc._id;
-                return (
-                  <label
-                    key={acc._id}
-                    className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border cursor-pointer transition-all text-sm
-                      ${isSelected ? `${m.bg} border-2 ${m.text} font-medium` : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"}`}
-                  >
-                    <input type="radio" value={acc._id} className="sr-only" {...register("accountId", { required: true })} />
-                    <Icon size={14} className="flex-shrink-0" />
-                    <span className="truncate text-xs">{acc.name}</span>
-                  </label>
-                );
-              })}
-            </div>
+            <select
+              {...register("accountId", { required: "Bank/Cash account is required" })}
+              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 font-medium text-slate-800"
+            >
+              {accounts.map((acc) => (
+                <option key={acc._id} value={acc._id}>
+                  {acc.name} ({acc.group})
+                </option>
+              ))}
+            </select>
             {selectedAccount && (
               <p className="mt-1.5 text-xs text-slate-500">
                 Opening Balance: <span className="font-semibold text-slate-700">{fmtFull(selectedAccount.openingBalance)}</span>
@@ -232,6 +225,120 @@ function EntryModal({
               className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors disabled:opacity-50">
               {loading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
               {entry ? "Save Changes" : "Add Entry"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Create Account Modal ──────────────────────────────────────────────────────
+function CreateAccountModal({
+  loading,
+  onClose,
+  onSubmit,
+}: {
+  loading: boolean;
+  onClose: () => void;
+  onSubmit: (data: { name: string; group: "Bank" | "Cash"; openingBalance: number }) => void;
+}) {
+  const { register, handleSubmit, formState: { errors } } = useForm<{
+    name: string;
+    group: "Bank" | "Cash";
+    openingBalance: number;
+  }>({
+    defaultValues: {
+      name: "",
+      group: "Bank",
+      openingBalance: 0,
+    },
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-emerald-100 flex items-center justify-center">
+              <Landmark size={16} className="text-emerald-600" />
+            </div>
+            <div>
+              <h2 className="text-slate-900 text-base font-semibold">Create Bank/Cash Account</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Add a new bank or cash ledger account</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="px-6 py-5 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Account Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. HDFC Bank, Cash Ledger..."
+              {...register("name", { required: "Account name is required" })}
+              className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${
+                errors.name
+                  ? "border-red-300 bg-red-50"
+                  : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+              }`}
+            />
+            {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name.message}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Account Type / Group <span className="text-red-500">*</span>
+            </label>
+            <select
+              {...register("group", { required: true })}
+              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+            >
+              <option value="Bank">Bank Account</option>
+              <option value="Cash">Cash Account</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Opening Balance
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₹</span>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="0.00"
+                {...register("openingBalance", { valueAsNumber: true })}
+                className="w-full pl-7 pr-3 py-2.5 rounded-lg text-sm outline-none border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+              />
+            </div>
+            <p className="mt-1.5 text-xs text-slate-400">
+              Use positive for debit balance (normal), negative for credit balance (e.g. bank overdraft).
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors disabled:opacity-50 font-semibold"
+            >
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              Create Account
             </button>
           </div>
         </form>
@@ -839,6 +946,8 @@ export default function BankCashBook() {
   const [search,          setSearch]          = useState("");
   const [modal,           setModal]           = useState<{ entry?: BankCashRow } | null>(null);
   const [showImport,      setShowImport]      = useState(false);
+  const [showCreateAccModal, setShowCreateAccModal] = useState(false);
+  const [creatingAcc, setCreatingAcc]               = useState(false);
   const [groupNames,      setGroupNames]      = useState<string[]>([]);
   const [selectedIds,     setSelectedIds]     = useState<Set<string>>(new Set());
   const [bulkAccName,     setBulkAccName]     = useState("");
@@ -928,6 +1037,32 @@ export default function BankCashBook() {
       setSaving(false);
     }
   }, [modal, accountFilter, loadRows]);
+
+  const handleCreateAccountSubmit = useCallback(async (data: { name: string; group: "Bank" | "Cash"; openingBalance: number }) => {
+    if (!data.name.trim()) {
+      toast.error("Please enter an account name");
+      return;
+    }
+    setCreatingAcc(true);
+    try {
+      const newAcc = await createAccount({
+        name: data.name.trim(),
+        group: data.group,
+        openingBalance: data.openingBalance || 0
+      });
+      toast.success(`Account "${newAcc.name}" created successfully!`);
+      const freshAccounts = await getAllAccounts();
+      setAccounts(freshAccounts);
+      setAccountFilter(newAcc._id);
+      setGroupTypeFilter("all");
+      setShowCreateAccModal(false);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || e.message || "Failed to create account");
+    } finally {
+      setCreatingAcc(false);
+    }
+  }, []);
 
   const handleDelete = useCallback(async (row: BankCashRow) => {
     if (!window.confirm(`Delete entry: "${row.particulars.slice(0, 50)}"?`)) return;
@@ -1121,6 +1256,10 @@ export default function BankCashBook() {
             className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm">
             <Upload size={14} /> Bank Import
           </button>
+          <button onClick={() => setShowCreateAccModal(true)}
+            className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm">
+            <Plus size={14} /> Create Account
+          </button>
           <button onClick={() => setModal({})}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors">
             <Plus size={15} /> Add Entry
@@ -1203,6 +1342,13 @@ export default function BankCashBook() {
               ))}
             </>
           )}
+
+          <button
+            onClick={() => setShowCreateAccModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800 transition-all border border-indigo-200/50 shadow-sm ml-auto"
+          >
+            <Plus size={13} /> Create Account
+          </button>
         </div>
       </div>
 
@@ -1346,6 +1492,14 @@ export default function BankCashBook() {
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
           contraGroups={groupNames}
+        />
+      )}
+
+      {showCreateAccModal && (
+        <CreateAccountModal
+          loading={creatingAcc}
+          onClose={() => setShowCreateAccModal(false)}
+          onSubmit={handleCreateAccountSubmit}
         />
       )}
 

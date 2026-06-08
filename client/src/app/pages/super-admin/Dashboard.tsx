@@ -117,13 +117,13 @@ export default function SuperAdminDashboard() {
 
   const stats = [
     {
-      label: "Registered Companies",
+      label: "Registered Firms",
       value: widgets.totalFirms,
       sub: `${widgets.activeFirms || 0} active`,
       icon: <BusinessIcon />,
       color: "#eef2ff",
       accent: "#6366f1",
-      path: "/super-admin/companies",
+      path: "/super-admin/firms",
     },
     {
       label: "Platform Users",
@@ -132,7 +132,7 @@ export default function SuperAdminDashboard() {
       icon: <PeopleIcon />,
       color: "#ecfdf5",
       accent: "#10b981",
-      path: "/super-admin/companies",
+      path: "/super-admin/firms",
     },
     {
       label: "System Revenue",
@@ -141,7 +141,7 @@ export default function SuperAdminDashboard() {
       icon: <RevenueIcon />,
       color: "#fffbeb",
       accent: "#f59e0b",
-      path: "/super-admin/companies",
+      path: "/super-admin/firms",
     },
     {
       label: "Ledgers Scoped",
@@ -150,7 +150,7 @@ export default function SuperAdminDashboard() {
       icon: <HealthIcon />,
       color: "#fdf2f8",
       accent: "#ec4899",
-      path: "/super-admin/companies",
+      path: "/super-admin/firms",
     },
   ];
 
@@ -217,7 +217,7 @@ export default function SuperAdminDashboard() {
               Recent Registrations
             </Typography>
             <Box
-              onClick={() => navigate("/super-admin/companies")}
+              onClick={() => navigate("/super-admin/firms")}
               sx={{ display: "flex", alignItems: "center", gap: 0.5, cursor: "pointer", color: "#6366f1", "&:hover": { opacity: 0.8 } }}
             >
               <Typography sx={{ fontSize: "0.8rem", fontWeight: 700 }}>View all</Typography>
@@ -232,14 +232,14 @@ export default function SuperAdminDashboard() {
           ) : recentFirms.length === 0 ? (
             <Box sx={{ p: 5, textAlign: "center", color: "#94a3b8" }}>
               <BusinessIcon sx={{ fontSize: 40, mb: 1, opacity: 0.3 }} />
-              <Typography sx={{ fontWeight: 600 }}>No companies registered yet</Typography>
+              <Typography sx={{ fontWeight: 600 }}>No firms registered yet</Typography>
             </Box>
           ) : (
             <Box sx={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    {["Company", "Subdomain", "Status", "Registered"].map(h => (
+                    {["Firm", "Subdomain", "Status", "Registered"].map(h => (
                       <th key={h} style={{
                         textAlign: "left", padding: "10px 20px",
                         color: "#94a3b8", fontSize: "0.7rem",
@@ -255,7 +255,7 @@ export default function SuperAdminDashboard() {
                     return (
                       <tr key={firm._id}
                         style={{ borderBottom: i < recentFirms.length - 1 ? "1px solid #f8fafc" : "none", cursor: "pointer" }}
-                        onClick={() => navigate(`/super-admin/companies/${firm._id}`)}
+                        onClick={() => navigate(`/super-admin/firms/${firm._id}`)}
                       >
                         <td style={{ padding: "14px 20px" }}>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>

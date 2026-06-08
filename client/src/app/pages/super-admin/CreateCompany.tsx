@@ -48,7 +48,7 @@ export default function CreateCompany() {
 
     setLoading(true);
     try {
-      await axiosClient.post("/super-admin/companies", {
+      await axiosClient.post("/super-admin/firms", {
         firmName,
         subdomain: subdomain.trim().toLowerCase(),
         panNumber: panNumber.toUpperCase(),
@@ -57,11 +57,11 @@ export default function CreateCompany() {
         adminPassword
       });
 
-      toast.success("Company and Admin user registered successfully!");
-      navigate("/super-admin/companies");
+      toast.success("Firm and Admin user registered successfully!");
+      navigate("/super-admin/firms");
     } catch (err: any) {
-      console.error("Failed to create company:", err);
-      setError(err?.message || "Failed to create company workspace. Please try again.");
+      console.error("Failed to create firm:", err);
+      setError(err?.message || "Failed to create firm workspace. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -72,14 +72,14 @@ export default function CreateCompany() {
       {/* Back to list */}
       <Button
         startIcon={<ArrowBackIcon />}
-        onClick={() => navigate("/super-admin/companies")}
+        onClick={() => navigate("/super-admin/firms")}
         sx={{ mb: 3, textTransform: "none", color: "#64748b", fontWeight: 700 }}
       >
-        Back to Companies
+        Back to Firms
       </Button>
 
       <Typography sx={{ fontSize: "1.5rem", fontWeight: 800, color: "#1e293b", mb: 0.5, letterSpacing: -0.5 }}>
-        Register New Company Workspace
+        Register New Firm Workspace
       </Typography>
       <Typography sx={{ color: "#94a3b8", fontWeight: 500, fontSize: "0.875rem", mb: 3 }}>
         Create a new scoped accounting environment and configure its system administrator account.
@@ -98,11 +98,11 @@ export default function CreateCompany() {
             <Card sx={{ borderRadius: "20px", border: "1px solid #f1f5f9", boxShadow: "none" }}>
               <CardContent sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
                 <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem", mb: 0.5, display: "flex", alignItems: "center", gap: 1 }}>
-                  <BusinessIcon sx={{ color: "#6366f1" }} /> Company Details
+                  <BusinessIcon sx={{ color: "#6366f1" }} /> Firm Details
                 </Typography>
 
                 <TextField
-                  label="Company Name"
+                  label="Firm Name"
                   required
                   fullWidth
                   value={firmName}
@@ -192,7 +192,7 @@ export default function CreateCompany() {
           <Grid size={{ xs: 12 }} sx={{ display: "flex", justifyContent: "flex-end", gap: 2, pt: 1 }}>
             <Button
               variant="outlined"
-              onClick={() => navigate("/super-admin/companies")}
+              onClick={() => navigate("/super-admin/firms")}
               sx={{ borderRadius: "12px", textTransform: "none", px: 4, py: 1.25, fontWeight: 700, borderColor: "#cbd5e1", color: "#64748b" }}
             >
               Cancel

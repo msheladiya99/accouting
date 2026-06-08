@@ -43,7 +43,7 @@ export default function CompanyDetails() {
 
   const fetchDetails = () => {
     setLoading(true);
-    axiosClient.get(`/super-admin/companies/${id}`)
+    axiosClient.get(`/super-admin/firms/${id}`)
       .then(res => {
         // Adapt response structure
         const resData = res.data;
@@ -77,8 +77,8 @@ export default function CompanyDetails() {
         setData(res.data);
       })
       .catch(err => {
-        console.error("Failed to fetch company details:", err);
-        toast.error("Failed to fetch company details");
+        console.error("Failed to fetch firm details:", err);
+        toast.error("Failed to fetch firm details");
       })
       .finally(() => {
         setLoading(false);
@@ -97,7 +97,7 @@ export default function CompanyDetails() {
       return;
     }
     setResetting(true);
-    axiosClient.post(`/super-admin/companies/${id}/reset-password`, { newPassword })
+    axiosClient.post(`/super-admin/firms/${id}/reset-password`, { newPassword })
       .then(() => {
         toast.success("Admin password reset successfully");
         setOpenReset(false);
@@ -123,7 +123,7 @@ export default function CompanyDetails() {
   if (!data) {
     return (
       <Box sx={{ py: 10, textAlign: "center" }}>
-        <Typography sx={{ color: "#64748b", fontWeight: 700 }}>Company details not found.</Typography>
+        <Typography sx={{ color: "#64748b", fontWeight: 700 }}>Firm details not found.</Typography>
       </Box>
     );
   }
@@ -135,10 +135,10 @@ export default function CompanyDetails() {
       {/* Back button */}
       <Button
         startIcon={<ArrowBackIcon />}
-        onClick={() => navigate("/super-admin/companies")}
+        onClick={() => navigate("/super-admin/firms")}
         sx={{ mb: 3, textTransform: "none", color: "#64748b", fontWeight: 700 }}
       >
-        Back to Companies
+        Back to Firms
       </Button>
 
       {/* Header */}
@@ -176,7 +176,7 @@ export default function CompanyDetails() {
           <Card sx={{ borderRadius: "20px", border: "1px solid #f1f5f9", boxShadow: "none" }}>
             <CardContent sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
               <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem", mb: 0.5 }}>
-                Company Info
+                Firm Info
               </Typography>
 
               <Box>
@@ -268,7 +268,7 @@ export default function CompanyDetails() {
         <DialogTitle sx={{ fontWeight: 800, color: "#1e293b" }}>Reset Admin Password</DialogTitle>
         <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
           <Typography sx={{ color: "#64748b", fontSize: "0.875rem" }}>
-            This will update the password for all users holding the <strong>Admin</strong> role in the <strong>{company.companyName}</strong> workspace.
+            This will update the password for all users holding the <strong>Admin</strong> role in the <strong>{company.companyName}</strong> firm.
           </Typography>
           <TextField
             label="New Password"

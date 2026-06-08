@@ -191,8 +191,8 @@ router.get("/dashboard", authMiddleware as any, requireSuperAdmin as any, async 
   }
 });
 
-// List all companies
-router.get("/companies", authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
+// List all companies / firms
+router.get(["/companies", "/firms"], authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const companies = await Company.find({ parentCompanyId: null }).sort({ createdAt: -1 }).lean();
     
@@ -215,8 +215,8 @@ router.get("/companies", authMiddleware as any, requireSuperAdmin as any, async 
   }
 });
 
-// Get single company details
-router.get("/companies/:id", authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
+// Get single company / firm details
+router.get(["/companies/:id", "/firms/:id"], authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const company = await Company.findById(req.params.id);
     if (!company) {
@@ -236,8 +236,8 @@ router.get("/companies/:id", authMiddleware as any, requireSuperAdmin as any, as
   }
 });
 
-// Create a new Company (Firm)
-router.post("/companies", authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
+// Create a new Company / Firm
+router.post(["/companies", "/firms"], authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const {
       firmName,
@@ -334,8 +334,8 @@ router.post("/companies", authMiddleware as any, requireSuperAdmin as any, async
   }
 });
 
-// Update Company Status (Suspend/Activate)
-router.patch("/companies/:id", authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
+// Update Company / Firm Status (Suspend/Activate)
+router.patch(["/companies/:id", "/firms/:id"], authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { status } = req.body;
     if (!["active", "suspended"].includes(status)) {
@@ -360,7 +360,7 @@ router.patch("/companies/:id", authMiddleware as any, requireSuperAdmin as any, 
 });
 
 // Reset admin password
-router.post("/companies/:id/reset-password", authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
+router.post(["/companies/:id/reset-password", "/firms/:id/reset-password"], authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { newPassword } = req.body;
     if (!newPassword) {
@@ -387,8 +387,8 @@ router.post("/companies/:id/reset-password", authMiddleware as any, requireSuper
   }
 });
 
-// Delete Company
-router.delete("/companies/:id", authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
+// Delete Company / Firm
+router.delete(["/companies/:id", "/firms/:id"], authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const company = await Company.findByIdAndDelete(req.params.id);
     if (!company) {

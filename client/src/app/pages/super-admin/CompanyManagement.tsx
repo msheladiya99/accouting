@@ -39,13 +39,13 @@ export default function CompanyManagement() {
 
   const fetchCompanies = () => {
     setLoading(true);
-    axiosClient.get("/super-admin/companies")
+    axiosClient.get("/super-admin/firms")
       .then(res => {
         setCompanies(res.data);
       })
       .catch(err => {
-        console.error("Failed to load companies:", err);
-        toast.error("Failed to load companies");
+        console.error("Failed to load firms:", err);
+        toast.error("Failed to load firms");
       })
       .finally(() => {
         setLoading(false);
@@ -60,14 +60,14 @@ export default function CompanyManagement() {
     setTogglingId(company._id);
     const newStatus = company.status === "active" ? "suspended" : "active";
     
-    axiosClient.patch(`/super-admin/companies/${company._id}`, { status: newStatus })
+    axiosClient.patch(`/super-admin/firms/${company._id}`, { status: newStatus })
       .then(() => {
-        toast.success(`Company ${newStatus === "active" ? "activated" : "suspended"}`);
+        toast.success(`Firm ${newStatus === "active" ? "activated" : "suspended"}`);
         // Update local state
         setCompanies(prev => prev.map(c => c._id === company._id ? { ...c, status: newStatus } : c));
       })
       .catch(err => {
-        console.error("Failed to toggle company status:", err);
+        console.error("Failed to toggle firm status:", err);
         toast.error("Failed to change status");
       })
       .finally(() => {
@@ -76,15 +76,15 @@ export default function CompanyManagement() {
   };
 
   const handleDelete = (id: string) => {
-    axiosClient.delete(`/super-admin/companies/${id}`)
+    axiosClient.delete(`/super-admin/firms/${id}`)
       .then(() => {
-        toast.success("Company deleted successfully");
+        toast.success("Firm deleted successfully");
         setCompanies(prev => prev.filter(c => c._id !== id));
         setDeleteTarget(null);
       })
       .catch(err => {
-        console.error("Failed to delete company:", err);
-        toast.error("Failed to delete company");
+        console.error("Failed to delete firm:", err);
+        toast.error("Failed to delete firm");
       });
   };
 
@@ -104,14 +104,14 @@ export default function CompanyManagement() {
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 3, flexWrap: "wrap", gap: 2 }}>
         <Box>
           <Typography sx={{ fontSize: "1.4rem", fontWeight: 800, color: "#1e293b", letterSpacing: -0.5 }}>
-            Company Accounts
+            Firm Accounts
           </Typography>
           <Typography sx={{ color: "#94a3b8", fontWeight: 500, fontSize: "0.875rem", mt: 0.25 }}>
             {loading ? "—" : `${companies.length} firms registered`} on the SaaS platform
           </Typography>
         </Box>
         <Box
-          onClick={() => navigate("/super-admin/companies/create")}
+          onClick={() => navigate("/super-admin/firms/create")}
           sx={{
             display: "flex", alignItems: "center", gap: 1,
             bgcolor: "#6366f1", color: "#fff", px: 2.5, py: 1.25,
@@ -121,14 +121,14 @@ export default function CompanyManagement() {
           }}
         >
           <AddIcon sx={{ fontSize: 18 }} />
-          Register New Company
+          Register New Firm
         </Box>
       </Box>
 
       {/* Filters */}
       <Box sx={{ display: "flex", gap: 1.5, mb: 2.5, flexWrap: "wrap" }}>
         <TextField
-          placeholder="Search company name, subdomain, PAN..."
+          placeholder="Search firm name, subdomain, PAN..."
           size="small"
           value={search}
           onChange={e => setSearch(e.target.value)}
@@ -157,7 +157,7 @@ export default function CompanyManagement() {
         ) : filtered.length === 0 ? (
           <Box sx={{ py: 8, textAlign: "center" }}>
             <BusinessIcon sx={{ fontSize: 44, color: "#e2e8f0", mb: 1.5 }} />
-            <Typography sx={{ fontWeight: 700, color: "#64748b" }}>No companies found</Typography>
+            <Typography sx={{ fontWeight: 700, color: "#64748b" }}>No firms found</Typography>
             <Typography sx={{ color: "#94a3b8", fontSize: "0.875rem", mt: 0.5 }}>Try adjusting your search filters</Typography>
           </Box>
         ) : (
@@ -165,7 +165,7 @@ export default function CompanyManagement() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid #f8fafc" }}>
-                  {["Company Name", "Subdomain", "PAN Number", "Status", "Users / Ledgers", "Registered Date", "Actions"].map(h => (
+                  {["Firm Name", "Subdomain", "PAN Number", "Status", "Users / Ledgers", "Registered Date", "Actions"].map(h => (
                     <th key={h} style={{
                       textAlign: h === "Actions" ? "right" : "left",
                       padding: "12px 20px",
@@ -236,7 +236,7 @@ export default function CompanyManagement() {
                       <td style={{ padding: "14px 20px", textAlign: "right" }}>
                         <Box sx={{ display: "flex", gap: 0.75, justifyContent: "flex-end" }}>
                           <Tooltip title="View details">
-                            <IconButton size="small" onClick={() => navigate(`/super-admin/companies/${company._id}`)}
+                            <IconButton size="small" onClick={() => navigate(`/super-admin/firms/${company._id}`)}
                               sx={{ bgcolor: "#f8fafc", color: "#475569", borderRadius: "8px", "&:hover": { bgcolor: "#eef2ff", color: "#6366f1" } }}>
                               <ViewIcon sx={{ fontSize: 16 }} />
                             </IconButton>
@@ -272,7 +272,7 @@ export default function CompanyManagement() {
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} PaperProps={{ sx: { borderRadius: "20px", p: 1 } }}>
-        <DialogTitle sx={{ fontWeight: 800, color: "#1e293b" }}>Delete Company Workspace?</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 800, color: "#1e293b" }}>Delete Firm Workspace?</DialogTitle>
         <DialogContent>
           <Typography sx={{ color: "#64748b" }}>
             You are about to permanently delete the workspace for <strong>{deleteTarget?.companyName}</strong> and all its associated accounting data (users, ledgers, accounts, transactions).<br /><br />

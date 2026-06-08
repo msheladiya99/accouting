@@ -8,6 +8,7 @@ import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
 import { useApp } from "../context/AppContext";
 import { getAllCompanies, createCompany, type Company } from "../api/companyApi";
+import UserManagement from "./UserManagement";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function companyInitials(name: string) {
@@ -126,6 +127,7 @@ export default function CompanySelect() {
   const [search,      setSearch]      = useState("");
   const [showAdd,     setShowAdd]     = useState(false);
   const [selecting,   setSelecting]   = useState<string | null>(null);
+  const [view,        setView]        = useState<"companies" | "users">("companies");
 
   // Auth guard
   useEffect(() => {
@@ -179,6 +181,32 @@ export default function CompanySelect() {
             </div>
           </div>
 
+          {/* Navigation Tabs (only for Admin users) */}
+          {user?.role === "Admin" && (
+            <div className="flex items-center gap-6 h-full">
+              <button
+                onClick={() => setView("companies")}
+                className={`h-full border-b-2 text-sm font-semibold transition-all px-1 ${
+                  view === "companies"
+                    ? "border-indigo-600 text-indigo-600"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Companies / Firms
+              </button>
+              <button
+                onClick={() => setView("users")}
+                className={`h-full border-b-2 text-sm font-semibold transition-all px-1 ${
+                  view === "users"
+                    ? "border-indigo-600 text-indigo-600"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                User Management
+              </button>
+            </div>
+          )}
+
           {/* User + logout */}
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2.5 px-3 py-1.5 bg-slate-50 rounded-xl border border-slate-200">
@@ -202,119 +230,125 @@ export default function CompanySelect() {
 
       {/* Main */}
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 space-y-8">
-        {/* Hero text */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold mb-2">
-            <CheckCircle2 size={13} />
-            Signed in as {user?.name}
-          </div>
-          <h1 className="text-slate-900 text-2xl font-bold">Select a Company</h1>
-          <p className="text-slate-500 text-sm">Choose the company you want to work with, or add a new one</p>
-        </div>
+        {view === "companies" ? (
+          <>
+            {/* Hero text */}
+            <div className="text-center space-y-2">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold mb-2">
+                <CheckCircle2 size={13} />
+                Signed in as {user?.name}
+              </div>
+              <h1 className="text-slate-900 text-2xl font-bold">Select a Company</h1>
+              <p className="text-slate-500 text-sm">Choose the company you want to work with, or add a new one</p>
+            </div>
 
-        {/* Search + Add */}
-        <div className="flex gap-3 items-center">
-          <div className="flex-1 flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm">
-            <Search size={15} className="text-slate-400 flex-shrink-0" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by company name or PAN…"
-              className="bg-transparent text-sm text-slate-700 placeholder-slate-400 outline-none flex-1"
-            />
-            {search && (
-              <button onClick={() => setSearch("")} className="text-slate-400 hover:text-slate-600">
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm flex-shrink-0"
-          >
-            <Plus size={16} /> Add Company
-          </button>
-        </div>
-
-        {/* Companies grid */}
-        {loading ? (
-          <div className="flex items-center justify-center py-20 gap-3 text-slate-400">
-            <Loader2 size={22} className="animate-spin" /> Loading companies…
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
-            <Building2 size={40} className="opacity-25" />
-            <p className="text-sm font-medium">{search ? "No companies match your search" : "No companies yet"}</p>
-            {!search && (
+            {/* Search + Add */}
+            <div className="flex gap-3 items-center">
+              <div className="flex-1 flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm">
+                <Search size={15} className="text-slate-400 flex-shrink-0" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by company name or PAN…"
+                  className="bg-transparent text-sm text-slate-700 placeholder-slate-400 outline-none flex-1"
+                />
+                {search && (
+                  <button onClick={() => setSearch("")} className="text-slate-400 hover:text-slate-600">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
               <button
                 onClick={() => setShowAdd(true)}
-                className="mt-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm flex-shrink-0"
               >
-                Add First Company
+                <Plus size={16} /> Add Company
               </button>
+            </div>
+
+            {/* Companies grid */}
+            {loading ? (
+              <div className="flex items-center justify-center py-20 gap-3 text-slate-400">
+                <Loader2 size={22} className="animate-spin" /> Loading companies…
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
+                <Building2 size={40} className="opacity-25" />
+                <p className="text-sm font-medium">{search ? "No companies match your search" : "No companies yet"}</p>
+                {!search && (
+                  <button
+                    onClick={() => setShowAdd(true)}
+                    className="mt-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition-colors"
+                  >
+                    Add First Company
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filtered.map((c) => {
+                  const isSelecting = selecting === c._id;
+                  return (
+                    <button
+                      key={c._id}
+                      onClick={() => handleSelect(c)}
+                      disabled={!!selecting}
+                      className="group relative text-left bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all duration-200 overflow-hidden disabled:opacity-60"
+                    >
+                      {/* Top color strip */}
+                      <div className={`h-1.5 bg-gradient-to-r ${companyColor(c._id)} w-full`} />
+
+                      <div className="p-5 space-y-4">
+                        {/* Avatar + name */}
+                        <div className="flex items-start gap-4">
+                          <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${companyColor(c._id)} flex items-center justify-center text-white text-lg font-bold flex-shrink-0 shadow-sm`}>
+                            {companyInitials(c.companyName)}
+                          </div>
+                          <div className="flex-1 min-w-0 pt-1">
+                            <p className="text-sm font-bold text-slate-900 leading-tight line-clamp-2 group-hover:text-indigo-700 transition-colors">
+                              {c.companyName}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Meta */}
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <Hash size={11} className="text-slate-400 flex-shrink-0" />
+                            <span className="font-mono tracking-wide">{c.panNumber}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-slate-400">
+                            <Calendar size={11} className="flex-shrink-0" />
+                            Added {fmt(c.createdAt)}
+                          </div>
+                        </div>
+
+                        {/* CTA */}
+                        <div className={`flex items-center justify-between pt-3 border-t border-slate-100 ${isSelecting ? "text-indigo-600" : "text-slate-400 group-hover:text-indigo-600"} transition-colors`}>
+                          <span className="text-xs font-semibold">
+                            {isSelecting ? "Opening…" : "Open Company"}
+                          </span>
+                          {isSelecting
+                            ? <Loader2 size={15} className="animate-spin" />
+                            : <ChevronRight size={15} className="group-hover:translate-x-0.5 transition-transform" />}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             )}
-          </div>
+
+            {/* Count */}
+            {!loading && filtered.length > 0 && (
+              <p className="text-center text-xs text-slate-400">
+                {filtered.length} {filtered.length === 1 ? "company" : "companies"}
+                {search && ` matching "${search}"`}
+              </p>
+            )}
+          </>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((c) => {
-              const isSelecting = selecting === c._id;
-              return (
-                <button
-                  key={c._id}
-                  onClick={() => handleSelect(c)}
-                  disabled={!!selecting}
-                  className="group relative text-left bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all duration-200 overflow-hidden disabled:opacity-60"
-                >
-                  {/* Top color strip */}
-                  <div className={`h-1.5 bg-gradient-to-r ${companyColor(c._id)} w-full`} />
-
-                  <div className="p-5 space-y-4">
-                    {/* Avatar + name */}
-                    <div className="flex items-start gap-4">
-                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${companyColor(c._id)} flex items-center justify-center text-white text-lg font-bold flex-shrink-0 shadow-sm`}>
-                        {companyInitials(c.companyName)}
-                      </div>
-                      <div className="flex-1 min-w-0 pt-1">
-                        <p className="text-sm font-bold text-slate-900 leading-tight line-clamp-2 group-hover:text-indigo-700 transition-colors">
-                          {c.companyName}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Meta */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2 text-xs text-slate-500">
-                        <Hash size={11} className="text-slate-400 flex-shrink-0" />
-                        <span className="font-mono tracking-wide">{c.panNumber}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-slate-400">
-                        <Calendar size={11} className="flex-shrink-0" />
-                        Added {fmt(c.createdAt)}
-                      </div>
-                    </div>
-
-                    {/* CTA */}
-                    <div className={`flex items-center justify-between pt-3 border-t border-slate-100 ${isSelecting ? "text-indigo-600" : "text-slate-400 group-hover:text-indigo-600"} transition-colors`}>
-                      <span className="text-xs font-semibold">
-                        {isSelecting ? "Opening…" : "Open Company"}
-                      </span>
-                      {isSelecting
-                        ? <Loader2 size={15} className="animate-spin" />
-                        : <ChevronRight size={15} className="group-hover:translate-x-0.5 transition-transform" />}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Count */}
-        {!loading && filtered.length > 0 && (
-          <p className="text-center text-xs text-slate-400">
-            {filtered.length} {filtered.length === 1 ? "company" : "companies"}
-            {search && ` matching "${search}"`}
-          </p>
+          <UserManagement />
         )}
       </main>
 

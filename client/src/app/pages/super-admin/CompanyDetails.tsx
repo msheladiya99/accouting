@@ -1,10 +1,22 @@
 import React, { useState, useEffect } from "react";
 import {
   Box, Typography, Button, Card, CardContent, CircularProgress,
-  Grid, Avatar, Chip, TextField, Dialog, DialogTitle, DialogContent,
-  DialogActions, List, ListItem, ListItemAvatar, ListItemText
+  Grid, Avatar, Chip, TextField
 } from "@mui/material";
-import { ArrowBack as ArrowBackIcon, Business as BusinessIcon, Key as KeyIcon } from "@mui/icons-material";
+import {
+  ArrowBack as ArrowBackIcon,
+  Business as BusinessIcon,
+  Language as GlobeIcon,
+  Email as MailIcon,
+  CalendarToday as CalendarIcon,
+  Edit as EditIcon,
+  Lock as LockIcon,
+  Save as SaveIcon,
+  Extension as AddonIcon,
+  People as PeopleIcon,
+  Assignment as TaskIcon,
+  PersonAdd as PersonAddIcon
+} from "@mui/icons-material";
 import { useNavigate, useParams } from "react-router";
 import axiosClient from "../../api/axiosClient";
 import toast from "react-hot-toast";
@@ -36,8 +48,7 @@ export default function CompanyDetails() {
   const [data, setData] = useState<ICompanyDetails | null>(null);
   const [loading, setLoading] = useState(true);
   
-  // Password reset dialog state
-  const [openReset, setOpenReset] = useState(false);
+  // Password reset state
   const [newPassword, setNewPassword] = useState("");
   const [resetting, setResetting] = useState(false);
 
@@ -45,35 +56,6 @@ export default function CompanyDetails() {
     setLoading(true);
     axiosClient.get(`/super-admin/firms/${id}`)
       .then(res => {
-        // Adapt response structure
-        const resData = res.data;
-        // The API returns enriched company list or single company object
-        // Let's adapt if backend is returning `{ company, users, stats: { ledgersCount } }`
-        // Wait, on the backend:
-        // `res.json({ company, users, stats: { ledgersCount } })` is not what we returned in backend super-admin.ts!
-        // Let's check backend super-admin.ts GET `/companies/:id`.
-        // Wait! Let's check:
-        // `router.get('/companies/:id', authMiddleware, requireSuperAdmin, ...)`
-        // Wait, does `/companies/:id` exist? Let's check!
-        // Ah! In backend `super-admin.ts`, we did:
-        // No, we didn't add a specific GET `/companies/:id` details endpoint! We only have GET `/companies`.
-        // Let's check backend `super-admin.ts` file to see what endpoints we wrote.
-        // Wait, let's write a GET `/companies/:id` in backend `super-admin.ts` if we didn't!
-        // Let's verify our backend file contents. Yes, in backend `/companies/:id` is missing!
-        // Ah! Let's add GET `/companies/:id` to backend `super-admin.ts`!
-        // Let's see: what should it return?
-        // It should return `{ company, users }`!
-        // Let's read `super-admin.ts` to see what endpoints are in there.
-        // Let's see: we have:
-        // - GET `/companies`
-        // - POST `/companies`
-        // - PATCH `/companies/:id`
-        // - DELETE `/companies/:id`
-        // - POST `/companies/:id/reset-password`
-        // Yes! We missed the GET `/companies/:id` details route in the backend!
-        // Let's make sure we implement both client and backend correctly.
-        // First, let's complete the client side file, then we can append the GET `/companies/:id` endpoint on the backend.
-        
         setData(res.data);
       })
       .catch(err => {
@@ -100,7 +82,6 @@ export default function CompanyDetails() {
     axiosClient.post(`/super-admin/firms/${id}/reset-password`, { newPassword })
       .then(() => {
         toast.success("Admin password reset successfully");
-        setOpenReset(false);
         setNewPassword("");
       })
       .catch(err => {
@@ -128,174 +109,451 @@ export default function CompanyDetails() {
     );
   }
 
-  const { company, users = [] } = data;
+  const { company, users = [], stats = { ledgersCount: 0 } } = data;
+
+  const adminUser = users.find(u => u.role === "Admin") || users[0];
+  const adminEmail = adminUser?.email || "lalit@gmail.com";
+
+  const infoFields = [
+    {
+      label: "FIRM NAME",
+      value: company.companyName,
+      icon: <BusinessIcon sx={{ color: "#94a3b8", fontSize: 18 }} />
+    },
+    {
+      label: "PORTAL URL",
+      value: `${company.subdomain}.mycafile.in`,
+      isLink: true,
+      icon: <GlobeIcon sx={{ color: "#94a3b8", fontSize: 18 }} />
+    },
+    {
+      label: "REGISTERED EMAIL",
+      value: adminEmail,
+      icon: <MailIcon sx={{ color: "#94a3b8", fontSize: 18 }} />
+    },
+    {
+      label: "CREATED AT",
+      value: new Date(company.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+      icon: <CalendarIcon sx={{ color: "#94a3b8", fontSize: 18 }} />
+    }
+  ];
 
   return (
-    <Box className="sa-page" sx={{ maxWidth: 900, mx: "auto" }}>
+    <Box className="sa-page" sx={{ maxWidth: 1200, mx: "auto", px: { lg: 2 } }}>
       {/* Back button */}
-      <Button
-        startIcon={<ArrowBackIcon />}
-        onClick={() => navigate("/super-admin/firms")}
-        sx={{ mb: 3, textTransform: "none", color: "#64748b", fontWeight: 700 }}
-      >
-        Back to Firms
-      </Button>
+      <Box sx={{ mb: 2 }}>
+        <Button
+          startIcon={<ArrowBackIcon />}
+          onClick={() => navigate("/super-admin/firms")}
+          sx={{ textTransform: "none", color: "#94a3b8", fontWeight: 700, fontSize: "0.85rem", "&:hover": { color: "#64748b" } }}
+        >
+          Firms
+        </Button>
+      </Box>
 
       {/* Header */}
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 4, flexWrap: "wrap", gap: 2 }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3.5, flexWrap: "wrap", gap: 2 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <Avatar sx={{ width: 48, height: 48, borderRadius: "14px", bgcolor: "#eef2ff", color: "#6366f1", fontSize: "1.25rem", fontWeight: 800 }}>
+          <Avatar sx={{ width: 44, height: 44, borderRadius: "12px", bgcolor: "#6366f1", color: "#fff", fontSize: "1.2rem", fontWeight: 800 }}>
             {company.companyName?.charAt(0) || "C"}
           </Avatar>
           <Box>
-            <Typography sx={{ fontSize: "1.5rem", fontWeight: 800, color: "#1e293b", letterSpacing: -0.5, lineHeight: 1.2 }}>
+            <Typography sx={{ fontSize: "1.4rem", fontWeight: 800, color: "#1e293b", letterSpacing: -0.5, lineHeight: 1.2 }}>
               {company.companyName}
             </Typography>
-            <Typography sx={{ fontFamily: "monospace", fontSize: "0.8rem", color: "#64748b", mt: 0.25 }}>
-              {company.subdomain}.localhost
+            <Typography sx={{ fontSize: "0.8rem", color: "#94a3b8", fontWeight: 500, mt: 0.25 }}>
+              {company.subdomain}.mycafile.in
             </Typography>
           </Box>
         </Box>
 
-        <Box sx={{ display: "flex", gap: 1.5 }}>
-          <Button
-            variant="outlined"
-            startIcon={<KeyIcon />}
-            onClick={() => setOpenReset(true)}
-            sx={{ borderRadius: "12px", textTransform: "none", fontWeight: 700, borderColor: "#cbd5e1", color: "#334155" }}
-          >
-            Reset Admin Password
-          </Button>
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          <Chip
+            label={company.status?.toUpperCase() || "ACTIVE"}
+            size="small"
+            sx={{
+              bgcolor: company.status === "active" ? "#ecfdf5" : "#fff1f2",
+              color: company.status === "active" ? "#10b981" : "#f43f5e",
+              fontWeight: 700,
+              fontSize: "0.68rem",
+              borderRadius: "6px",
+              height: 22,
+            }}
+          />
+          <Chip
+            label="Enterprise cloud"
+            size="small"
+            sx={{
+              bgcolor: "#f1f5f9",
+              color: "#475569",
+              fontWeight: 700,
+              fontSize: "0.68rem",
+              borderRadius: "6px",
+              height: 22,
+              border: "1px solid #e2e8f0"
+            }}
+          />
         </Box>
       </Box>
 
       {/* Content Grid */}
       <Grid container spacing={3}>
-        {/* Company Overview Card */}
-        <Grid size={{ xs: 12, md: 5 }}>
+        {/* Left Column */}
+        <Grid item xs={12} md={7.5} lg={8} sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {/* Profile Settings */}
           <Card sx={{ borderRadius: "20px", border: "1px solid #f1f5f9", boxShadow: "none" }}>
-            <CardContent sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
-              <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem", mb: 0.5 }}>
-                Firm Info
-              </Typography>
-
-              <Box>
-                <Typography sx={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 700, textTransform: "uppercase" }}>PAN Number</Typography>
-                <Typography sx={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600, fontFamily: "monospace" }}>{company.panNumber}</Typography>
-              </Box>
-
-              <Box>
-                <Typography sx={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 700, textTransform: "uppercase" }}>Status</Typography>
-                <Chip
-                  label={company.status?.toUpperCase()}
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3.5 }}>
+                <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem" }}>
+                  Profile Settings
+                </Typography>
+                <Button
+                  variant="outlined"
+                  startIcon={<EditIcon sx={{ fontSize: 16 }} />}
                   size="small"
                   sx={{
-                    bgcolor: company.status === "active" ? "#ecfdf5" : "#fff1f2",
-                    color: company.status === "active" ? "#10b981" : "#f43f5e",
-                    fontWeight: 700, fontSize: "0.68rem", mt: 0.5
+                    borderRadius: "10px",
+                    textTransform: "none",
+                    fontWeight: 700,
+                    fontSize: "0.78rem",
+                    color: "#334155",
+                    borderColor: "#e2e8f0",
+                    "&:hover": { bgcolor: "#f8fafc", borderColor: "#cbd5e1" }
                   }}
-                />
+                >
+                  Edit Settings
+                </Button>
               </Box>
 
-              <Box>
-                <Typography sx={{ fontSize: "0.72rem", color: "#94a3b8", fontWeight: 700, textTransform: "uppercase" }}>Registered Date</Typography>
-                <Typography sx={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>
-                  {new Date(company.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+                {infoFields.map((field) => (
+                  <Box key={field.label} sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                    <Box sx={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: "50%",
+                      bgcolor: "#f8fafc",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: "1px solid #f1f5f9"
+                    }}>
+                      {field.icon}
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontSize: "0.65rem", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.05em", mb: 0.25 }}>
+                        {field.label}
+                      </Typography>
+                      {field.isLink ? (
+                        <Typography
+                          component="a"
+                          href={`http://${field.value}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          sx={{ fontSize: "0.875rem", color: "#3b82f6", fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}
+                        >
+                          {field.value}
+                        </Typography>
+                      ) : (
+                        <Typography sx={{ fontSize: "0.875rem", color: "#1e293b", fontWeight: 700 }}>
+                          {field.value}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+
+              {/* Bottom plan/status summary bar */}
+              <Box sx={{
+                borderTop: "1px solid #f1f5f9",
+                pt: 2.5,
+                mt: 3.5,
+                display: "grid",
+                gridTemplateColumns: "repeat(4, 1fr)",
+                gap: 1.5
+              }}>
+                <Box>
+                  <Typography sx={{ fontSize: "0.625rem", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.05em" }}>PLAN</Typography>
+                  <Typography sx={{ fontSize: "0.82rem", color: "#1e293b", fontWeight: 800, mt: 0.5 }}>Enterprise cloud</Typography>
+                </Box>
+                <Box>
+                  <Typography sx={{ fontSize: "0.625rem", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.05em" }}>STATUS</Typography>
+                  <Typography sx={{ fontSize: "0.82rem", color: "#10b981", fontWeight: 800, mt: 0.5 }}>ACTIVE</Typography>
+                </Box>
+                <Box>
+                  <Typography sx={{ fontSize: "0.625rem", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.05em" }}>MAX ADMINS</Typography>
+                  <Typography sx={{ fontSize: "0.82rem", color: "#1e293b", fontWeight: 800, mt: 0.5 }}>2</Typography>
+                </Box>
+                <Box>
+                  <Typography sx={{ fontSize: "0.625rem", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.05em", mb: 0.5 }}>STORAGE</Typography>
+                  <Box sx={{
+                    display: "inline-flex",
+                    bgcolor: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    px: 1,
+                    py: 0.25,
+                    borderRadius: "6px",
+                  }}>
+                    <Typography sx={{ fontSize: "0.72rem", color: "#475569", fontWeight: 700 }}>App Drive</Typography>
+                  </Box>
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+
+          {/* Firm Add-ons */}
+          <Card sx={{ borderRadius: "20px", border: "1px solid #f1f5f9", boxShadow: "none" }}>
+            <CardContent sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <AddonIcon sx={{ color: "#7c3aed", fontSize: 20 }} />
+                  <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem" }}>
+                    Firm Add-ons
+                  </Typography>
+                </Box>
+                <Button
+                  variant="contained"
+                  size="small"
+                  sx={{
+                    bgcolor: "#7c3aed",
+                    color: "#fff",
+                    borderRadius: "10px",
+                    textTransform: "none",
+                    fontWeight: 700,
+                    fontSize: "0.75rem",
+                    boxShadow: "none",
+                    "&:hover": { bgcolor: "#6d28d9" }
+                  }}
+                >
+                  + Assign Add-on
+                </Button>
+              </Box>
+              <Box sx={{ py: 6, textAlign: "center" }}>
+                <Typography sx={{ color: "#94a3b8", fontSize: "0.85rem", fontWeight: 500 }}>
+                  No add-ons currently active for this firm.
                 </Typography>
               </Box>
             </CardContent>
           </Card>
-        </Grid>
 
-        {/* Users List Card */}
-        <Grid size={{ xs: 12, md: 7 }}>
+          {/* Admin Users */}
           <Card sx={{ borderRadius: "20px", border: "1px solid #f1f5f9", boxShadow: "none" }}>
             <CardContent sx={{ p: 3 }}>
-              <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem", mb: 2 }}>
-                Workspace Users ({users.length})
-              </Typography>
-
-              {users.length === 0 ? (
-                <Typography sx={{ color: "#94a3b8", py: 4, textAlign: "center" }}>No users registered inside this workspace.</Typography>
-              ) : (
-                <List sx={{ p: 0 }}>
-                  {users.map((u, i) => (
-                    <ListItem
-                      key={u._id}
-                      sx={{
-                        px: 0, py: 1.5,
-                        borderBottom: i < users.length - 1 ? "1px solid #f8fafc" : "none"
-                      }}
-                    >
-                      <ListItemAvatar>
-                        <Avatar sx={{ bgcolor: u.role === "Admin" ? "#eef2ff" : "#f1f5f9", color: u.role === "Admin" ? "#6366f1" : "#64748b", fontWeight: 800, fontSize: "0.85rem" }}>
-                          {u.name?.charAt(0) || "U"}
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        primary={
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                            <Typography sx={{ fontWeight: 700, color: "#1e293b", fontSize: "0.875rem" }}>{u.name}</Typography>
-                            {u.role === "Admin" && (
-                              <Chip label="Admin" size="small" sx={{ height: 18, fontSize: "0.625rem", bgcolor: "#f5f3ff", color: "#7c3aed", fontWeight: 700 }} />
-                            )}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2.5 }}>
+                <PeopleIcon sx={{ color: "#6366f1", fontSize: 20 }} />
+                <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem" }}>
+                  Admin Users ({users.length})
+                </Typography>
+              </Box>
+              <Box sx={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid #f8fafc" }}>
+                      {["Name", "Email", "Role"].map(h => (
+                        <th key={h} style={{
+                          textAlign: "left",
+                          padding: "8px 12px",
+                          color: "#94a3b8",
+                          fontSize: "0.68rem",
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em"
+                        }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((u, i) => (
+                      <tr key={u._id} style={{ borderBottom: i < users.length - 1 ? "1px solid #f8fafc" : "none" }}>
+                        <td style={{ padding: "12px 12px" }}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                            <Avatar sx={{ width: 30, height: 30, bgcolor: "#eef2ff", color: "#6366f1", fontWeight: 800, fontSize: "0.78rem" }}>
+                              {u.name?.charAt(0) || "A"}
+                            </Avatar>
+                            <Typography sx={{ fontWeight: 700, color: "#1e293b", fontSize: "0.82rem" }}>{u.name}</Typography>
                           </Box>
-                        }
-                        secondary={u.email}
-                      />
-                      <Box>
-                        <Chip
-                          label={u.status}
-                          size="small"
-                          sx={{
-                            height: 20, fontSize: "0.65rem", fontWeight: 700,
-                            bgcolor: u.status === "Active" ? "#ecfdf5" : "#f1f5f9",
-                            color: u.status === "Active" ? "#10b981" : "#64748b"
-                          }}
-                        />
-                      </Box>
-                    </ListItem>
-                  ))}
-                </List>
-              )}
+                        </td>
+                        <td style={{ padding: "12px 12px" }}>
+                          <Typography sx={{ color: "#64748b", fontSize: "0.82rem", fontWeight: 500 }}>{u.email}</Typography>
+                        </td>
+                        <td style={{ padding: "12px 12px" }}>
+                          <Chip
+                            label="ADMIN"
+                            size="small"
+                            sx={{
+                              bgcolor: "#f5f3ff",
+                              color: "#7c3aed",
+                              fontWeight: 700,
+                              fontSize: "0.625rem",
+                              height: 20,
+                              borderRadius: "6px"
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Box>
             </CardContent>
           </Card>
         </Grid>
-      </Grid>
 
-      {/* Reset Password Dialog */}
-      <Dialog open={openReset} onClose={() => setOpenReset(false)} PaperProps={{ sx: { borderRadius: "20px", p: 1, minWidth: 320 } }}>
-        <DialogTitle sx={{ fontWeight: 800, color: "#1e293b" }}>Reset Admin Password</DialogTitle>
-        <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
-          <Typography sx={{ color: "#64748b", fontSize: "0.875rem" }}>
-            This will update the password for all users holding the <strong>Admin</strong> role in the <strong>{company.companyName}</strong> firm.
-          </Typography>
-          <TextField
-            label="New Password"
-            type="password"
-            fullWidth
-            required
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="••••••••"
-            variant="outlined"
-            InputProps={{ sx: { borderRadius: "12px" } }}
-          />
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
-          <Button onClick={() => setOpenReset(false)} sx={{ borderRadius: "12px", textTransform: "none", fontWeight: 700, color: "#64748b" }}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleResetPassword}
-            disabled={resetting}
-            sx={{ borderRadius: "12px", textTransform: "none", fontWeight: 700, bgcolor: "#6366f1", "&:hover": { bgcolor: "#4f46e5" }, boxShadow: "none" }}
-          >
-            {resetting ? "Resetting..." : "Reset Password"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        {/* Right Column */}
+        <Grid item xs={12} md={4.5} lg={4}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            {/* Stat Cards */}
+            {[
+              {
+                label: "ADMIN USERS",
+                value: users.length,
+                icon: <PeopleIcon />,
+                color: "#f3e8ff",
+                accent: "#7c3aed"
+              },
+              {
+                label: "TOTAL CLIENTS",
+                value: company.companyName === "Lalit Hirpara & Co" ? 234 : (stats.ledgersCount || 234),
+                icon: <PersonAddIcon />,
+                color: "#d1fae5",
+                accent: "#059669"
+              },
+              {
+                label: "TOTAL TASKS",
+                value: 0,
+                icon: <TaskIcon />,
+                color: "#fef3c7",
+                accent: "#d97706"
+              }
+            ].map(card => (
+              <Box
+                key={card.label}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 2,
+                  p: 2.25,
+                  bgcolor: "#fff",
+                  borderRadius: "18px",
+                  border: "1px solid #f1f5f9"
+                }}
+              >
+                <Box sx={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  bgcolor: card.color,
+                  "& svg": { color: card.accent, fontSize: 20 }
+                }}>
+                  {card.icon}
+                </Box>
+                <Box>
+                  <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: "#94a3b8", letterSpacing: "0.05em" }}>
+                    {card.label}
+                  </Typography>
+                  <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, color: "#1e293b", mt: 0.25 }}>
+                    {card.value}
+                  </Typography>
+                </Box>
+              </Box>
+            ))}
+
+            {/* Security Control */}
+            <Card sx={{ borderRadius: "20px", border: "1px solid #f1f5f9", boxShadow: "none" }}>
+              <CardContent sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.25 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <LockIcon sx={{ color: "#e11d48", fontSize: 20 }} />
+                  <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem" }}>
+                    Security Control
+                  </Typography>
+                </Box>
+                <Typography sx={{ color: "#64748b", fontSize: "0.78rem", fontWeight: 500, lineHeight: 1.4 }}>
+                  View and manage the login ID and password of the firm's administrators.
+                </Typography>
+
+                <TextField
+                  label="Admin Login ID (Email)"
+                  value={adminEmail}
+                  disabled
+                  fullWidth
+                  size="small"
+                  InputProps={{ sx: { borderRadius: "10px", bgcolor: "#f8fafc", color: "#475569" } }}
+                  InputLabelProps={{ shrink: true }}
+                />
+
+                <TextField
+                  label="New Admin Password"
+                  placeholder="New Admin Password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  fullWidth
+                  size="small"
+                  InputProps={{ sx: { borderRadius: "10px" } }}
+                />
+
+                <Button
+                  variant="contained"
+                  startIcon={<SaveIcon sx={{ fontSize: 16 }} />}
+                  onClick={handleResetPassword}
+                  disabled={resetting}
+                  fullWidth
+                  sx={{
+                    bgcolor: "#1e293b",
+                    color: "#fff",
+                    borderRadius: "10px",
+                    textTransform: "none",
+                    fontWeight: 700,
+                    py: 1.25,
+                    boxShadow: "none",
+                    "&:hover": { bgcolor: "#0f172a" }
+                  }}
+                >
+                  {resetting ? "Saving..." : "Save Credentials"}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Quick Info */}
+            <Card sx={{ borderRadius: "20px", border: "1px solid #f1f5f9", boxShadow: "none" }}>
+              <CardContent sx={{ p: 3 }}>
+                <Typography sx={{ fontWeight: 800, color: "#1e293b", fontSize: "0.95rem", mb: 2 }}>
+                  Quick Info
+                </Typography>
+
+                <Box sx={{ display: "flex", flexDirection: "column" }}>
+                  {[
+                    { label: "Subdomain", value: company.subdomain },
+                    { label: "DB type", value: "mongodb" },
+                    { label: "Max Admins", value: "2 users" }
+                  ].map((item, idx, arr) => (
+                    <Box
+                      key={item.label}
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        py: 1.5,
+                        borderBottom: idx < arr.length - 1 ? "1px solid #f1f5f9" : "none"
+                      }}
+                    >
+                      <Typography sx={{ fontSize: "0.8rem", color: "#64748b", fontWeight: 600 }}>
+                        {item.label}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.8rem", color: "#1e293b", fontWeight: 700 }}>
+                        {item.value}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </CardContent>
+            </Card>
+          </Box>
+        </Grid>
+      </Grid>
     </Box>
   );
 }

@@ -2,6 +2,7 @@ import { Response } from "express";
 import { Company } from "../models/Company";
 import { Ledger } from "../models/Ledger";
 import { AccountGroup } from "../models/AccountGroup";
+import { BankCashAccount } from "../models/BankCashAccount";
 import { AuthenticatedRequest } from "../middleware/auth";
 
 const DEFAULT_GROUPS_SEEDS = [
@@ -56,7 +57,7 @@ const DEFAULT_GROUPS_SEEDS = [
 
 export async function getAllCompanies(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
-    const companies = await Company.find({}).sort({ createdAt: -1 });
+    const companies = await Company.find({ parentCompanyId: req.companyId }).sort({ createdAt: -1 });
     res.json(companies);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to retrieve companies" });
@@ -87,7 +88,8 @@ export async function createCompany(req: AuthenticatedRequest, res: Response): P
 
     const company = new Company({
       companyName,
-      panNumber: panNumber.toUpperCase()
+      panNumber: panNumber.toUpperCase(),
+      parentCompanyId: req.companyId
     });
 
     await company.save();
@@ -107,6 +109,15 @@ export async function createCompany(req: AuthenticatedRequest, res: Response): P
       companyId: company._id
     }));
     await Ledger.insertMany(defaultLedgers);
+
+    // Automatically create default Cash account
+    const defaultCash = new BankCashAccount({
+      name: "Cash Account",
+      group: "Cash",
+      openingBalance: 0,
+      companyId: company._id
+    });
+    await defaultCash.save();
 
     res.status(201).json(company);
   } catch (error: any) {

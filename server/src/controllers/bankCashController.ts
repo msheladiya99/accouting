@@ -6,7 +6,22 @@ import { AuthenticatedRequest } from "../middleware/auth";
 // ── BankCashAccount Controller Handlers ───────────────────────────────────────
 export async function getAllAccounts(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
-    const accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
+    let accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
+    
+    // Auto-create default Cash Account if none exists
+    const hasCash = accounts.some(acc => acc.group === "Cash");
+    if (!hasCash) {
+      const defaultCash = new BankCashAccount({
+        name: "Cash Account",
+        group: "Cash",
+        openingBalance: 0,
+        companyId: req.companyId
+      });
+      await defaultCash.save();
+      // Re-fetch accounts
+      accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
+    }
+
     const results = [];
     for (const acc of accounts) {
       const initialBalance = req.financialYear

@@ -34,9 +34,9 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="dashboard" replace /> },
       { path: "dashboard", Component: SuperAdminDashboard },
-      { path: "companies", Component: CompanyManagement },
-      { path: "companies/create", Component: CreateCompany },
-      { path: "companies/:id", Component: CompanyDetails },
+      { path: "firms", Component: CompanyManagement },
+      { path: "create-firm", Component: CreateCompany },
+      { path: "firms/:id", Component: CompanyDetails },
       { path: "*", element: <Navigate to="dashboard" replace /> }
     ]
   },

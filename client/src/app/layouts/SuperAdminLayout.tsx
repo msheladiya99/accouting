@@ -16,7 +16,7 @@ import { useAuth } from "../context/AuthContext";
 
 const NAV = [
   { label: "Dashboard", icon: <DashboardIcon />, path: "/super-admin/dashboard" },
-  { label: "Companies", icon: <BusinessIcon />, path: "/super-admin/companies" },
+  { label: "Firms", icon: <BusinessIcon />, path: "/super-admin/firms" },
 ];
 
 const SIDEBAR_W = 240;
@@ -152,7 +152,7 @@ function Sidebar({ collapsed, onToggle, onNavigate, currentPath }: {
       {!collapsed && (
         <Box sx={{ mx: 1, mb: 2 }}>
           <Box
-            onClick={() => navigate("/super-admin/companies/create")}
+            onClick={() => navigate("/super-admin/create-firm")}
             sx={{
               display: "flex", alignItems: "center", gap: 1.5,
               px: 2, py: 1.25, borderRadius: "14px", cursor: "pointer",
@@ -162,7 +162,7 @@ function Sidebar({ collapsed, onToggle, onNavigate, currentPath }: {
             }}
           >
             <AddIcon sx={{ fontSize: 18 }} />
-            <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>Add Company</Typography>
+            <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>Add Firm</Typography>
           </Box>
         </Box>
       )}

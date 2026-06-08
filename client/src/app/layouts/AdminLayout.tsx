@@ -26,7 +26,6 @@ const ALL_NAV_ITEMS = [
   { path: "/balance-sheet",  icon: BarChart3,       label: "Balance Sheet"    },
   { path: "/trial-balance",  icon: TrendingUp,      label: "Trial Balance"    },
   { path: "/export",         icon: Download,        label: "Export"           },
-  { path: "/user-management",icon: Users,            label: "User Management"  },
   { path: "/settings",       icon: Cog,              label: "Settings"         },
 ];
 

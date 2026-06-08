@@ -111,7 +111,7 @@ export default function CompanyManagement() {
           </Typography>
         </Box>
         <Box
-          onClick={() => navigate("/super-admin/firms/create")}
+          onClick={() => navigate("/super-admin/create-firm")}
           sx={{
             display: "flex", alignItems: "center", gap: 1,
             bgcolor: "#6366f1", color: "#fff", px: 2.5, py: 1.25,
@@ -197,7 +197,7 @@ export default function CompanyManagement() {
                       {/* Subdomain */}
                       <td style={{ padding: "14px 20px" }}>
                         <Typography sx={{ fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700, color: "#475569", bgcolor: "#f8fafc", px: 1, py: 0.3, borderRadius: "6px", display: "inline-block", whiteSpace: "nowrap" }}>
-                          {company.subdomain}.localhost
+                          {company.subdomain}.mycafile.xyz
                         </Typography>
                       </td>
                       {/* PAN */}

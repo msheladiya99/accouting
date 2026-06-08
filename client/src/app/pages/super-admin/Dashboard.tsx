@@ -275,7 +275,7 @@ export default function SuperAdminDashboard() {
                         </td>
                         <td style={{ padding: "14px 20px" }}>
                           <Typography sx={{ fontFamily: "monospace", fontSize: "0.78rem", fontWeight: 700, color: "#475569", bgcolor: "#f8fafc", px: 1, py: 0.25, borderRadius: "6px", display: "inline-block", whiteSpace: "nowrap" }}>
-                            {firm.subdomain}.localhost
+                            {firm.subdomain}.mycafile.xyz
                           </Typography>
                         </td>
                         <td style={{ padding: "14px 20px" }}>

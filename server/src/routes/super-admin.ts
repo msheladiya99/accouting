@@ -245,7 +245,11 @@ router.post(["/companies", "/firms"], authMiddleware as any, requireSuperAdmin a
       adminName,
       adminPassword,
       mobileNumber,
-      panNumber
+      panNumber,
+      subscriptionPlan,
+      maxAdmins,
+      storageType,
+      dbMode
     } = req.body;
     let { subdomain } = req.body;
 
@@ -278,7 +282,12 @@ router.post(["/companies", "/firms"], authMiddleware as any, requireSuperAdmin a
       subdomain: finalSubdomain,
       panNumber: panNumber.toUpperCase(),
       status: "active",
-      parentCompanyId: null
+      parentCompanyId: null,
+      mobileNumber,
+      subscriptionPlan,
+      maxAdmins,
+      storageType,
+      dbMode
     });
     await company.save();
 

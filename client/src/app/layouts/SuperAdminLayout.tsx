@@ -152,7 +152,7 @@ function Sidebar({ collapsed, onToggle, onNavigate, currentPath }: {
       {!collapsed && (
         <Box sx={{ mx: 1, mb: 2 }}>
           <Box
-            onClick={() => navigate("/super-admin/firms/create")}
+            onClick={() => navigate("/super-admin/create-firm")}
             sx={{
               display: "flex", alignItems: "center", gap: 1.5,
               px: 2, py: 1.25, borderRadius: "14px", cursor: "pointer",

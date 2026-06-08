@@ -29,6 +29,11 @@ interface ICompanyDetails {
     panNumber: string;
     status: string;
     createdAt: string;
+    mobileNumber?: string;
+    subscriptionPlan?: string;
+    maxAdmins?: string;
+    storageType?: string;
+    dbMode?: string;
   };
   users: Array<{
     _id: string;
@@ -122,7 +127,7 @@ export default function CompanyDetails() {
     },
     {
       label: "PORTAL URL",
-      value: `${company.subdomain}.mycafile.in`,
+      value: `${company.subdomain}.mycafile.xyz`,
       isLink: true,
       icon: <GlobeIcon sx={{ color: "#94a3b8", fontSize: 18 }} />
     },
@@ -162,7 +167,7 @@ export default function CompanyDetails() {
               {company.companyName}
             </Typography>
             <Typography sx={{ fontSize: "0.8rem", color: "#94a3b8", fontWeight: 500, mt: 0.25 }}>
-              {company.subdomain}.mycafile.in
+              {company.subdomain}.mycafile.xyz
             </Typography>
           </Box>
         </Box>
@@ -181,7 +186,7 @@ export default function CompanyDetails() {
             }}
           />
           <Chip
-            label="Enterprise cloud"
+            label={company.subscriptionPlan || "Enterprise cloud"}
             size="small"
             sx={{
               bgcolor: "#f1f5f9",
@@ -275,15 +280,15 @@ export default function CompanyDetails() {
               }}>
                 <Box>
                   <Typography sx={{ fontSize: "0.625rem", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.05em" }}>PLAN</Typography>
-                  <Typography sx={{ fontSize: "0.82rem", color: "#1e293b", fontWeight: 800, mt: 0.5 }}>Enterprise cloud</Typography>
+                  <Typography sx={{ fontSize: "0.82rem", color: "#1e293b", fontWeight: 800, mt: 0.5 }}>{company.subscriptionPlan || "Enterprise cloud"}</Typography>
                 </Box>
                 <Box>
                   <Typography sx={{ fontSize: "0.625rem", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.05em" }}>STATUS</Typography>
-                  <Typography sx={{ fontSize: "0.82rem", color: "#10b981", fontWeight: 800, mt: 0.5 }}>ACTIVE</Typography>
+                  <Typography sx={{ fontSize: "0.82rem", color: "#10b981", fontWeight: 800, mt: 0.5 }}>{company.status?.toUpperCase() || "ACTIVE"}</Typography>
                 </Box>
                 <Box>
                   <Typography sx={{ fontSize: "0.625rem", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.05em" }}>MAX ADMINS</Typography>
-                  <Typography sx={{ fontSize: "0.82rem", color: "#1e293b", fontWeight: 800, mt: 0.5 }}>2</Typography>
+                  <Typography sx={{ fontSize: "0.82rem", color: "#1e293b", fontWeight: 800, mt: 0.5 }}>{company.maxAdmins?.split(" ")[0] || "5"}</Typography>
                 </Box>
                 <Box>
                   <Typography sx={{ fontSize: "0.625rem", color: "#94a3b8", fontWeight: 700, letterSpacing: "0.05em", mb: 0.5 }}>STORAGE</Typography>
@@ -295,7 +300,9 @@ export default function CompanyDetails() {
                     py: 0.25,
                     borderRadius: "6px",
                   }}>
-                    <Typography sx={{ fontSize: "0.72rem", color: "#475569", fontWeight: 700 }}>App Drive</Typography>
+                    <Typography sx={{ fontSize: "0.72rem", color: "#475569", fontWeight: 700 }}>
+                      {company.storageType?.includes("Default") ? "App Drive" : (company.storageType || "App Drive")}
+                    </Typography>
                   </Box>
                 </Box>
               </Box>
@@ -528,8 +535,8 @@ export default function CompanyDetails() {
                 <Box sx={{ display: "flex", flexDirection: "column" }}>
                   {[
                     { label: "Subdomain", value: company.subdomain },
-                    { label: "DB type", value: "mongodb" },
-                    { label: "Max Admins", value: "2 users" }
+                    { label: "DB type", value: company.dbMode?.toLowerCase().includes("mongodb") ? "mongodb" : "mongodb" },
+                    { label: "Max Admins", value: company.maxAdmins || "5 Admins" }
                   ].map((item, idx, arr) => (
                     <Box
                       key={item.label}

@@ -215,7 +215,7 @@ const THEME_OPTIONS: { id: ThemeMode; label: string; desc: string; icon: typeof 
 ];
 
 function ThemeTab() {
-  const { mode, accent, setMode, setAccent, isDark } = useTheme();
+  const { mode, accent, setMode, setAccent, isDark, compact, setCompact, animations, setAnimations } = useTheme();
 
   return (
     <div className="space-y-5">
@@ -258,14 +258,14 @@ function ThemeTab() {
             );
           })}
         </div>
-
+ 
         <div className={`mt-4 flex items-center gap-3 px-4 py-3 rounded-xl text-xs ${isDark ? "bg-slate-800 text-slate-300 border border-slate-700" : "bg-slate-50 text-slate-500 border border-slate-200"}`}>
           {isDark ? <Moon size={13} className="text-indigo-400" /> : <Sun size={13} className="text-amber-500" />}
           Currently in <strong>{isDark ? "Dark" : "Light"}</strong> mode
           {mode === "auto" && " (following system preference)"}
         </div>
       </div>
-
+ 
       {/* Accent Color */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
         <SectionTitle>Accent Color</SectionTitle>
@@ -277,7 +277,7 @@ function ThemeTab() {
                 key={id}
                 onClick={() => {
                   setAccent(id);
-                  toast.success(`Accent set to ${label} — full theme adoption coming soon`);
+                  toast.success(`Accent color changed to ${label}`);
                 }}
                 className={`flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all ${
                   selected ? "border-slate-400 bg-slate-50" : "border-transparent hover:border-slate-200"
@@ -291,7 +291,7 @@ function ThemeTab() {
         </div>
         <p className="text-[11px] text-slate-400 mt-3">Accent color will be applied across buttons, highlights, and active states.</p>
       </div>
-
+ 
       {/* Font Size */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
         <SectionTitle>Display Preferences</SectionTitle>
@@ -301,14 +301,14 @@ function ThemeTab() {
               <p className="text-sm font-medium text-slate-700">Compact Mode</p>
               <p className="text-xs text-slate-400">Reduce padding for denser information display</p>
             </div>
-            <Toggle checked={false} onChange={() => toast("Compact mode coming soon", { icon: "🔧" })} />
+            <Toggle checked={compact} onChange={setCompact} />
           </div>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-slate-700">Animations</p>
               <p className="text-xs text-slate-400">Enable transition animations throughout the app</p>
             </div>
-            <Toggle checked={true} onChange={() => toast("Animation settings coming soon", { icon: "🔧" })} />
+            <Toggle checked={animations} onChange={setAnimations} />
           </div>
         </div>
       </div>

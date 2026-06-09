@@ -423,6 +423,75 @@ let cachedCapitalAccounts: PartnerCapitalAccount[] = [];
 let cachedTradingPLData: any = null;
 let cachedFYId: string | null = null;
 
+// Load initial cache from sessionStorage if available to survive browser refreshes (F5)
+try {
+  const sData = sessionStorage.getItem("ap_cached_bs_data");
+  const sCapital = sessionStorage.getItem("ap_cached_bs_capital");
+  const sTpl = sessionStorage.getItem("ap_cached_bs_tpl");
+  const sFy = sessionStorage.getItem("ap_cached_bs_fy");
+  
+  if (sData && sCapital && sTpl && sFy) {
+    cachedData = JSON.parse(sData);
+    cachedCapitalAccounts = JSON.parse(sCapital);
+    cachedTradingPLData = JSON.parse(sTpl);
+    cachedFYId = sFy;
+  }
+} catch (e) {
+  // ignore sessionStorage reading errors
+}
+
+// Export background prefetch function to populate cache
+export async function prefetchBalanceSheetData(fyId: string) {
+  if (cachedFYId === fyId && cachedData) return;
+
+  try {
+    const [ledgers, bankAccounts, bankEntries, journalEntries, groups] = await Promise.all([
+      getAllLedgers(),
+      getAllAccounts(),
+      getAllEntries(),
+      getAllJournalEntries(),
+      getAllGroups()
+    ]);
+
+    const cache = { ledgers, bankAccounts, bankEntries, journalEntries, groups };
+    const result = await computeBalanceSheet(cache);
+
+    const groupParentsMap: Record<string, string> = {};
+    groups.forEach((g) => {
+      groupParentsMap[g.groupName.trim().toLowerCase()] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
+    });
+
+    const trialSummary = await computeTrialBalance(cache);
+    const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
+
+    const capitalLedgerAccounts = ledgers.filter(l => 
+      l.groupName.toLowerCase() === 'capital' || 
+      l.groupName.toLowerCase() === 'capital account' || 
+      l.groupName.toLowerCase() === 'capital & reserves'
+    );
+
+    const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
+      computePartnerCapital(ledger, bankEntries, journalEntries)
+    ));
+
+    cachedData = result;
+    cachedCapitalAccounts = accounts;
+    cachedTradingPLData = tpl;
+    cachedFYId = fyId;
+
+    try {
+      sessionStorage.setItem("ap_cached_bs_data", JSON.stringify(result));
+      sessionStorage.setItem("ap_cached_bs_capital", JSON.stringify(accounts));
+      sessionStorage.setItem("ap_cached_bs_tpl", JSON.stringify(tpl));
+      sessionStorage.setItem("ap_cached_bs_fy", fyId);
+    } catch (e) {
+      // ignore quota or storage errors
+    }
+  } catch (e) {
+    console.warn("Background prefetch for Balance Sheet failed:", e);
+  }
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 export default function BalanceSheet() {
   const { selectedFY, company } = useApp();
@@ -485,6 +554,17 @@ export default function BalanceSheet() {
       cachedCapitalAccounts = accounts;
       cachedTradingPLData = tpl;
       cachedFYId = selectedFY?._id || null;
+
+      try {
+        if (selectedFY?._id) {
+          sessionStorage.setItem("ap_cached_bs_data", JSON.stringify(result));
+          sessionStorage.setItem("ap_cached_bs_capital", JSON.stringify(accounts));
+          sessionStorage.setItem("ap_cached_bs_tpl", JSON.stringify(tpl));
+          sessionStorage.setItem("ap_cached_bs_fy", selectedFY._id);
+        }
+      } catch (e) {
+        // ignore
+      }
     } catch (e: any) {
       if (!silent) {
         setError(e?.message ?? "Failed to compute balance sheet");
@@ -496,9 +576,20 @@ export default function BalanceSheet() {
   }, [selectedFY?._id]);
 
   useEffect(() => {
-    const hasCache = cachedFYId === selectedFY?._id && cachedData !== null;
+    if (!selectedFY?._id) return;
+
+    const hasCache = cachedFYId === selectedFY._id && cachedData !== null;
+    if (hasCache) {
+      setData(cachedData);
+      setCapitalAccounts(cachedCapitalAccounts);
+      setTradingPLData(cachedTradingPLData);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     load(false, hasCache);
-  }, [load]);
+  }, [load, selectedFY?._id]);
 
   const today = new Date().toLocaleDateString("en-IN", {
     day: "2-digit", month: "short", year: "numeric",

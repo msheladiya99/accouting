@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { FinancialYear } from "../api/financialYearApi";
 import { BalanceSheetPanel } from "../components/BalanceSheetPanel";
+import { prefetchBalanceSheetData } from "../pages/BalanceSheet";
 
 const BS_PANEL_PATHS = new Set([
   "/bank-cash-book", "/journal-voucher",
@@ -59,6 +60,16 @@ export default function AdminLayout() {
       navigate("/company-select", { replace: true });
     }
   }, [authLoading, isAuthenticated, company.id, navigate]);
+
+  // Prefetch balance sheet data in the background silently
+  useEffect(() => {
+    if (selectedFY?._id) {
+      const timer = setTimeout(() => {
+        prefetchBalanceSheetData(selectedFY._id);
+      }, 2000); // 2-second delay to avoid competing with initial app startup network requests
+      return () => clearTimeout(timer);
+    }
+  }, [selectedFY?._id]);
 
   const handleFYSelect = (fy: FinancialYear) => {
     setSelectedFY(fy);

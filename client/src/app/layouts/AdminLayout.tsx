@@ -66,7 +66,7 @@ export default function AdminLayout() {
     if (selectedFY?._id) {
       const timer = setTimeout(() => {
         prefetchBalanceSheetData(selectedFY._id);
-      }, 2000); // 2-second delay to avoid competing with initial app startup network requests
+      }, 100); // reduced delay to pre-populate cache almost instantly
       return () => clearTimeout(timer);
     }
   }, [selectedFY?._id]);

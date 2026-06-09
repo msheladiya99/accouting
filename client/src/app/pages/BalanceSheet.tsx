@@ -492,21 +492,36 @@ export async function prefetchBalanceSheetData(fyId: string) {
   }
 }
 
+function getSavedFYId(): string | null {
+  try {
+    const saved = localStorage.getItem("ap_selected_fy");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return parsed?._id || null;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 export default function BalanceSheet() {
   const { selectedFY, company } = useApp();
   const financialYear = selectedFY?.label ?? "—";
 
-  const [data, setData]       = useState<BalanceSheetData | null>(cachedFYId === selectedFY?._id ? cachedData : null);
-  const [loading, setLoading] = useState(cachedFYId === selectedFY?._id ? !cachedData : true);
+  const resolvedFYId = selectedFY?._id || getSavedFYId();
+
+  const [data, setData]       = useState<BalanceSheetData | null>(cachedFYId === resolvedFYId ? cachedData : null);
+  const [loading, setLoading] = useState(cachedFYId === resolvedFYId ? !cachedData : true);
   const [error, setError]     = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>(
-    cachedFYId === selectedFY?._id ? cachedCapitalAccounts : []
+    cachedFYId === resolvedFYId ? cachedCapitalAccounts : []
   );
   const [tradingPLData, setTradingPLData] = useState<any>(
-    cachedFYId === selectedFY?._id ? cachedTradingPLData : null
+    cachedFYId === resolvedFYId ? cachedTradingPLData : null
   );
 
   const load = useCallback(async (isRefresh = false, silent = false) => {

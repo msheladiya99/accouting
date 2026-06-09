@@ -7,7 +7,6 @@ import {
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computePL, buildPresets, PLData, PLSection, DatePreset } from "../api/plStatementApi";
-import { getAllFYs } from "../api/financialYearApi";
 import type { FinancialYear } from "../api/financialYearApi";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -121,9 +120,8 @@ function ProfitLine({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function PLStatement() {
-  const { selectedFY, setSelectedFY } = useApp();
+  const { selectedFY, setSelectedFY, availableFYs } = useApp();
 
-  const [allFYs, setAllFYs]       = useState<FinancialYear[]>([]);
   const [activeFY, setActiveFY]   = useState<FinancialYear | undefined>(undefined);
   const [presets, setPresets]     = useState<DatePreset[]>([]);
   const [activePreset, setActivePreset] = useState<string>("This Month");
@@ -135,13 +133,6 @@ export default function PLStatement() {
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError]         = useState<string | null>(null);
-
-  // Load FY list
-  useEffect(() => {
-    getAllFYs().then((fys) => {
-      setAllFYs(fys);
-    });
-  }, []);
 
   // Synchronize activeFY with global selectedFY
   useEffect(() => {
@@ -173,7 +164,7 @@ export default function PLStatement() {
   };
 
   const handleFYChange = (id: string) => {
-    const fy = allFYs.find((f) => f._id === id);
+    const fy = availableFYs.find((f) => f._id === id);
     if (fy) {
       setSelectedFY(fy);
     }
@@ -250,7 +241,7 @@ export default function PLStatement() {
               onChange={(e) => handleFYChange(e.target.value)}
               className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
             >
-              {allFYs.map((fy) => (
+              {availableFYs.map((fy) => (
                 <option key={fy._id} value={fy._id}>{fy.label}</option>
               ))}
             </select>

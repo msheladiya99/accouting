@@ -9,7 +9,7 @@ import {
 import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { useTheme, type ThemeMode, type AccentColor } from "../context/ThemeContext";
-import { getAllFYs, type FinancialYear } from "../api/financialYearApi";
+import { type FinancialYear } from "../api/financialYearApi";
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 const TABS = [
@@ -129,13 +129,7 @@ function CompanyTab() {
 
 // ── Tab: Financial Year ───────────────────────────────────────────────────────
 function FinancialYearTab() {
-  const { selectedFY, setSelectedFY } = useApp();
-  const [fys, setFys] = useState<FinancialYear[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    getAllFYs().then((data) => { setFys(data); setLoading(false); });
-  }, []);
+  const { selectedFY, setSelectedFY, availableFYs, fyLoading } = useApp();
 
   const STATUS_COLORS: Record<string, string> = {
     current:  "bg-emerald-100 text-emerald-700 border-emerald-200",
@@ -151,13 +145,13 @@ function FinancialYearTab() {
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
         <SectionTitle>Financial Years</SectionTitle>
-        {loading ? (
+        {fyLoading ? (
           <div className="flex items-center gap-2 text-slate-400 py-8 justify-center">
             <Loader2 size={18} className="animate-spin" /> Loading…
           </div>
         ) : (
           <div className="space-y-2">
-            {fys.map((fy) => {
+            {availableFYs.map((fy) => {
               const isActive = fy._id === selectedFY?._id;
               return (
                 <div

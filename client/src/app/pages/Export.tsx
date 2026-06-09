@@ -6,7 +6,6 @@ import {
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
-import { getAllFYs } from "../api/financialYearApi";
 import type { FinancialYear } from "../api/financialYearApi";
 import { generateExcelExport, type ExportStep } from "../api/exportApi";
 
@@ -34,9 +33,8 @@ const STEP_LABELS: Record<ExportStep, string> = {
 const STEP_ORDER: ExportStep[] = ["trial-balance","cash-book","bank-book","journal","balance-sheet","building","done"];
 
 export default function Export() {
-  const { company, selectedFY, setSelectedFY } = useApp();
+  const { company, selectedFY, setSelectedFY, availableFYs } = useApp();
 
-  const [allFYs, setAllFYs]       = useState<FinancialYear[]>([]);
   const [activeFY, setActiveFY]   = useState<FinancialYear | undefined>(undefined);
   const [dateFrom, setDateFrom]   = useState("");
   const [dateTo, setDateTo]       = useState("");
@@ -48,12 +46,6 @@ export default function Export() {
   const isDone    = step === "done";
   const isError   = step === "error";
 
-  useEffect(() => {
-    getAllFYs().then((fys) => {
-      setAllFYs(fys);
-    });
-  }, []);
-
   // Synchronize activeFY with global selectedFY
   useEffect(() => {
     if (selectedFY) {
@@ -64,7 +56,7 @@ export default function Export() {
   }, [selectedFY]);
 
   const handleFYChange = (id: string) => {
-    const fy = allFYs.find((f) => f._id === id);
+    const fy = availableFYs.find((f) => f._id === id);
     if (fy) {
       setSelectedFY(fy);
     }
@@ -136,7 +128,7 @@ export default function Export() {
                 onChange={(e) => handleFYChange(e.target.value)}
                 className="text-sm border border-slate-200 rounded-lg px-2.5 py-2 text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
               >
-                {allFYs.map((fy) => <option key={fy._id} value={fy._id}>{fy.label}</option>)}
+                {availableFYs.map((fy) => <option key={fy._id} value={fy._id}>{fy.label}</option>)}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-2">

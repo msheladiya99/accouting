@@ -8,12 +8,6 @@ import { useAuth } from "../context/AuthContext";
 import { getSubdomain } from "../utils/subdomain";
 import axiosClient from "../api/axiosClient";
 
-const DEMO_CREDENTIALS = [
-  { role: "Admin",      email: "admin@acmecorp.com", password: "admin123",  color: "bg-indigo-100 text-indigo-700 border-indigo-200" },
-  { role: "Accountant", email: "priya@acmecorp.com", password: "acc123",    color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
-  { role: "Viewer",     email: "sneha@acmecorp.com", password: "view123",   color: "bg-amber-100 text-amber-700 border-amber-200" },
-];
-
 export default function Login() {
   const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -61,12 +55,6 @@ export default function Login() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillDemo = (d: typeof DEMO_CREDENTIALS[number]) => {
-    setEmail(d.email);
-    setPassword(d.password);
-    setError(null);
   };
 
   const companyName = company?.companyName || subdomain || "AccountPro";
@@ -237,31 +225,6 @@ export default function Login() {
           <div className="text-center pt-2 text-sm text-slate-500 font-medium">
             Don't have an account? <span className="text-[#132c4d] font-bold cursor-pointer hover:underline">Contact Admin</span>
           </div>
-
-          {/* Demo credentials (collapsible for developer check) */}
-          {!subdomainError && (
-            <div className="pt-6 border-t border-slate-100 space-y-3">
-              <details className="group cursor-pointer">
-                <summary className="flex items-center gap-2 text-xs font-bold text-slate-500 list-none select-none">
-                  <ShieldCheck size={14} className="text-indigo-500" />
-                  <span>Developer Demo Logins</span>
-                  <span className="text-[10px] text-slate-400 font-normal group-open:hidden">(Click to expand)</span>
-                </summary>
-                <div className="space-y-2 mt-3 cursor-default">
-                  {DEMO_CREDENTIALS.map((d) => (
-                    <button
-                      key={d.role}
-                      onClick={() => fillDemo(d)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-all hover:shadow-sm ${d.color}`}
-                    >
-                      <span className="font-semibold">{d.role}</span>
-                      <span className="font-mono opacity-80">{d.email} · {d.password}</span>
-                    </button>
-                  ))}
-                </div>
-              </details>
-            </div>
-          )}
         </div>
       </div>
     </div>

@@ -5,7 +5,11 @@ import { AuthenticatedRequest } from "../middleware/auth";
 
 export async function getAllUsers(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
-    const users = await User.find({}).select("-password");
+    const query: any = {};
+    if (req.companyId) {
+      query.companyId = req.companyId;
+    }
+    const users = await User.find(query).select("-password");
     res.json(users);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to retrieve users" });
@@ -40,7 +44,8 @@ export async function createUser(req: AuthenticatedRequest, res: Response): Prom
       password: hashedPassword,
       role,
       status: status || "Active",
-      avatar: initials
+      avatar: initials,
+      companyId: req.companyId
     });
 
     await user.save();

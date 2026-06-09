@@ -56,7 +56,6 @@ export const router = createBrowserRouter([
       { path: "trial-balance", Component: TrialBalance },
       { path: "pl-statement", Component: PLStatement },
       { path: "export", Component: Export },
-      { path: "user-management", Component: UserManagement },
       { path: "settings", Component: Settings },
       // Catch-all: redirect any unknown path to dashboard
       { path: "*", element: <Navigate to="/" replace /> },

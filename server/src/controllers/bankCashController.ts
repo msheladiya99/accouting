@@ -178,6 +178,46 @@ async function getOpeningBalanceAt(account: any, startDate: string, companyId: s
   return account.openingBalance + movement;
 }
 
+// Optimized helper to retrieve opening balances for multiple accounts in a single batch query
+async function getOpeningBalancesForAccountsAt(
+  accounts: any[],
+  startDate: string,
+  companyId: string
+): Promise<Map<string, number>> {
+  const { Types: MongoTypes } = require("mongoose");
+  let companyIdFilter: any;
+  try {
+    companyIdFilter = { $in: [companyId, new MongoTypes.ObjectId(companyId)] };
+  } catch {
+    companyIdFilter = companyId;
+  }
+
+  const accountIds = accounts.map((acc) => acc._id.toString());
+  
+  const priorEntries = await BankCashEntry.find({
+    accountId: { $in: accountIds },
+    companyId: companyIdFilter,
+    date: { $lt: startDate }
+  });
+
+  const movements = new Map<string, number>();
+  accountIds.forEach((id) => movements.set(id, 0));
+
+  priorEntries.forEach((e) => {
+    const current = movements.get(e.accountId) || 0;
+    movements.set(e.accountId, current + e.deposit - e.withdrawal);
+  });
+
+  const results = new Map<string, number>();
+  accounts.forEach((acc) => {
+    const id = acc._id.toString();
+    const movement = movements.get(id) || 0;
+    results.set(id, acc.openingBalance + movement);
+  });
+
+  return results;
+}
+
 export async function getAllEntries(req: AuthenticatedRequest, res: Response): Promise<void> {
   const { accountId } = req.query;
   try {
@@ -217,11 +257,14 @@ export async function getAllEntries(req: AuthenticatedRequest, res: Response): P
     // Fetch all entries for all accounts
     const allEntries = await BankCashEntry.find(filterQuery);
     const rows: any[] = [];
-    for (const acc of accounts) {
-      const initialBalance = req.financialYear
-        ? await getOpeningBalanceAt(acc, req.financialYear.startDate, req.companyId as string)
-        : acc.openingBalance;
 
+    // Fetch opening balances for all accounts in a single optimized database call
+    const initialBalancesMap = req.financialYear
+      ? await getOpeningBalancesForAccountsAt(accounts, req.financialYear.startDate, req.companyId as string)
+      : new Map<string, number>(accounts.map((acc) => [acc._id.toString(), acc.openingBalance]));
+
+    for (const acc of accounts) {
+      const initialBalance = initialBalancesMap.get(acc._id.toString()) ?? acc.openingBalance;
       const acctEntries = allEntries.filter((e) => e.accountId === acc._id.toString());
       rows.push(...computeRows({ ...acc.toObject(), openingBalance: initialBalance }, acctEntries));
     }

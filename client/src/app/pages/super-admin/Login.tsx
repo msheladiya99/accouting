@@ -385,30 +385,6 @@ export default function SuperAdminLogin() {
             <span className="underline hover:text-slate-600 transition-colors cursor-pointer">Privacy Policy</span>.
           </div>
 
-          {/* Developer Demo Logins Drawer */}
-          <div className="pt-4 border-t border-slate-100">
-            <details className="group cursor-pointer select-none">
-              <summary className="flex items-center gap-2 text-xs font-bold text-slate-400 list-none">
-                <span className="transition-transform group-open:rotate-90">▶</span>
-                <span>Developer Demo Logins</span>
-              </summary>
-              <div className="space-y-2 mt-3 cursor-default">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginMode("password");
-                    setEmail("superadmin@accountpro.com");
-                    setPassword("admin123");
-                  }}
-                  className="w-full flex items-center justify-between px-3.5 py-2.5 bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-100 rounded-xl text-xs font-semibold transition-all"
-                >
-                  <span>Use Default Credentials</span>
-                  <span className="font-mono opacity-80">admin123</span>
-                </button>
-              </div>
-            </details>
-          </div>
-
         </div>
       </div>
 

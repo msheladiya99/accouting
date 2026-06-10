@@ -504,9 +504,48 @@ export default function OpeningBalances() {
     toast.success("Entry updated locally");
   }, []);
 
+  const saveBalancesDirect = useCallback(async (targetRows: OBRow[]) => {
+    if (targetRows.some((r) => !r.ledgerName.trim())) {
+      return toast.error("All rows must have a ledger name");
+    }
+    
+    setSaving(true);
+    try {
+      const payload = targetRows.map((r) => ({
+        ledgerName: r.ledgerName,
+        groupName: r.group,
+        openingDr: r.amountDr,
+        openingCr: r.amountCr
+      }));
+      await saveBulkOpeningBalances(payload);
+      
+      const localTotalDr = targetRows.reduce((s, r) => s + r.amountDr, 0);
+      const localTotalCr = targetRows.reduce((s, r) => s + r.amountCr, 0);
+      const localDiff = localTotalDr - localTotalCr;
+      const localBalanced = Math.abs(localDiff) < 0.01 && localTotalDr > 0;
+
+      if (!localBalanced) {
+        toast.success(`Opening balances saved with a difference of ₹${Math.abs(localDiff).toLocaleString("en-IN")}!`, {
+          icon: "⚠️",
+          duration: 5000,
+        });
+      } else {
+        toast.success("Opening balances saved successfully to database!");
+      }
+      await load();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save opening balances");
+    } finally {
+      setSaving(false);
+    }
+  }, [load]);
+
   const bulkCommit = useCallback((newRows: OBRow[]) => {
-    setRows((prev) => [...prev, ...newRows]);
-  }, []);
+    const nextRows = [...rows, ...newRows];
+    setRows(nextRows);
+    saveBalancesDirect(nextRows);
+  }, [rows, saveBalancesDirect]);
 
   // ── File Import ─────────────────────────────────────────────────────────────
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -528,7 +567,7 @@ export default function OpeningBalances() {
         }
 
         setRows(parsed);
-        toast.success(`Imported ${parsed.length} rows successfully! Review and click 'Save Balances' to commit to database.`);
+        saveBalancesDirect(parsed);
       } catch (err: any) {
         toast.error("Failed to parse file: " + err.message);
       }
@@ -576,34 +615,7 @@ export default function OpeningBalances() {
 
   // ── Database Save ───────────────────────────────────────────────────────────
   const handleSave = async () => {
-    if (rows.some((r) => !r.ledgerName.trim())) {
-      return toast.error("All rows must have a ledger name");
-    }
-    
-    setSaving(true);
-    try {
-      const payload = rows.map((r) => ({
-        ledgerName: r.ledgerName,
-        groupName: r.group,
-        openingDr: r.amountDr,
-        openingCr: r.amountCr
-      }));
-      await saveBulkOpeningBalances(payload);
-      if (!balanced) {
-        toast.success(`Opening balances saved with a difference of ₹${Math.abs(diff).toLocaleString("en-IN")}!`, {
-          icon: "⚠️",
-          duration: 5000,
-        });
-      } else {
-        toast.success("Opening balances saved successfully to database!");
-      }
-      load();
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
-    } catch (err: any) {
-      toast.error(err.message || "Failed to save opening balances");
-    } finally {
-      setSaving(false);
-    }
+    await saveBalancesDirect(rows);
   };
 
   // ── Inline cell edit ────────────────────────────────────────────────────────

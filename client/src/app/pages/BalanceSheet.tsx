@@ -105,8 +105,10 @@ function buildStructuredSection(structure: any, apiSection: any) {
       matchedGroups.forEach((g: any) => matchedGroupKeys.add(g.groupKey.toLowerCase()));
       if (matchedGroups.length === 0) return null;
 
-      const allLedgers = matchedGroups.flatMap((g: any) => g.ledgers);
-      const total = matchedGroups.reduce((sum: number, g: any) => sum + g.total, 0);
+      const allLedgers = matchedGroups.flatMap((g: any) => g.ledgers).filter((l: any) => Math.abs(l.amount) >= 0.01);
+      if (allLedgers.length === 0) return null;
+
+      const total = allLedgers.reduce((sum: number, l: any) => sum + l.amount, 0);
 
       return {
         title: item.title,
@@ -121,8 +123,10 @@ function buildStructuredSection(structure: any, apiSection: any) {
         matchedGroups.forEach((g: any) => matchedGroupKeys.add(g.groupKey.toLowerCase()));
         if (matchedGroups.length === 0) return null;
 
-        const allLedgers = matchedGroups.flatMap((g: any) => g.ledgers);
-        const total = matchedGroups.reduce((sum: number, g: any) => sum + g.total, 0);
+        const allLedgers = matchedGroups.flatMap((g: any) => g.ledgers).filter((l: any) => Math.abs(l.amount) >= 0.01);
+        if (allLedgers.length === 0) return null;
+
+        const total = allLedgers.reduce((sum: number, l: any) => sum + l.amount, 0);
         return {
           title: sub.title,
           ledgers: allLedgers,
@@ -142,10 +146,18 @@ function buildStructuredSection(structure: any, apiSection: any) {
     return null;
   }).filter(Boolean);
 
-  // Collect any unmatched user-created custom groups
+  // Collect any unmatched user-created custom groups, also filtering zero balance ledgers
   const unmatched = apiSection.groups.filter((g: any) =>
     !matchedGroupKeys.has(g.groupKey.toLowerCase())
-  );
+  ).map((g: any) => {
+    const nonZeroLedgers = g.ledgers.filter((l: any) => Math.abs(l.amount) >= 0.01);
+    if (nonZeroLedgers.length === 0) return null;
+    return {
+      ...g,
+      ledgers: nonZeroLedgers,
+      total: nonZeroLedgers.reduce((sum: number, l: any) => sum + l.amount, 0)
+    };
+  }).filter(Boolean);
 
   return { structured: result, unmatched };
 }

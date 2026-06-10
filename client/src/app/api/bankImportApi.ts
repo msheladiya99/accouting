@@ -256,6 +256,7 @@ function isDepositNarration(narration: string): boolean {
 
 interface TempTxn {
   date: string;
+  rawDateStr: string;
   narration: string;
   amounts: number[];
   line: string;
@@ -265,41 +266,59 @@ function parsePDFText(text: string): RawTransaction[] {
   const lines  = text.split("\n").map((l) => l.trim()).filter(Boolean);
   const tempTxns: TempTxn[] = [];
   let openingBalRow: RawTransaction | null = null;
+  let preNarrationForNext = "";
 
-  for (const line of lines) {
+  const isMainLine = (l: string): boolean => {
+    const isOpBal = /opening\s*balance|bal\s*b\/f|balance\s*b\/f|brought\s*forward|opening\s*bal/i.test(l);
+    if (!isOpBal && /closing\s*balance|balance\s*c\/f|carried\s*forward|page\s+(\d+|total)|statement\s*of|generated\s*on|period|interest\s*rate|limit\s*amount|drawing\s*power|overdraft|page\s*total/i.test(l)) {
+      return false;
+    }
+    const dateMatch = l.match(DATE_4_RE) || 
+                      l.match(DATE_2_RE) || 
+                      l.match(DATE_TEXT_1_RE) || 
+                      l.match(DATE_TEXT_2_RE);
+    if (!dateMatch) return false;
+    const matchIndex = l.indexOf(dateMatch[0]);
+    if (matchIndex > 10) return false;
+    const hasAmounts = l.match(AMT_RE) !== null;
+    return hasAmounts;
+  };
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
     const isOpBal = /opening\s*balance|bal\s*b\/f|balance\s*b\/f|brought\s*forward|opening\s*bal/i.test(line);
 
     if (!isOpBal && /closing\s*balance|balance\s*c\/f|carried\s*forward|page\s+(\d+|total)|statement\s*of|generated\s*on|period|interest\s*rate|limit\s*amount|drawing\s*power|overdraft|page\s*total/i.test(line)) {
       continue;
     }
 
-    let dateMatch = line.match(DATE_4_RE) || 
-                    line.match(DATE_2_RE) || 
-                    line.match(DATE_TEXT_1_RE) || 
-                    line.match(DATE_TEXT_2_RE);
-    if (!dateMatch) {
-      // Line has no date. Check if it's a narration continuation for the previous transaction
-      if (tempTxns.length > 0 && !isOpBal) {
-        const amounts = [...line.matchAll(AMT_RE)];
-        if (amounts.length === 0) {
-          const cleanLine = line.replace(/\s+/g, " ").trim();
-          // Skip lines that look like header names
-          if (cleanLine.length > 1 && !/particulars|narration|description|date|amount|balance/i.test(cleanLine)) {
-            const last = tempTxns[tempTxns.length - 1];
-            // If the last narration was just a duplicate date or empty, replace it
-            const isJustDate = last.narration.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$|^\d{4}-\d{2}-\d{2}$/);
-            if (!last.narration || isJustDate) {
-              last.narration = cleanLine;
-            } else {
-              last.narration += " " + cleanLine;
-            }
+    const isMain = isMainLine(line);
+
+    if (!isMain) {
+      const cleanLine = line.replace(/\s+/g, " ").trim();
+      if (cleanLine.length > 1 && !/particulars|narration|description|date|amount|balance/i.test(cleanLine)) {
+        const nextLine = lines[idx + 1];
+        const nextIsMain = nextLine && isMainLine(nextLine);
+        if (nextIsMain) {
+          preNarrationForNext = preNarrationForNext ? preNarrationForNext + " " + cleanLine : cleanLine;
+        } else if (tempTxns.length > 0) {
+          const last = tempTxns[tempTxns.length - 1];
+          const isJustDate = last.narration.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$|^\d{4}-\d{2}-\d{2}$/);
+          if (!last.narration || isJustDate) {
+            last.narration = cleanLine;
+          } else {
+            last.narration += " " + cleanLine;
           }
         }
       }
       continue;
     }
 
-    const date = parseDate(dateMatch[1]);
+    const dateMatch = line.match(DATE_4_RE) || 
+                      line.match(DATE_2_RE) || 
+                      line.match(DATE_TEXT_1_RE) || 
+                      line.match(DATE_TEXT_2_RE);
+    const date = parseDate(dateMatch![1]);
     if (!date) continue;
 
     const amounts = [...line.matchAll(AMT_RE)].map((m) =>
@@ -307,11 +326,10 @@ function parsePDFText(text: string): RawTransaction[] {
     );
     if (amounts.length === 0) continue;
 
-    const afterDate  = line.slice(line.indexOf(dateMatch[1]) + dateMatch[1].length);
+    const afterDate  = line.slice(line.indexOf(dateMatch![1]) + dateMatch![1].length);
     const narrMatch  = afterDate.match(/^[\s\-\/]*([\s\S]+?)\s+[\d,]+\.\d{2}/);
     let narration    = (narrMatch?.[1] ?? afterDate.replace(AMT_RE, "").replace(/\s+/g, " ")).trim();
 
-    // Strip any secondary/duplicate dates at the beginning of the narration (e.g. Value Date)
     while (true) {
       const dateStartMatch = narration.match(/^(?:[\s\-\/]*)(?:\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}[\s\-\/][a-zA-Z]{3,9}[\s\-\/]\d{2,4}|[a-zA-Z]{3,9}[\s\-\/]\d{1,2},?\s*\d{2,4})/);
       if (dateStartMatch) {
@@ -333,7 +351,12 @@ function parsePDFText(text: string): RawTransaction[] {
       continue;
     }
 
-    tempTxns.push({ date, narration, amounts, line });
+    if (preNarrationForNext) {
+      narration = preNarrationForNext + " " + narration;
+      preNarrationForNext = "";
+    }
+
+    tempTxns.push({ date, rawDateStr: dateMatch![1], narration, amounts, line });
   }
 
   const txns: RawTransaction[] = [];
@@ -342,7 +365,7 @@ function parsePDFText(text: string): RawTransaction[] {
   }
 
   for (let i = 0; i < tempTxns.length; i++) {
-    let { date, narration, amounts, line } = tempTxns[i];
+    let { date, rawDateStr, narration, amounts, line } = tempTxns[i];
     let withdrawal = 0, deposit = 0;
 
     narration = narration.trim();
@@ -438,7 +461,41 @@ function parsePDFText(text: string): RawTransaction[] {
 
     if (withdrawal === 0 && deposit === 0) continue;
 
-    txns.push({ date, narration, withdrawal, deposit });
+    // Clean narration by filtering out rawDateStr and decimal amounts from the tokens
+    const rawTokens = narration.split(/\s+/);
+    const amountStrings = amounts.map(num => num.toFixed(2));
+    const amountStringsInt = amounts.map(num => String(Math.round(num)));
+
+    const cleanedTokens = rawTokens.filter((token) => {
+      const tNorm = token.replace(/,/g, "").trim();
+      if (!tNorm) return false;
+
+      // Skip date Match
+      if (tNorm === rawDateStr || rawDateStr.includes(tNorm) || tNorm.includes(rawDateStr)) {
+        return false;
+      }
+
+      // Skip any amount matching numbers in amounts
+      const val = parseFloat(tNorm);
+      if (!isNaN(val)) {
+        if (amounts.some(num => Math.abs(num - val) < 0.01)) {
+          return false;
+        }
+        if (amountStrings.includes(tNorm) || amountStringsInt.includes(tNorm)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    let cleanedNarration = cleanedTokens.join(" ").trim();
+    cleanedNarration = cleanedNarration.replace(/^[\s\-\/]+|[\s\-\/]+$/g, "").trim();
+
+    if (!cleanedNarration) {
+      cleanedNarration = "Bank Transaction";
+    }
+
+    txns.push({ date, narration: cleanedNarration, withdrawal, deposit });
   }
 
   return txns;

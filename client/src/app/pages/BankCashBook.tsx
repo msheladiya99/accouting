@@ -27,6 +27,26 @@ const fmt = (n: number) =>
 const fmtFull = (n: number) =>
   "₹" + Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const fmtDate = (dateStr: string): string => {
+  if (!dateStr) return "";
+  try {
+    const [year, month, day] = dateStr.split("T")[0].split("-");
+    if (year && month && day) {
+      return `${day.padStart(2, "0")}/${month.padStart(2, "0")}/${year}`;
+    }
+  } catch (e) {}
+  try {
+    const d = new Date(dateStr + "T00:00:00");
+    if (isNaN(d.getTime())) return dateStr;
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+  } catch {
+    return dateStr;
+  }
+};
+
 const matchNumericFilter = (value: number, filterText: string): boolean => {
   const text = filterText.trim();
   if (!text) return true;
@@ -840,7 +860,7 @@ function ExcelTable({
                 {/* Date — editable */}
                 <EditableCell row={row} field="date" value={row.date} inputType="date" mono>
                   <span className="font-mono text-slate-600 cursor-cell block">
-                    {new Date(row.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}
+                    {fmtDate(row.date)}
                   </span>
                 </EditableCell>
 
@@ -1194,7 +1214,7 @@ export default function BankCashBook() {
       if (colFilters.accountName && !row.accountName.toLowerCase().includes(colFilters.accountName.toLowerCase())) return false;
       
       if (colFilters.date) {
-        const displayDate = new Date(row.date + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }).toLowerCase();
+        const displayDate = fmtDate(row.date).toLowerCase();
         const rawDate = row.date.toLowerCase();
         if (!displayDate.includes(colFilters.date.toLowerCase()) && !rawDate.includes(colFilters.date.toLowerCase())) return false;
       }

@@ -341,8 +341,14 @@ function parsePDFText(text: string): RawTransaction[] {
         continue;
       }
       const cleanLine = line.replace(/\s+/g, " ").trim();
-      // Skip header-like lines
+      // Skip header-like single-word lines
       if (cleanLine.length <= 1 || /^(particulars|narration|description|date|amount|balance|sr\.?\s*no|debit|credit|withdrawal|deposit|chq|ref|utr|txn|transaction)$/i.test(cleanLine)) {
+        continue;
+      }
+      // ── Critical fix: skip balance-summary lines (Closing Balance, Opening Balance, etc.)
+      // These appear as continuation lines in many PDFs and must NOT be appended to narrations.
+      if (/closing\s*balance|opening\s*balance|balance\s*[bc][\/.\\]?f|brought\s*forward|carried\s*forward|balance\s*brought|balance\s*carried|page\s*total|sub[\s\-]*total|grand\s*total|total\s*transactions/i.test(cleanLine)) {
+        isTableInProgress = false;
         continue;
       }
       const nextLine = lines[idx + 1];

@@ -5,6 +5,7 @@ import { JournalEntry } from "../models/JournalEntry";
 import { BankCashEntry } from "../models/BankCashEntry";
 import { AccountGroup } from "../models/AccountGroup";
 import { FinancialYear } from "../models/FinancialYear";
+import { BankCashAccount } from "../models/BankCashAccount";
 
 const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
   "Capital Account": "Capital",
@@ -159,6 +160,47 @@ async function getCalculatedLedgerBalances(
   });
 }
 
+export async function syncBankCashAccountFromLedger(ledger: any, oldName?: string): Promise<void> {
+  const { ledgerName, groupName, openingDr, openingCr, companyId } = ledger;
+  if (!ledgerName || !groupName) return;
+
+  const isBank = /bank/i.test(groupName);
+
+  if (isBank) {
+    const group = "Bank";
+    const openingBalance = (openingDr || 0) - (openingCr || 0);
+    const finalName = ledgerName.trim();
+    const nameToSearch = oldName ? oldName.trim() : finalName;
+
+    let acc = await BankCashAccount.findOne({
+      name: { $regex: new RegExp(`^${nameToSearch}$`, "i") },
+      companyId
+    });
+
+    if (acc) {
+      acc.name = finalName;
+      acc.group = group;
+      acc.openingBalance = openingBalance;
+      await acc.save();
+    } else {
+      acc = new BankCashAccount({
+        name: finalName,
+        group,
+        openingBalance,
+        companyId
+      });
+      await acc.save();
+    }
+  } else {
+    const nameToSearch = oldName ? oldName.trim() : ledgerName.trim();
+    await BankCashAccount.deleteOne({
+      name: { $regex: new RegExp(`^${nameToSearch}$`, "i") },
+      group: "Bank",
+      companyId
+    });
+  }
+}
+
 export async function getAllLedgers(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     const { raw } = req.query;
@@ -230,6 +272,7 @@ export async function createLedger(req: AuthenticatedRequest, res: Response): Pr
     });
 
     await ledger.save();
+    await syncBankCashAccountFromLedger(ledger);
     res.status(201).json(ledger);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to create ledger" });
@@ -245,6 +288,8 @@ export async function updateLedger(req: AuthenticatedRequest, res: Response): Pr
       res.status(404).json({ message: "Ledger not found" });
       return;
     }
+
+    const oldName = ledger.ledgerName;
 
     if (ledgerName) {
       const trimmedName = ledgerName.trim();
@@ -265,6 +310,7 @@ export async function updateLedger(req: AuthenticatedRequest, res: Response): Pr
     if (openingCr !== undefined) ledger.openingCr = openingCr;
 
     await ledger.save();
+    await syncBankCashAccountFromLedger(ledger, oldName);
     res.json(ledger);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to update ledger" });
@@ -280,6 +326,12 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
       return;
     }
 
+    await BankCashAccount.deleteOne({
+      name: { $regex: new RegExp(`^${ledger.ledgerName.trim()}$`, "i") },
+      group: "Bank",
+      companyId: req.companyId
+    });
+
     await Ledger.deleteOne({ _id: id, companyId: req.companyId });
     res.json({ message: "Ledger deleted successfully" });
   } catch (error: any) {
@@ -294,6 +346,15 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
       res.status(400).json({ message: "Request body must contain an array of ledger IDs under 'ids'" });
       return;
     }
+
+    const ledgers = await Ledger.find({ _id: { $in: ids }, companyId: req.companyId });
+    const ledgerNames = ledgers.map(l => l.ledgerName.trim());
+
+    await BankCashAccount.deleteMany({
+      name: { $in: ledgerNames.map(name => new RegExp(`^${name}$`, "i")) },
+      group: "Bank",
+      companyId: req.companyId
+    });
 
     const result = await Ledger.deleteMany({ _id: { $in: ids }, companyId: req.companyId });
     res.json({ message: `${result.deletedCount} ledgers deleted successfully`, count: result.deletedCount });
@@ -339,6 +400,8 @@ export async function updateBulkOpeningBalances(req: AuthenticatedRequest, res: 
         await ledger.save();
         results.push(ledger);
       }
+
+      await syncBankCashAccountFromLedger(ledger);
     }
 
     res.json({ message: "Opening balances updated successfully", count: results.length });

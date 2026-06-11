@@ -5,6 +5,7 @@ import { BankCashEntry } from "../models/BankCashEntry";
 import { Ledger } from "../models/Ledger";
 import { BankCashAccount } from "../models/BankCashAccount";
 import { AuthenticatedRequest } from "../middleware/auth";
+import { syncBankCashAccountFromLedger } from "./ledgerController";
 
 export async function getImportedTransactions(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
@@ -107,6 +108,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
           companyId: req.companyId
         });
         await newLedger.save();
+        await syncBankCashAccountFromLedger(newLedger);
       }
     }
 

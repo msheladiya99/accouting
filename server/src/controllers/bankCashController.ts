@@ -2,11 +2,76 @@ import { Response } from "express";
 import { BankCashAccount } from "../models/BankCashAccount";
 import { BankCashEntry } from "../models/BankCashEntry";
 import { AuthenticatedRequest } from "../middleware/auth";
+import { Ledger } from "../models/Ledger";
 
 // ── BankCashAccount Controller Handlers ───────────────────────────────────────
+export async function syncLedgerFromBankCashAccount(account: any, oldName?: string): Promise<void> {
+  const { name, group, openingBalance, companyId } = account;
+  if (!name || !group) return;
+
+  if (group !== "Bank") return; // only for bank, not for cash!
+
+  const groupName = "Bank Accounts (Banks)";
+  const openingDr = openingBalance >= 0 ? openingBalance : 0;
+  const openingCr = openingBalance < 0 ? Math.abs(openingBalance) : 0;
+  const finalName = name.trim();
+  const nameToSearch = oldName ? oldName.trim() : finalName;
+
+  let ledger = await Ledger.findOne({
+    ledgerName: { $regex: new RegExp(`^${nameToSearch}$`, "i") },
+    companyId
+  });
+
+  if (ledger) {
+    ledger.ledgerName = finalName;
+    ledger.groupName = groupName;
+    ledger.openingDr = openingDr;
+    ledger.openingCr = openingCr;
+    await ledger.save();
+  } else {
+    ledger = new Ledger({
+      ledgerName: finalName,
+      groupName,
+      openingDr,
+      openingCr,
+      companyId
+    });
+    await ledger.save();
+  }
+}
+
 export async function getAllAccounts(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
     let accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
+
+    // Sync any missing BankCashAccount records from Ledger master
+    const bankCashLedgers = await Ledger.find({
+      companyId: req.companyId,
+      groupName: { $regex: /bank/i }
+    });
+
+    let needsRefetch = false;
+    for (const l of bankCashLedgers) {
+      const nameClean = l.ledgerName.trim();
+      const exists = accounts.some(acc => acc.name.trim().toLowerCase() === nameClean.toLowerCase());
+      if (!exists) {
+        const group = "Bank";
+        const openingBalance = (l.openingDr || 0) - (l.openingCr || 0);
+
+        const newAcc = new BankCashAccount({
+          name: nameClean,
+          group,
+          openingBalance,
+          companyId: req.companyId
+        });
+        await newAcc.save();
+        needsRefetch = true;
+      }
+    }
+
+    if (needsRefetch) {
+      accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
+    }
     
     // Auto-create default Cash Account if none exists
     const hasCash = accounts.some(acc => acc.group === "Cash");
@@ -82,6 +147,7 @@ export async function createAccount(req: AuthenticatedRequest, res: Response): P
     });
 
     await account.save();
+    await syncLedgerFromBankCashAccount(account);
     res.status(201).json(account);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to create account" });
@@ -97,6 +163,8 @@ export async function updateAccount(req: AuthenticatedRequest, res: Response): P
       res.status(404).json({ message: "Account not found" });
       return;
     }
+
+    const oldName = account.name;
 
     if (name) {
       const duplicate = await BankCashAccount.findOne({
@@ -114,6 +182,7 @@ export async function updateAccount(req: AuthenticatedRequest, res: Response): P
     if (openingBalance !== undefined) account.openingBalance = openingBalance;
 
     await account.save();
+    await syncLedgerFromBankCashAccount(account, oldName);
     res.json(account);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to update account" });
@@ -127,6 +196,14 @@ export async function deleteAccount(req: AuthenticatedRequest, res: Response): P
     if (!account) {
       res.status(404).json({ message: "Account not found" });
       return;
+    }
+
+    // Delete corresponding ledger (only for Bank accounts)
+    if (account.group === "Bank") {
+      await Ledger.deleteOne({
+        ledgerName: { $regex: new RegExp(`^${account.name.trim()}$`, "i") },
+        companyId: req.companyId
+      });
     }
 
     // Delete associated entries

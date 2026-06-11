@@ -23,7 +23,11 @@ app.use(tenantMiddleware);
 // Routes
 app.use("/api", apiRouter);
 
-// Basic health check route
+// Basic health check routes
+app.get("/", (req, res) => {
+  res.json({ status: "ok", message: "Accounting SaaS server running" });
+});
+
 app.get("/health", (req, res) => {
   res.json({ status: "ok", message: "Accounting SaaS server running" });
 });

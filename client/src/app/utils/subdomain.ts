@@ -24,9 +24,22 @@ export const getSubdomain = (): string => {
       return parts[0].toLowerCase();
     }
   }
-
   const parts = hostname.split(".");
-  
+  const isCloudProvider = hostname.endsWith(".onrender.com") || 
+                          hostname.endsWith(".vercel.app") || 
+                          hostname.endsWith(".herokuapp.com");
+
+  if (isCloudProvider) {
+    if (parts.length >= 4) {
+      const subdomain = parts[0].toLowerCase();
+      if (["www", "superadmin", "super-admin", "admin"].includes(subdomain)) {
+        return "";
+      }
+      return subdomain;
+    }
+    return "";
+  }
+
   // Assuming a domain format like subdomain.company.com
   if (parts.length >= 3) {
     const subdomain = parts[0].toLowerCase();
@@ -38,7 +51,6 @@ export const getSubdomain = (): string => {
 
   return "";
 };
-
 export const isSuperAdminDomain = (): boolean => {
   const subdomain = getSubdomain();
   return !subdomain;

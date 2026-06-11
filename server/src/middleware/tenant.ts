@@ -16,15 +16,26 @@ export const tenantMiddleware = async (req: Request, res: Response, next: NextFu
     // Extract subdomain (e.g., company.localhost or company.domain.com)
     if (hostname !== "localhost" && !/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
       const parts = hostname.split(".");
-      if (parts.length >= 2) {
-        const sub = parts[0];
-        if (!["www", "api", "admin", "superadmin", "super-admin", "localhost"].includes(sub)) {
-          subdomain = sub;
+      const isCloudProvider = hostname.endsWith(".onrender.com") || 
+                              hostname.endsWith(".vercel.app") || 
+                              hostname.endsWith(".herokuapp.com");
+      if (isCloudProvider) {
+        if (parts.length >= 4) {
+          const sub = parts[0];
+          if (!["www", "api", "admin", "superadmin", "super-admin", "localhost"].includes(sub)) {
+            subdomain = sub;
+          }
+        }
+      } else {
+        if (parts.length >= 3) {
+          const sub = parts[0];
+          if (!["www", "api", "admin", "superadmin", "super-admin", "localhost"].includes(sub)) {
+            subdomain = sub;
+          }
         }
       }
     }
   }
-
   // Skip tenant resolution for super-admin API or routes, or when no subdomain is present
   if (
     req.path.startsWith("/super-admin") ||

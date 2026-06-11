@@ -317,3 +317,15 @@ html.no-animations * {
 .shadow-\[0_20px_50px_rgba\(124\,58\,237\,0\.06\)\] {
   box-shadow: 0 20px 50px color-mix(in srgb, var(--brand) 6%, transparent) !important;
 }
+
+/* ag-Grid Header & Filter Centering Overrides */
+.ag-header-cell-center {
+  text-align: center !important;
+}
+.ag-header-cell-center .ag-header-cell-label {
+  justify-content: center !important;
+}
+.ag-header-cell-center .ag-floating-filter-input input {
+  text-align: center !important;
+}
+

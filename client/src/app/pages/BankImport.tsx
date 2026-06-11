@@ -514,6 +514,8 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       colId: "srNo",
       filter: "agNumberColumnFilter",
       floatingFilter: true,
+      suppressFloatingFilterButton: true,
+      headerClass: "ag-header-cell-center",
       sortable: false,
       valueGetter: (p) => (p.node?.rowIndex ?? 0) + 1,
       cellStyle: { color: "#94a3b8", fontSize: "11px", textAlign: "center" } as any,

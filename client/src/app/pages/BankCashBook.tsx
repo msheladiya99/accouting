@@ -1604,19 +1604,25 @@ export default function BankCashBook() {
       </div>
 
       {/* ── Summary Bar ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="flex flex-wrap gap-x-8 gap-y-3 py-2.5 items-center px-1">
         {[
-          { label: "Opening Balance", value: fmtFull(summary.openingBalance), color: "border-l-slate-400",   textColor: "text-slate-800",    bg: "bg-white"      },
-          { label: "Total Deposit",   value: fmtFull(summary.totalDeposit),   color: "border-l-emerald-500", textColor: "text-emerald-700",  bg: "bg-emerald-50" },
-          { label: "Total Withdrawal",value: fmtFull(summary.totalWithdrawal),color: "border-l-red-400",     textColor: "text-red-700",      bg: "bg-red-50"     },
-          { label: "Closing Balance", value: fmtFull(summary.closingBalance), color: summary.closingBalance >= 0 ? "border-l-indigo-500" : "border-l-red-500", textColor: summary.closingBalance >= 0 ? "text-indigo-700" : "text-red-700", bg: "bg-white" },
-        ].map(({ label, value, color, textColor, bg }) => (
-          <div key={label} className={`${bg} rounded-xl border border-slate-200 border-l-4 ${color} px-4 py-3 shadow-sm`}>
-            <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">{label}</p>
-            <p className={`text-base font-bold font-mono mt-1 ${textColor}`}>{value}</p>
+          { label: "Opening Balance", value: fmtFull(summary.openingBalance), textColor: "text-slate-800" },
+          { label: "Total Deposit",   value: fmtFull(summary.totalDeposit),   textColor: "text-emerald-600" },
+          { label: "Total Withdrawal",value: fmtFull(summary.totalWithdrawal),textColor: "text-red-500" },
+          { label: "Closing Balance", value: fmtFull(summary.closingBalance), textColor: summary.closingBalance >= 0 ? "text-indigo-600" : "text-red-600" },
+        ].map(({ label, value, textColor }, idx) => (
+          <div key={label} className="flex items-center gap-8">
+            <div className="flex flex-col">
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{label}</p>
+              <p className={`text-sm font-bold font-mono mt-0.5 ${textColor}`}>{value}</p>
+            </div>
+            {idx < 3 && <div className="h-8 w-px bg-slate-200 hidden md:block" />}
           </div>
         ))}
       </div>
+
+
+
 
       {/* ── Filter bar ───────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap">

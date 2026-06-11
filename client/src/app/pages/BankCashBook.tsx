@@ -12,11 +12,12 @@ import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import {
   getAllAccounts, getEntriesForAccount, getAllEntries,
-  createEntry, updateEntry, deleteEntry, clearEntriesForAccount, deleteAccount, updateAccount,
+  createEntry, updateEntry, deleteEntry, bulkDeleteEntries, clearEntriesForAccount, deleteAccount, updateAccount,
   createAccount,
   CONTRA_GROUPS,
   type BankCashAccount, type BankCashRow, type EntryPayload, type AccountGroup,
 } from "../api/bankCashBookApi";
+
 import BankImport from "./BankImport";
 import { getAllGroups } from "../api/accountGroupApi";
 
@@ -1191,6 +1192,25 @@ export default function BankCashBook() {
     }
   }, [selectedIds, bulkAccName, bulkAccGroup, accountFilter, loadRows]);
 
+  const handleBulkDelete = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`⚠️ Are you sure you want to delete the ${ids.length} selected entries? This cannot be undone.`)) return;
+    setBulkSaving(true);
+    try {
+      await bulkDeleteEntries(ids);
+      toast.success(`Successfully deleted ${ids.length} entries`);
+      setSelectedIds(new Set());
+      await loadRows(accountFilter);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.message || "Bulk deletion failed");
+    } finally {
+      setBulkSaving(false);
+    }
+  }, [selectedIds, accountFilter, loadRows]);
+
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     
@@ -1452,11 +1472,21 @@ export default function BankCashBook() {
             </button>
             <button
               type="button"
+              onClick={handleBulkDelete}
+              disabled={bulkSaving}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+            >
+              {bulkSaving ? <RefreshCw size={12} className="animate-spin" /> : <Trash2 size={12} />}
+              Delete Selected
+            </button>
+            <button
+              type="button"
               onClick={() => setSelectedIds(new Set())}
               className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold rounded-lg transition-colors"
             >
               <X size={12} /> Deselect All
             </button>
+
           </div>
         </div>
       )}

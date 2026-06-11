@@ -428,6 +428,23 @@ export async function deleteEntry(req: AuthenticatedRequest, res: Response): Pro
   }
 }
 
+export async function bulkDeleteEntries(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { ids } = req.body;
+  try {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ message: "No entry IDs provided" });
+      return;
+    }
+    const result = await BankCashEntry.deleteMany({
+      _id: { $in: ids },
+      companyId: req.companyId
+    });
+    res.json({ message: `Successfully deleted ${result.deletedCount} entries`, deletedCount: result.deletedCount });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to bulk delete entries" });
+  }
+}
+
 // Clear ALL entries for a specific account (used to fix duplicate imports)
 export async function clearEntriesForAccount(req: AuthenticatedRequest, res: Response): Promise<void> {
   const { id } = req.params;

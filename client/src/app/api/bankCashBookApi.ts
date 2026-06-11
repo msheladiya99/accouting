@@ -98,6 +98,11 @@ export async function deleteEntry(id: string): Promise<void> {
   await axiosClient.delete(`/bank-cash-book/entries/${id}`);
 }
 
+export async function bulkDeleteEntries(ids: string[]): Promise<void> {
+  await axiosClient.post("/bank-cash-book/entries/bulk-delete", { ids });
+}
+
+
 export async function createAccount(payload: { name: string; group: "Bank" | "Cash"; openingBalance?: number }): Promise<BankCashAccount> {
   const res = await axiosClient.post<BankCashAccount>("/bank-cash-book/accounts", payload);
   return res.data;

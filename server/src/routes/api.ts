@@ -81,7 +81,9 @@ apiRouter.get("/bank-cash-book/entries", bankCashController.getAllEntries);
 apiRouter.post("/bank-cash-book/entries", bankCashController.createEntry);
 apiRouter.put("/bank-cash-book/entries/:id", bankCashController.updateEntry);
 apiRouter.delete("/bank-cash-book/entries/:id", bankCashController.deleteEntry);
+apiRouter.post("/bank-cash-book/entries/bulk-delete", bankCashController.bulkDeleteEntries);
 apiRouter.delete("/bank-cash-book/accounts/:id/entries", bankCashController.clearEntriesForAccount);
+
 
 // Journal Voucher routes
 apiRouter.get("/journal-voucher", journalController.getAllJournalEntries);

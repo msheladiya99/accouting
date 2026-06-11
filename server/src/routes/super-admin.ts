@@ -371,7 +371,7 @@ router.patch(["/companies/:id", "/firms/:id"], authMiddleware as any, requireSup
 // Reset admin password
 router.post(["/companies/:id/reset-password", "/firms/:id/reset-password"], authMiddleware as any, requireSuperAdmin as any, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { newPassword } = req.body;
+    const { newPassword, email } = req.body;
     if (!newPassword) {
       return res.status(400).json({ message: "New password is required" });
     }
@@ -383,13 +383,48 @@ router.post(["/companies/:id/reset-password", "/firms/:id/reset-password"], auth
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
 
-    // Update all users who are Admins of this company
-    await User.updateMany(
-      { companyId: company._id, role: "Admin" },
-      { password: passwordHash }
-    );
+    // Check if there are any Admin users for this company
+    const admins = await User.find({ companyId: company._id, role: "Admin" });
+    if (admins.length === 0) {
+      // If no admin user exists, create one!
+      const finalEmail = (email || `admin@${company.subdomain || "company"}.com`).toLowerCase();
+      
+      const existingUser = await User.findOne({ email: finalEmail });
+      if (existingUser) {
+        existingUser.password = passwordHash;
+        existingUser.role = "Admin";
+        existingUser.companyId = company._id;
+        existingUser.status = "Active";
+        await existingUser.save();
+      } else {
+        const adminName = company.companyName ? `${company.companyName} Admin` : "Admin";
+        const initials = adminName
+          .split(" ")
+          .map((w: string) => w[0])
+          .join("")
+          .toUpperCase()
+          .slice(0, 2);
 
-    res.json({ message: "Company Admin password has been successfully reset" });
+        const newAdmin = new User({
+          name: adminName,
+          email: finalEmail,
+          password: passwordHash,
+          role: "Admin",
+          status: "Active",
+          companyId: company._id,
+          avatar: initials
+        });
+        await newAdmin.save();
+      }
+      res.json({ message: "Company Admin user created and password set successfully" });
+    } else {
+      // Update all users who are Admins of this company
+      await User.updateMany(
+        { companyId: company._id, role: "Admin" },
+        { password: passwordHash }
+      );
+      res.json({ message: "Company Admin password has been successfully reset" });
+    }
   } catch (error) {
     console.error("Super Admin Reset Password Error:", error);
     res.status(500).json({ message: "Internal server error" });

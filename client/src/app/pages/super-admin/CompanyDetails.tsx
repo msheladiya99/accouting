@@ -83,11 +83,18 @@ export default function CompanyDetails() {
       toast.error("Password cannot be empty");
       return;
     }
+    const adminUser = data?.users?.find(u => u.role === "Admin") || data?.users?.[0];
+    const emailToPass = adminUser?.email || "lalit@gmail.com";
+
     setResetting(true);
-    axiosClient.post(`/super-admin/firms/${id}/reset-password`, { newPassword })
+    axiosClient.post(`/super-admin/firms/${id}/reset-password`, {
+      newPassword,
+      email: emailToPass
+    })
       .then(() => {
         toast.success("Admin password reset successfully");
         setNewPassword("");
+        fetchDetails();
       })
       .catch(err => {
         console.error("Failed to reset password:", err);

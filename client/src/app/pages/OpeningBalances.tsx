@@ -11,7 +11,8 @@ import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
 import {
   Plus, Save, Trash2, Pencil, CheckCircle2,
-  XCircle, LayoutList, AlertTriangle, Download, Upload, Loader2, FileSpreadsheet
+  XCircle, LayoutList, AlertTriangle, Download, Upload, Loader2, FileSpreadsheet,
+  Search, X, Layers, Filter
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
@@ -425,7 +426,20 @@ export default function OpeningBalances() {
   const [showBulk, setShowBulk] = useState(false);
   const [editRow, setEditRow] = useState<OBRow | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
+  const [groupFilter, setGroupFilter] = useState("All");
   const gridRef = useRef<AgGridReact<OBRow>>(null);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((r) => {
+      const matchSearch =
+        !search ||
+        r.ledgerName.toLowerCase().includes(search.toLowerCase()) ||
+        r.group.toLowerCase().includes(search.toLowerCase());
+      const matchGroup = groupFilter === "All" || r.group === groupFilter;
+      return matchSearch && matchGroup;
+    });
+  }, [rows, search, groupFilter]);
 
   // ── Load data ───────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -866,47 +880,73 @@ export default function OpeningBalances() {
         </div>
       )}
 
-      {/* Group summary chips */}
-      <div className="flex flex-wrap gap-2">
-        {groups.map((g) => {
-          const s = groupSummary[g];
-          if (!s) return null;
-          const cls = GROUP_COLORS[g] ?? "bg-slate-100 text-slate-600 border-slate-200";
-          return (
-            <div key={g} className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium ${cls}`}>
-              <span>{g}</span>
-              <span className="opacity-60">·</span>
-              <span>{s.count} entries</span>
-              {s.dr > 0 && <span className="text-emerald-700 bg-emerald-100 px-1.5 rounded">Dr ₹{(s.dr / 1000).toFixed(0)}k</span>}
-              {s.cr > 0 && <span className="text-red-600 bg-red-100 px-1.5 rounded">Cr ₹{(s.cr / 1000).toFixed(0)}k</span>}
-            </div>
-          );
-        })}
+      {/* Search + Group Filter row */}
+      <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 flex-1 min-w-[220px] max-w-sm">
+          <Search size={14} className="text-slate-400 flex-shrink-0" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search ledger name or group…"
+            className="bg-transparent text-sm outline-none text-slate-700 placeholder-slate-400 w-full"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="text-slate-400 hover:text-slate-600">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+
+        {/* Group Filter Dropdown */}
+        <div className="flex items-center gap-2">
+          <Layers size={14} className="text-slate-400" />
+          <select
+            value={groupFilter}
+            onChange={(e) => setGroupFilter(e.target.value)}
+            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+          >
+            <option value="All">All Groups ({rows.length})</option>
+            {groups.map((groupName) => {
+              const s = groupSummary[groupName];
+              const count = s ? s.count : 0;
+              return (
+                <option key={groupName} value={groupName}>
+                  {groupName} ({count})
+                </option>
+              );
+            })}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm text-slate-500 ml-auto">
+          <Filter size={14} />
+          <span className="font-medium text-slate-700">{filteredRows.length} results</span>
+        </div>
       </div>
 
       {/* AG Grid */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
           <p className="text-xs text-slate-500">Double-click any cell to edit inline · Use action buttons for full form edit</p>
-          <p className="text-xs text-slate-400">{rows.length} rows</p>
+          <p className="text-xs text-slate-400">{filteredRows.length} rows</p>
         </div>
         
         {loading ? (
           <div className="flex items-center justify-center py-20 gap-2 text-slate-500">
             <Loader2 size={18} className="animate-spin" /> Loading balances...
           </div>
-        ) : rows.length === 0 ? (
+        ) : filteredRows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
             <FileSpreadsheet size={40} className="opacity-30" />
             <p className="text-sm font-medium">No opening balances found</p>
             <p className="text-xs">Import an Excel sheet or add rows manually to get started</p>
           </div>
         ) : (
-          <div className="ag-theme-quartz" style={{ height: Math.max(360, Math.min(rows.length * 48 + 150, 560)) }}>
+          <div className="ag-theme-quartz" style={{ height: Math.max(360, Math.min(filteredRows.length * 48 + 150, 560)) }}>
             <AgGridReact<OBRow>
               theme="legacy"
               ref={gridRef}
-              rowData={rows}
+              rowData={filteredRows}
               columnDefs={columnDefs}
               defaultColDef={{ resizable: true, sortable: true }}
               rowSelection={rowSelection}

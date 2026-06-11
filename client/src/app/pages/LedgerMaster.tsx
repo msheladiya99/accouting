@@ -616,45 +616,9 @@ export default function LedgerMaster() {
         </div>
       </div>
 
-      {/* Group Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-6 gap-3">
-        {/* "All" tile */}
-        <button
-          onClick={() => setGroupFilter("All")}
-          className={`rounded-xl p-3 border text-left transition-all ${groupFilter === "All" ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-200 hover:border-slate-300"}`}
-        >
-          <div className="flex items-center justify-between mb-1.5">
-            <Layers size={14} className={groupFilter === "All" ? "text-slate-300" : "text-slate-400"} />
-            {groupFilter === "All" && <CheckCircle2 size={12} className="text-white" />}
-          </div>
-          <p className={`text-lg font-bold ${groupFilter === "All" ? "text-white" : "text-slate-900"}`}>{rows.length}</p>
-          <p className={`text-xs mt-0.5 ${groupFilter === "All" ? "text-slate-300" : "text-slate-500"}`}>All Groups</p>
-        </button>
-
-        {groups.map((g) => g.groupName).filter((g) => (groupCounts[g] ?? 0) > 0).map((g) => {
-          const m = getGroupMeta(g);
-          const count = groupCounts[g] ?? 0;
-          const active = groupFilter === g;
-          return (
-            <button
-              key={g}
-              onClick={() => setGroupFilter(active ? "All" : g)}
-              className={`rounded-xl p-3 border text-left transition-all ${active ? `${m.bg} ${m.border} border-2` : "bg-white border-slate-200 hover:border-slate-300"}`}
-            >
-              <div className="flex items-center justify-between mb-1.5">
-                <span className={`w-2.5 h-2.5 rounded-full ${m.dot}`} />
-                {active && <CheckCircle2 size={12} className={m.text} />}
-              </div>
-              <p className={`text-lg font-bold ${active ? m.text : "text-slate-900"}`}>{count}</p>
-              <p className={`text-xs mt-0.5 truncate ${active ? m.text : "text-slate-500"}`}>{g}</p>
-            </button>
-          );
-        })}
-      </div>
-
       {/* Search + Quick Filter row */}
       <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 flex-1 min-w-[220px]">
+        <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 flex-1 min-w-[220px] max-w-sm">
           <Search size={14} className="text-slate-400 flex-shrink-0" />
           <input
             value={search}
@@ -668,15 +632,32 @@ export default function LedgerMaster() {
             </button>
           )}
         </div>
-        <div className="flex items-center gap-2 text-sm text-slate-500">
+
+        {/* Group Filter Dropdown */}
+        <div className="flex items-center gap-2">
+          <Layers size={14} className="text-slate-400" />
+          <select
+            value={groupFilter}
+            onChange={(e) => setGroupFilter(e.target.value)}
+            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+          >
+            <option value="All">All Groups ({rows.length})</option>
+            {groups.map((g) => g.groupName).sort().map((groupName) => {
+              const count = groupCounts[groupName] ?? 0;
+              return (
+                <option key={groupName} value={groupName}>
+                  {groupName} ({count})
+                </option>
+              );
+            })}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm text-slate-500 ml-auto">
           <Filter size={14} />
-          <span className="hidden sm:inline">
-            {groupFilter === "All" ? "All groups" : groupFilter}
-            {" · "}
-          </span>
           <span className="font-medium text-slate-700">{filtered.length} results</span>
         </div>
-        <p className="text-xs text-slate-400 hidden lg:block">
+        <p className="text-xs text-slate-400 hidden lg:block w-full border-t border-slate-50 pt-2 mt-1">
           Double-click a cell to edit inline · Use column filter icons for advanced search
         </p>
       </div>

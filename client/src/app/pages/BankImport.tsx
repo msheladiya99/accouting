@@ -511,6 +511,9 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     {
       headerName: "Sr. No.",
       width: 65,
+      colId: "srNo",
+      filter: "agNumberColumnFilter",
+      floatingFilter: true,
       sortable: false,
       valueGetter: (p) => (p.node?.rowIndex ?? 0) + 1,
       cellStyle: { color: "#94a3b8", fontSize: "11px", textAlign: "center" } as any,
@@ -518,6 +521,9 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     {
       headerName: "Bank/cash name",
       width: 155,
+      field: "bankName",
+      filter: "agTextColumnFilter",
+      floatingFilter: true,
       valueGetter: () => {
         if (selectedAccountId === "auto-create") {
           return detectedBankName || "Auto-detecting...";
@@ -552,6 +558,8 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       width: 145,
       type: "numericColumn",
       editable: true,
+      filter: "agNumberColumnFilter",
+      floatingFilter: true,
       cellRenderer: (p: ICellRendererParams<ImportRow>) =>
         p.data?.withdrawal
           ? <span className="text-red-600 font-semibold text-xs">{fmt(p.data.withdrawal)}</span>
@@ -563,6 +571,8 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       width: 145,
       type: "numericColumn",
       editable: true,
+      filter: "agNumberColumnFilter",
+      floatingFilter: true,
       cellRenderer: (p: ICellRendererParams<ImportRow>) =>
         p.data?.deposit
           ? <span className="text-emerald-600 font-semibold text-xs">{fmt(p.data.deposit)}</span>
@@ -573,6 +583,8 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       headerName: "Balance",
       width: 145,
       type: "numericColumn",
+      filter: "agNumberColumnFilter",
+      floatingFilter: true,
       cellRenderer: (p: ICellRendererParams<ImportRow>) => {
         const bal = p.data?.balance ?? 0;
         const formatted = "₹" + Math.abs(bal).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

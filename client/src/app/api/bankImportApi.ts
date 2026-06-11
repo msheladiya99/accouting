@@ -120,10 +120,10 @@ function parseSheetRows(rows: unknown[][]): RawTransaction[] {
 
   const headers = (rows[headerIdx] as string[]).map((h) => String(h ?? ""));
   const dateCol = colIdx(headers, ["date", "txn date", "value date", "transaction date", "posting"]);
-  const narrCol = colIdx(headers, ["narration", "description", "particulars", "remarks", "details", "cheque"]);
-  const drCol   = colIdx(headers, ["debit", "withdrawal", "dr amount", "withdrawl", "dr"]);
-  const crCol   = colIdx(headers, ["credit", "deposit", "cr amount", "cr"]);
-  const amtCol  = colIdx(headers, ["amount"]);
+  const narrCol = colIdx(headers, ["narration", "description", "particulars", "particular", "remarks", "details", "cheque", "chq", "transaction narration", "narration/description"]);
+  const drCol   = colIdx(headers, ["debit", "withdrawal", "dr amount", "withdrawl", "dr", "debit amount", "withdrawal amount", "paid out"]);
+  const crCol   = colIdx(headers, ["credit", "deposit", "cr amount", "cr", "credit amount", "deposit amount", "paid in"]);
+  const amtCol  = colIdx(headers, ["amount", "transaction amount"]);
 
   const txns: RawTransaction[] = [];
 
@@ -133,7 +133,15 @@ function parseSheetRows(rows: unknown[][]): RawTransaction[] {
     const date = parseDate(dateCol >= 0 ? row[dateCol] : undefined);
     if (!date) continue;
 
-    const narration = String(narrCol >= 0 ? row[narrCol] ?? "" : "").trim();
+    // Try primary narration column, then fallback to scanning all cells for longest text value
+    let narration = String(narrCol >= 0 ? row[narrCol] ?? "" : "").trim();
+    if (!narration && narrCol < 0) {
+      // No narration column detected — pick the longest non-numeric string in the row
+      narration = row
+        .map(c => String(c ?? "").trim())
+        .filter(c => c.length > 3 && isNaN(Number(c.replace(/[,₹$\s]/g, ""))))
+        .sort((a, b) => b.length - a.length)[0] ?? "";
+    }
     if (!narration) continue;
 
     let withdrawal = drCol >= 0 ? toNum(row[drCol]) : 0;
@@ -144,6 +152,21 @@ function parseSheetRows(rows: unknown[][]): RawTransaction[] {
       if (!isNaN(raw)) {
         if (raw < 0) withdrawal = Math.abs(raw);
         else deposit = raw;
+      }
+    }
+
+    // Last resort: scan every cell for a non-zero numeric value if we still have 0/0
+    // (handles banks that put a single amount in an unlabelled column)
+    if (withdrawal === 0 && deposit === 0) {
+      const skipCols = new Set([dateCol, narrCol, amtCol, drCol, crCol].filter(c => c >= 0));
+      for (let ci = 0; ci < row.length; ci++) {
+        if (skipCols.has(ci)) continue;
+        const raw = parseFloat(String(row[ci] ?? "").replace(/[₹$,\s]/g, ""));
+        if (!isNaN(raw) && raw !== 0) {
+          if (raw < 0) withdrawal = Math.abs(raw);
+          else deposit = raw;
+          break;
+        }
       }
     }
 
@@ -202,7 +225,7 @@ export async function extractPDFText(file: File): Promise<string> {
       const x = item.transform[4];
       const y = item.transform[5];
 
-      let matchedLine = linesArray.find((l) => Math.abs(l.y - y) <= 4);
+      let matchedLine = linesArray.find((l) => Math.abs(l.y - y) <= 6);
       if (matchedLine) {
         matchedLine.cells.push({ x, text: item.str });
       } else {
@@ -214,23 +237,35 @@ export async function extractPDFText(file: File): Promise<string> {
     linesArray.sort((a, b) => b.y - a.y);
     for (const lineObj of linesArray) {
       const sortedCells = lineObj.cells.sort((a, b) => a.x - b.x);
-      allLines.push(sortedCells.map((c) => c.text).join("  "));
+      // Use 4 spaces to clearly separate columns (helps narration extraction)
+      allLines.push(sortedCells.map((c) => c.text).join("    "));
     }
   }
 
   // ── Deduplicate lines across pages ────────────────────────────────────────
-  // Normalize each line (collapse whitespace, lowercase) for comparison.
-  // Keep the original-cased version but skip any line whose normalized form
-  // was already seen. This removes ~4-5x duplicates from multi-page PDFs.
-  const seenNormalized = new Set<string>();
+  // Bank statements often repeat header rows on each page. We deduplicate
+  // ONLY header/footer type lines (those without decimal amounts) to avoid
+  // removing genuine duplicate transactions (same narration + same amount).
+  // Strategy: lines that contain a decimal amount (\d+\.\d{2}) are kept always;
+  // purely text lines (headers, footers, labels) are deduplicated.
+  const seenTextLines = new Set<string>();
   const uniqueLines: string[] = [];
 
   for (const line of allLines) {
     const normalized = line.replace(/\s+/g, " ").trim().toLowerCase();
     if (!normalized) continue;
-    if (seenNormalized.has(normalized)) continue;
-    seenNormalized.add(normalized);
-    uniqueLines.push(line);
+    
+    // Check if this line contains a decimal amount (likely a transaction or balance line)
+    const hasAmount = /\d[,\d]*\.\d{2}/.test(line);
+    if (hasAmount) {
+      // Always include transaction lines (even if repeated text — diff amounts)
+      uniqueLines.push(line);
+    } else {
+      // Text-only lines (headers, footers) — deduplicate
+      if (seenTextLines.has(normalized)) continue;
+      seenTextLines.add(normalized);
+      uniqueLines.push(line);
+    }
   }
 
   return uniqueLines.join("\n");
@@ -279,7 +314,7 @@ function parsePDFText(text: string): RawTransaction[] {
                       l.match(DATE_TEXT_2_RE);
     if (!dateMatch) return false;
     const matchIndex = l.indexOf(dateMatch[0]);
-    if (matchIndex > 10) return false;
+    if (matchIndex > 15) return false;
     const hasAmounts = l.match(AMT_RE) !== null;
     return hasAmounts;
   };
@@ -306,17 +341,24 @@ function parsePDFText(text: string): RawTransaction[] {
         continue;
       }
       const cleanLine = line.replace(/\s+/g, " ").trim();
-      if (cleanLine.length > 1 && !/particulars|narration|description|date|amount|balance/i.test(cleanLine)) {
-        const nextLine = lines[idx + 1];
-        const nextIsMain = nextLine && isMainLine(nextLine);
-        if (nextIsMain) {
-          preNarrationForNext = preNarrationForNext ? preNarrationForNext + " " + cleanLine : cleanLine;
-        } else if (tempTxns.length > 0) {
-          const last = tempTxns[tempTxns.length - 1];
-          const isJustDate = last.narration.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$|^\d{4}-\d{2}-\d{2}$/);
-          if (!last.narration || isJustDate) {
-            last.narration = cleanLine;
-          } else {
+      // Skip header-like lines
+      if (cleanLine.length <= 1 || /^(particulars|narration|description|date|amount|balance|sr\.?\s*no|debit|credit|withdrawal|deposit|chq|ref|utr|txn|transaction)$/i.test(cleanLine)) {
+        continue;
+      }
+      const nextLine = lines[idx + 1];
+      const nextIsMain = nextLine && isMainLine(nextLine);
+      if (nextIsMain) {
+        // This line is narration for the NEXT main transaction line
+        preNarrationForNext = preNarrationForNext ? preNarrationForNext + " " + cleanLine : cleanLine;
+      } else if (tempTxns.length > 0) {
+        const last = tempTxns[tempTxns.length - 1];
+        const isJustDate = last.narration.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$|^\d{4}-\d{2}-\d{2}$/);
+        if (!last.narration || isJustDate) {
+          last.narration = cleanLine;
+        } else {
+          // Only append if it looks like a continuation (not a number-only line)
+          const isNumberOnly = /^[\d,\.\s₹$]+$/.test(cleanLine);
+          if (!isNumberOnly) {
             last.narration += " " + cleanLine;
           }
         }
@@ -337,7 +379,9 @@ function parsePDFText(text: string): RawTransaction[] {
     if (amounts.length === 0) continue;
 
     const afterDate  = line.slice(line.indexOf(dateMatch![1]) + dateMatch![1].length);
-    const narrMatch  = afterDate.match(/^[\s\-\/]*([\s\S]+?)\s+[\d,]+\.\d{2}/);
+    // Match narration: text between the date and the first decimal amount
+    const narrMatch  = afterDate.match(/^[\s\-\/]*([\s\S]+?)(?:\s{2,}|\t)[\d,]+\.\d{2}/) ||
+                       afterDate.match(/^[\s\-\/]*([\s\S]+?)\s+[\d,]+\.\d{2}/);
     let narration    = (narrMatch?.[1] ?? afterDate.replace(AMT_RE, "").replace(/\s+/g, " ")).trim();
 
     while (true) {
@@ -471,27 +515,28 @@ function parsePDFText(text: string): RawTransaction[] {
 
     if (withdrawal === 0 && deposit === 0) continue;
 
-    // Clean narration by filtering out rawDateStr and decimal amounts from the tokens
+    // Clean narration: remove date string prefix and trailing decimal amount numbers
+    // Only remove tokens that exactly match an amount in amounts[] or are substrings of rawDateStr
     const rawTokens = narration.split(/\s+/);
     const amountStrings = amounts.map(num => num.toFixed(2));
-    const amountStringsInt = amounts.map(num => String(Math.round(num)));
 
     const cleanedTokens = rawTokens.filter((token) => {
       const tNorm = token.replace(/,/g, "").trim();
       if (!tNorm) return false;
 
-      // Skip date Match
-      if (tNorm === rawDateStr || rawDateStr.includes(tNorm) || tNorm.includes(rawDateStr)) {
-        return false;
-      }
-
-      // Skip any amount matching numbers in amounts
-      const val = parseFloat(tNorm);
-      if (!isNaN(val)) {
-        if (amounts.some(num => Math.abs(num - val) < 0.01)) {
+      // Skip exact date string match
+      if (tNorm === rawDateStr) return false;
+      
+      // Skip tokens that are pure decimal numbers matching transaction amounts
+      // (e.g. "12,345.67" or "12345.67" matching an amount)
+      const tNoComma = tNorm.replace(/,/g, "");
+      const val = parseFloat(tNoComma);
+      if (!isNaN(val) && /^\d[\d,]*\.\d{2}$/.test(tNorm)) {
+        // It looks like a formatted decimal — check if it matches an amount
+        if (amounts.some(num => Math.abs(num - val) < 0.02)) {
           return false;
         }
-        if (amountStrings.includes(tNorm) || amountStringsInt.includes(tNorm)) {
+        if (amountStrings.includes(tNoComma)) {
           return false;
         }
       }

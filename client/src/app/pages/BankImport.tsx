@@ -42,8 +42,38 @@ function toImportRows(txns: RawTransaction[]): ImportRow[] {
 }
 
 // Deduplicate raw transactions by fingerprint (date + narration + withdrawal + deposit)
-// Bank statements often have per-page opening/closing totals that the AI treats as extra rows
+// Bank statements sometimes have per-page opening/closing totals that get repeated.
+// NOTE: This is conservative \u2014 only removes duplicates that appear 3+ times (likely page carry-forward)
+// OR when the overall duplicate rate is very high (>50% indicating systematic repetition).
 function deduplicateTransactions(txns: RawTransaction[]): RawTransaction[] {
+  // Count occurrences of each fingerprint
+  const fpCount = new Map<string, number>();
+  for (const t of txns) {
+    const fp = `${t.date}||${(t.narration || "").trim().toLowerCase()}||${t.withdrawal}||${t.deposit}`;
+    fpCount.set(fp, (fpCount.get(fp) ?? 0) + 1);
+  }
+  
+  // Calculate overall duplicate rate
+  const totalDups = [...fpCount.values()].reduce((sum, c) => sum + Math.max(0, c - 1), 0);
+  const dupRate = txns.length > 0 ? totalDups / txns.length : 0;
+  
+  // Only deduplicate if rate is high (systematic page repetition) OR entries appear 3+ times
+  const shouldDedupe = dupRate > 0.4;
+  
+  if (!shouldDedupe) {
+    // Just remove entries that appear 3+ times (clear page-carry-forward artifacts)
+    const seen = new Map<string, number>();
+    return txns.filter((t) => {
+      const fp = `${t.date}||${(t.narration || "").trim().toLowerCase()}||${t.withdrawal}||${t.deposit}`;
+      const count = fpCount.get(fp) ?? 1;
+      if (count < 3) return true; // Keep all entries that appear 1-2 times
+      const seenCount = seen.get(fp) ?? 0;
+      seen.set(fp, seenCount + 1);
+      return seenCount === 0; // Keep only first occurrence of 3+ duplicates
+    });
+  }
+  
+  // High duplicate rate: remove all duplicates (AI repeated the whole statement)
   const seen = new Set<string>();
   return txns.filter((t) => {
     const fp = `${t.date}||${(t.narration || "").trim().toLowerCase()}||${t.withdrawal}||${t.deposit}`;

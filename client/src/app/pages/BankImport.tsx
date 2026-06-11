@@ -1261,7 +1261,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
                 }}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors"
               >
-                View Cash Book
+                View Bank / Cash Book
               </button>
             </div>
           </div>

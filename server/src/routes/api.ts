@@ -82,6 +82,7 @@ apiRouter.post("/bank-cash-book/entries", bankCashController.createEntry);
 apiRouter.put("/bank-cash-book/entries/:id", bankCashController.updateEntry);
 apiRouter.delete("/bank-cash-book/entries/:id", bankCashController.deleteEntry);
 apiRouter.post("/bank-cash-book/entries/bulk-delete", bankCashController.bulkDeleteEntries);
+apiRouter.post("/bank-cash-book/entries/bulk-approve", bankCashController.bulkApproveEntries);
 apiRouter.delete("/bank-cash-book/accounts/:id/entries", bankCashController.clearEntriesForAccount);
 
 

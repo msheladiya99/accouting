@@ -445,6 +445,23 @@ export async function bulkDeleteEntries(req: AuthenticatedRequest, res: Response
   }
 }
 
+export async function bulkApproveEntries(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { ids } = req.body;
+  try {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ message: "No entry IDs provided" });
+      return;
+    }
+    const result = await BankCashEntry.updateMany(
+      { _id: { $in: ids }, companyId: req.companyId },
+      { $set: { isChanged: true } }
+    );
+    res.json({ message: `Successfully approved ${result.modifiedCount} entries`, approvedCount: result.modifiedCount });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to bulk approve entries" });
+  }
+}
+
 // Clear ALL entries for a specific account (used to fix duplicate imports)
 export async function clearEntriesForAccount(req: AuthenticatedRequest, res: Response): Promise<void> {
   const { id } = req.params;

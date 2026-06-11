@@ -12,7 +12,7 @@ import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import {
   getAllAccounts, getEntriesForAccount, getAllEntries,
-  createEntry, updateEntry, deleteEntry, bulkDeleteEntries, clearEntriesForAccount, deleteAccount, updateAccount,
+  createEntry, updateEntry, deleteEntry, bulkDeleteEntries, bulkApproveEntries, clearEntriesForAccount, deleteAccount, updateAccount,
   createAccount,
   CONTRA_GROUPS,
   type BankCashAccount, type BankCashRow, type EntryPayload, type AccountGroup,
@@ -20,6 +20,8 @@ import {
 
 import BankImport from "./BankImport";
 import { getAllGroups } from "../api/accountGroupApi";
+import { getAllLedgers, type Ledger } from "../api/ledgerApi";
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
@@ -105,7 +107,7 @@ const GROUP_COLORS: Record<AccountGroup, { bg: string; text: string; icon: React
 
 // ── Entry Modal ───────────────────────────────────────────────────────────────
 function EntryModal({
-  accounts, entry, loading, onClose, onSubmit, contraGroups,
+  accounts, entry, loading, onClose, onSubmit, contraGroups, ledgers,
 }: {
   accounts: BankCashAccount[];
   entry?: BankCashRow;
@@ -113,8 +115,9 @@ function EntryModal({
   onClose: () => void;
   onSubmit: (data: EntryPayload) => void;
   contraGroups: string[];
+  ledgers?: Ledger[];
 }) {
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<EntryPayload>({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<EntryPayload>({
     defaultValues: {
       accountId:          entry?.accountId          ?? accounts[0]?._id ?? "",
       date:               entry?.date               ?? new Date().toISOString().slice(0, 10),
@@ -130,6 +133,33 @@ function EntryModal({
   const selectedAccount   = accounts.find((a) => a._id === selectedAccountId);
   const withdrawal        = Number(watch("withdrawal") ?? 0);
   const deposit           = Number(watch("deposit")    ?? 0);
+  const contraAccountName = watch("contraAccountName");
+
+  useEffect(() => {
+    if (!contraAccountName || !ledgers) return;
+    const matchingLedger = ledgers.find((l) => l.ledgerName === contraAccountName);
+    if (matchingLedger) {
+      const groupName = matchingLedger.groupName;
+      let mappedGroup = "Expense";
+      if (contraGroups.includes(groupName)) {
+        mappedGroup = groupName;
+      } else {
+        const nameLower = groupName.toLowerCase();
+        if (nameLower.includes("bank")) mappedGroup = "Bank";
+        else if (nameLower.includes("cash")) mappedGroup = "Cash";
+        else if (nameLower.includes("debtor")) mappedGroup = "Sundry Debtors";
+        else if (nameLower.includes("creditor")) mappedGroup = "Sundry Creditors";
+        else if (nameLower.includes("purchase")) mappedGroup = "Purchases";
+        else if (nameLower.includes("sale")) mappedGroup = "Sales";
+        else if (nameLower.includes("expense") || nameLower.includes("direct expense") || nameLower.includes("indirect expense")) mappedGroup = "Expense";
+        else if (nameLower.includes("income")) mappedGroup = "Income";
+        else if (nameLower.includes("asset")) mappedGroup = "Assets";
+        else if (nameLower.includes("liabilit")) mappedGroup = "Liabilities";
+        else if (nameLower.includes("capital")) mappedGroup = "Capital";
+      }
+      setValue("contraAccountGroup", mappedGroup as any);
+    }
+  }, [contraAccountName, ledgers, contraGroups, setValue]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -198,9 +228,33 @@ function EntryModal({
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Account Name (Contra) <span className="text-red-500">*</span></label>
-            <input {...register("contraAccountName", { required: "Account name is required" })}
-              placeholder="e.g. ABC Corp Ltd., Salary Expense…"
-              className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${errors.contraAccountName ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"}`} />
+            {ledgers && ledgers.length > 0 ? (
+              <>
+                <LedgerAutocomplete
+                  ledgers={ledgers}
+                  value={contraAccountName || ""}
+                  onChange={(val) => setValue("contraAccountName", val, { shouldValidate: true })}
+                  onSelect={(val) => setValue("contraAccountName", val, { shouldValidate: true })}
+                  placeholder="Search or select ledger..."
+                  className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${
+                    errors.contraAccountName
+                      ? "border-red-300 bg-red-50"
+                      : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 font-medium text-slate-800"
+                  }`}
+                />
+                <input type="hidden" {...register("contraAccountName", { required: "Account name is required" })} />
+              </>
+            ) : (
+              <input
+                {...register("contraAccountName", { required: "Account name is required" })}
+                placeholder="e.g. ABC Corp Ltd., Salary Expense…"
+                className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${
+                  errors.contraAccountName
+                    ? "border-red-300 bg-red-50"
+                    : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                }`}
+              />
+            )}
             {errors.contraAccountName && <p className="mt-1 text-xs text-red-600">{errors.contraAccountName.message}</p>}
           </div>
 
@@ -377,12 +431,159 @@ const CELL_SELECT = "w-full border-2 border-indigo-500 outline-none px-1 py-0.5 
 
 type EditCell = { id: string; field: string; value: string };
 
+// ── Ledger Autocomplete / Suggestion Dropdown ────────────────────────────────
+function LedgerAutocomplete({
+  value,
+  onChange,
+  onSelect,
+  ledgers = [],
+  placeholder = "Search or select ledger...",
+  className = "",
+  autoFocus = false,
+  onBlur,
+  onKeyDown,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  onSelect: (val: string) => void;
+  ledgers?: Ledger[];
+  placeholder?: string;
+  className?: string;
+  autoFocus?: boolean;
+  onBlur?: () => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filteredLedgers = useMemo(() => {
+    if (!value) return ledgers;
+    const lower = value.toLowerCase();
+    return ledgers.filter(
+      (l) =>
+        l.ledgerName.toLowerCase().includes(lower) ||
+        l.groupName.toLowerCase().includes(lower)
+    );
+  }, [ledgers, value]);
+
+  useEffect(() => {
+    setHighlightedIndex((prev) => {
+      if (filteredLedgers.length === 0) return -1;
+      if (prev >= filteredLedgers.length) return filteredLedgers.length - 1;
+      return prev;
+    });
+  }, [filteredLedgers]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        if (onBlur) onBlur();
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [onBlur]);
+
+  const handleKeyDownLocal = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setIsOpen(true);
+      setHighlightedIndex((prev) => (prev < filteredLedgers.length - 1 ? prev + 1 : 0));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setIsOpen(true);
+      setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : filteredLedgers.length - 1));
+    } else if (e.key === "Enter") {
+      if (isOpen && highlightedIndex >= 0 && highlightedIndex < filteredLedgers.length) {
+        e.preventDefault();
+        const selected = filteredLedgers[highlightedIndex];
+        onSelect(selected.ledgerName);
+        setIsOpen(false);
+      } else {
+        if (onKeyDown) onKeyDown(e);
+      }
+    } else if (e.key === "Escape") {
+      setIsOpen(false);
+      if (inputRef.current) inputRef.current.blur();
+    } else {
+      if (onKeyDown) onKeyDown(e);
+    }
+  };
+
+  return (
+    <div ref={containerRef} className="relative w-full text-slate-800 text-left">
+      <input
+        ref={inputRef}
+        type="text"
+        autoFocus={autoFocus}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setIsOpen(true);
+        }}
+        onFocus={() => setIsOpen(true)}
+        onKeyDown={handleKeyDownLocal}
+        className={className}
+      />
+      {isOpen && (
+        <div className="absolute left-0 right-0 mt-1 z-50 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-xl py-1 text-sm">
+          {filteredLedgers.length === 0 ? (
+            <div className="px-3 py-2 text-slate-400 italic">No matching ledgers</div>
+          ) : (
+            filteredLedgers.map((l, index) => {
+              const obVal = (l.openingDr || 0) - (l.openingCr || 0);
+              const obStr =
+                obVal !== 0
+                  ? `[OB: ${obVal > 0 ? "Dr" : "Cr"} ₹${fmt(Math.abs(obVal))}]`
+                  : "";
+              const isHighlighted = index === highlightedIndex;
+              return (
+                <div
+                  key={l._id}
+                  className={`px-3 py-1.5 cursor-pointer flex justify-between items-center transition-colors ${
+                    isHighlighted ? "bg-indigo-50 text-indigo-900" : "hover:bg-slate-50 text-slate-800"
+                  }`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onSelect(l.ledgerName);
+                    setIsOpen(false);
+                  }}
+                  onMouseEnter={() => setHighlightedIndex(index)}
+                >
+                  <div className="flex flex-col text-left">
+                    <span className="font-medium text-xs text-slate-700">{l.ledgerName}</span>
+                    <span className="text-[9px] text-slate-400">{l.groupName}</span>
+                  </div>
+                  {obStr && (
+                    <span
+                      className={`text-[10px] font-mono font-medium ${
+                        obVal > 0 ? "text-emerald-600" : "text-red-500"
+                      }`}
+                    >
+                      {obStr}
+                    </span>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Excel-style Table ─────────────────────────────────────────────────────────
 function ExcelTable({
   rows, openingBalance, onDelete, onCellSave, contraGroups,
   colFilters, onFilterChange, onOpeningBalanceChange,
   selectedIds, onSelectionChange,
   isAllView, accounts,
+  ledgers,
 }: {
   rows: BankCashRow[];
   openingBalance: number;
@@ -407,6 +608,7 @@ function ExcelTable({
   onSelectionChange: (ids: Set<string>) => void;
   isAllView?: boolean;
   accounts?: BankCashAccount[];
+  ledgers?: Ledger[];
 }) {
   const [editCell, setEditCell]         = useState<EditCell | null>(null);
   const [saving,   setSaving]           = useState(false);
@@ -459,9 +661,10 @@ function ExcelTable({
     setEditCell({ id, field, value: String(value) });
   }
 
-  async function commitEdit(row: BankCashRow) {
+  async function commitEdit(row: BankCashRow, overrideValue?: string) {
     if (!editCell || editCell.id !== row._id) return;
-    const { field, value } = editCell;
+    const { field } = editCell;
+    const value = overrideValue !== undefined ? overrideValue : editCell.value;
     setEditCell(null);
 
     let patch: Partial<EntryPayload> = {};
@@ -469,8 +672,33 @@ function ExcelTable({
     else if (field === "particulars")   patch = { particulars: value };
     else if (field === "withdrawal")    patch = { withdrawal: Math.max(0, Number(value) || 0), deposit: 0 };
     else if (field === "deposit")       patch = { deposit: Math.max(0, Number(value) || 0), withdrawal: 0 };
-    else if (field === "contraAccountName")  patch = { contraAccountName: value };
+    else if (field === "contraAccountName") {
+      patch.contraAccountName = value;
+      const matchingLedger = ledgers?.find(l => l.ledgerName === value);
+      if (matchingLedger) {
+        const groupName = matchingLedger.groupName;
+        let mappedGroup: any = "Expense";
+        if (CONTRA_GROUPS.includes(groupName as any)) {
+          mappedGroup = groupName;
+        } else {
+          const nameLower = groupName.toLowerCase();
+          if (nameLower.includes("bank")) mappedGroup = "Bank";
+          else if (nameLower.includes("cash")) mappedGroup = "Cash";
+          else if (nameLower.includes("debtor")) mappedGroup = "Sundry Debtors";
+          else if (nameLower.includes("creditor")) mappedGroup = "Sundry Creditors";
+          else if (nameLower.includes("purchase")) mappedGroup = "Purchases";
+          else if (nameLower.includes("sale")) mappedGroup = "Sales";
+          else if (nameLower.includes("expense") || nameLower.includes("direct expense") || nameLower.includes("indirect expense")) mappedGroup = "Expense";
+          else if (nameLower.includes("income")) mappedGroup = "Income";
+          else if (nameLower.includes("asset")) mappedGroup = "Assets";
+          else if (nameLower.includes("liabilit")) mappedGroup = "Liabilities";
+          else if (nameLower.includes("capital")) mappedGroup = "Capital";
+        }
+        patch.contraAccountGroup = mappedGroup;
+      }
+    }
     else if (field === "contraAccountGroup") patch = { contraAccountGroup: value as any };
+
 
     // Skip save if nothing actually changed
     const orig = rows.find((r) => r._id === row._id);
@@ -555,7 +783,7 @@ function ExcelTable({
   }: {
     row: BankCashRow; field: string; value: string | number;
     align?: "left" | "right"; mono?: boolean; className?: string;
-    inputType?: "text" | "number" | "date" | "select"; children?: React.ReactNode;
+    inputType?: "text" | "number" | "date" | "select" | "select-ledger"; children?: React.ReactNode;
   }) {
     const isEditing = editCell?.id === row._id && editCell?.field === field;
     const tdClass = `${COL_CELL} ${className} cursor-cell hover:bg-[#fffde7] transition-colors`;
@@ -577,6 +805,27 @@ function ExcelTable({
           </td>
         );
       }
+      if (inputType === "select-ledger") {
+        return (
+          <td className={`${COL_CELL} ${className} p-0.5`} onClick={(e) => e.stopPropagation()}>
+            <LedgerAutocomplete
+              autoFocus
+              ledgers={ledgers}
+              value={editCell!.value}
+              onChange={(val) => setEditCell({ ...editCell!, value: val })}
+              onSelect={(val) => {
+                setEditCell({ ...editCell!, value: val });
+                commitEdit(row, val);
+              }}
+              onBlur={() => commitEdit(row)}
+              onKeyDown={(e) => handleKeyDown(e, row, field, "text")}
+              placeholder="Search..."
+              className={CELL_INPUT}
+            />
+          </td>
+        );
+      }
+
       return (
         <td className={`${COL_CELL} ${className} p-0.5`} onClick={(e) => e.stopPropagation()}>
           <input
@@ -1106,9 +1355,10 @@ function ExcelTable({
                 </td>
 
                 {/* Account name — editable */}
-                <EditableCell row={row} field="contraAccountName" value={row.contraAccountName} className="text-slate-600">
-                  <span className="block truncate max-w-[160px] cursor-cell">{row.contraAccountName}</span>
+                <EditableCell row={row} field="contraAccountName" value={row.contraAccountName} inputType="select-ledger" className="text-slate-600">
+                  <span className="block truncate max-w-[160px] cursor-cell">{row.contraAccountName || <span className="text-slate-300 italic">Select Ledger</span>}</span>
                 </EditableCell>
+
 
                 {/* Account group name — editable select */}
                 <EditableCell row={row} field="contraAccountGroup" value={row.contraAccountGroup} inputType="select">
@@ -1168,7 +1418,9 @@ export default function BankCashBook() {
   const financialYear  = selectedFY?.label ?? "—";
 
   const [accounts,        setAccounts]        = useState<BankCashAccount[]>([]);
+  const [ledgers,         setLedgers]         = useState<Ledger[]>([]);
   const [rows,            setRows]            = useState<BankCashRow[]>([]);
+
   const [loading,         setLoading]         = useState(true);
   const [saving,          setSaving]          = useState(false);
   const [accountFilter,   setAccountFilter]   = useState<string>("all");
@@ -1183,6 +1435,33 @@ export default function BankCashBook() {
   const [bulkAccName,     setBulkAccName]     = useState("");
   const [bulkAccGroup,    setBulkAccGroup]    = useState("");
   const [bulkSaving,      setBulkSaving]      = useState(false);
+
+  useEffect(() => {
+    if (!bulkAccName.trim() || !ledgers || ledgers.length === 0) return;
+    const matchingLedger = ledgers.find((l) => l.ledgerName === bulkAccName);
+    if (matchingLedger) {
+      const groupName = matchingLedger.groupName;
+      let mappedGroup = "Expense";
+      if (groupNames.includes(groupName)) {
+        mappedGroup = groupName;
+      } else {
+        const nameLower = groupName.toLowerCase();
+        if (nameLower.includes("bank")) mappedGroup = "Bank";
+        else if (nameLower.includes("cash")) mappedGroup = "Cash";
+        else if (nameLower.includes("debtor")) mappedGroup = "Sundry Debtors";
+        else if (nameLower.includes("creditor")) mappedGroup = "Sundry Creditors";
+        else if (nameLower.includes("purchase")) mappedGroup = "Purchases";
+        else if (nameLower.includes("sale")) mappedGroup = "Sales";
+        else if (nameLower.includes("expense") || nameLower.includes("direct expense") || nameLower.includes("indirect expense")) mappedGroup = "Expense";
+        else if (nameLower.includes("income")) mappedGroup = "Income";
+        else if (nameLower.includes("asset")) mappedGroup = "Assets";
+        else if (nameLower.includes("liabilit")) mappedGroup = "Liabilities";
+        else if (nameLower.includes("capital")) mappedGroup = "Capital";
+      }
+      setBulkAccGroup(mappedGroup);
+    }
+  }, [bulkAccName, ledgers, groupNames]);
+
   const [colFilters,      setColFilters]      = useState({
     srNo: "",
     accountName: "",
@@ -1240,6 +1519,11 @@ export default function BankCashBook() {
   useEffect(() => {
     getAllAccounts().then(setAccounts).catch(() => toast.error("Failed to load accounts"));
   }, [selectedFY?._id]);
+
+  useEffect(() => {
+    getAllLedgers().then(setLedgers).catch(() => {});
+  }, [selectedFY?._id]);
+
 
   useEffect(() => {
     loadRows(accountFilter);
@@ -1416,6 +1700,23 @@ export default function BankCashBook() {
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message || "Bulk deletion failed");
+    } finally {
+      setBulkSaving(false);
+    }
+  }, [selectedIds, accountFilter, loadRows]);
+
+  const handleBulkApprove = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkSaving(true);
+    try {
+      await bulkApproveEntries(ids);
+      toast.success(`Successfully approved ${ids.length} entries`);
+      setSelectedIds(new Set());
+      await loadRows(accountFilter);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.message || "Bulk approval failed");
     } finally {
       setBulkSaving(false);
     }
@@ -1663,13 +1964,16 @@ export default function BankCashBook() {
             </span>
           </div>
           <div className="flex items-center gap-2 flex-1 flex-wrap min-w-0">
-            <input
-              type="text"
-              placeholder="Set Account Name..."
-              value={bulkAccName}
-              onChange={(e) => setBulkAccName(e.target.value)}
-              className="flex-1 min-w-[160px] px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 font-medium"
-            />
+            <div className="flex-1 min-w-[160px] max-w-[280px]">
+              <LedgerAutocomplete
+                ledgers={ledgers}
+                value={bulkAccName}
+                onChange={setBulkAccName}
+                onSelect={setBulkAccName}
+                placeholder="Set Account Name..."
+                className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-xs text-slate-800 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 font-medium"
+              />
+            </div>
             <select
               value={bulkAccGroup}
               onChange={(e) => setBulkAccGroup(e.target.value)}
@@ -1686,6 +1990,15 @@ export default function BankCashBook() {
             >
               {bulkSaving ? <RefreshCw size={12} className="animate-spin" /> : <Check size={12} />}
               Apply to {selectedIds.size} rows
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkApprove}
+              disabled={bulkSaving}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+            >
+              {bulkSaving ? <RefreshCw size={12} className="animate-spin" /> : <Check size={12} />}
+              Approve Selected
             </button>
             <button
               type="button"
@@ -1749,6 +2062,7 @@ export default function BankCashBook() {
             onSelectionChange={setSelectedIds}
             isAllView={accountFilter === "all"}
             accounts={accounts}
+            ledgers={ledgers}
           />
         )}
       </div>
@@ -1761,6 +2075,7 @@ export default function BankCashBook() {
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
           contraGroups={groupNames}
+          ledgers={ledgers}
         />
       )}
 

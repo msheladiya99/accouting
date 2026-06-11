@@ -382,6 +382,7 @@ function ExcelTable({
   rows, openingBalance, onDelete, onCellSave, contraGroups,
   colFilters, onFilterChange, onOpeningBalanceChange,
   selectedIds, onSelectionChange,
+  isAllView, accounts,
 }: {
   rows: BankCashRow[];
   openingBalance: number;
@@ -401,23 +402,53 @@ function ExcelTable({
     modified: string;
   };
   onFilterChange: (filters: any) => void;
-  onOpeningBalanceChange?: (newBalance: number) => void;
+  onOpeningBalanceChange?: (newBalance: number, accountId?: string) => void;
   selectedIds: Set<string>;
   onSelectionChange: (ids: Set<string>) => void;
+  isAllView?: boolean;
+  accounts?: BankCashAccount[];
 }) {
   const [editCell, setEditCell]         = useState<EditCell | null>(null);
   const [saving,   setSaving]           = useState(false);
-  const [editingOB, setEditingOB]       = useState(false);
+  const [editingOB, setEditingOB]       = useState<"withdrawal" | "deposit" | null>(null);
   const [obInput,   setObInput]         = useState("");
+  const [selectedObAccId, setSelectedObAccId] = useState("");
   const commitRef = useRef<(() => void) | null>(null);
 
-  function handleObSave() {
-    setEditingOB(false);
-    const newVal = parseFloat(obInput);
-    if (!isNaN(newVal) && newVal !== openingBalance && onOpeningBalanceChange) {
+
+  function handleObSave(type: "withdrawal" | "deposit") {
+    setEditingOB(null);
+    let newVal = parseFloat(obInput);
+    if (isNaN(newVal)) return;
+    if (type === "withdrawal") {
+      newVal = -Math.abs(newVal);
+    } else {
+      newVal = Math.abs(newVal);
+    }
+    if (newVal !== openingBalance && onOpeningBalanceChange) {
       onOpeningBalanceChange(newVal);
     }
   }
+
+  function handleObSaveCombined() {
+    if (!selectedObAccId) {
+      toast.error("Please select an account");
+      return;
+    }
+    setEditingOB(null);
+    let newVal = parseFloat(obInput);
+    if (isNaN(newVal)) return;
+    if (editingOB === "withdrawal") {
+      newVal = -Math.abs(newVal);
+    } else {
+      newVal = Math.abs(newVal);
+    }
+    if (onOpeningBalanceChange) {
+      onOpeningBalanceChange(newVal, selectedObAccId);
+    }
+  }
+
+
 
   const totalWithdrawal = rows.reduce((s, r) => s + r.withdrawal, 0);
   const totalDeposit    = rows.reduce((s, r) => s + r.deposit, 0);
@@ -773,50 +804,228 @@ function ExcelTable({
         <tbody>
           <tr className="bg-[#eaf4fb] group/ob">
             <td className={COL_NUM}>—</td>
-            <td className={`${COL_CELL} text-slate-500 italic`} colSpan={6}>
+            <td className={`${COL_CELL} text-slate-500 italic`} colSpan={4}>
               Opening Balance
               {onOpeningBalanceChange && (
                 <span className="text-[10px] ml-1.5 text-indigo-400 opacity-0 group-hover/ob:opacity-100 transition-opacity">
-                  · click balance to edit
+                  · click deposit/withdrawal to edit
                 </span>
               )}
             </td>
+            
+            {/* Withdrawals / Payment Cell */}
             <td
-              className={`${COL_CELL} text-right font-bold text-slate-800 font-mono p-0.5 ${
+              className={`${COL_CELL} text-right font-mono p-0.5 relative ${
                 onOpeningBalanceChange ? "cursor-cell hover:bg-[#fffde7] transition-colors" : ""
-              }`}
-              onClick={() => {
+              } ${openingBalance < 0 ? "bg-red-50" : ""}`}
+              onClick={(e) => {
                 if (!onOpeningBalanceChange) return;
-                setEditingOB(true);
-                setObInput(String(openingBalance));
+                if (editingOB === "withdrawal") return;
+                setEditingOB("withdrawal");
+                if (isAllView) {
+                  setSelectedObAccId("");
+                  setObInput("");
+                } else {
+                  setObInput(openingBalance < 0 ? String(Math.abs(openingBalance)) : "");
+                }
               }}
-              title={onOpeningBalanceChange ? "Click to edit opening balance" : undefined}
+              title={onOpeningBalanceChange ? "Click to edit opening balance (Withdrawal / Overdraft)" : undefined}
             >
-              {editingOB ? (
-                <input
-                  autoFocus
-                  type="number"
-                  value={obInput}
-                  onChange={(e) => setObInput(e.target.value)}
-                  onBlur={handleObSave}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter")  { e.preventDefault(); handleObSave(); }
-                    if (e.key === "Escape") { e.preventDefault(); setEditingOB(false); }
-                  }}
-                  className={`${CELL_INPUT} text-right font-mono font-bold w-full`}
-                  step="0.01"
-                />
+              {editingOB === "withdrawal" ? (
+                isAllView ? (
+                  <div className="absolute z-20 flex flex-col gap-1 bg-white p-2 border border-slate-300 rounded shadow-lg min-w-[220px]" onClick={e => e.stopPropagation()}>
+                    <select
+                      value={selectedObAccId}
+                      onChange={(e) => {
+                        const accId = e.target.value;
+                        setSelectedObAccId(accId);
+                        const acc = accounts?.find(a => a._id === accId);
+                        if (acc) {
+                          const bal = acc.openingBalance;
+                          setObInput(bal < 0 ? String(Math.abs(bal)) : "0");
+                        }
+                      }}
+                      className="text-[11px] border border-slate-300 p-1.5 rounded w-full outline-none focus:border-indigo-500 bg-white"
+                    >
+                      <option value="">-- Select Account --</option>
+                      {accounts?.map(acc => (
+                        <option key={acc._id} value={acc._id}>
+                          {acc.name} (Current: ₹{fmt(acc.openingBalance)})
+                        </option>
+                      ))}
+                    </select>
+                    <div className="flex items-center gap-1">
+                      <input
+                        autoFocus
+                        type="number"
+                        value={obInput}
+                        onChange={(e) => setObInput(e.target.value)}
+                        className={`${CELL_INPUT} text-right font-mono font-bold flex-1`}
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); handleObSaveCombined(); }
+                          if (e.key === "Escape") { e.preventDefault(); setEditingOB(null); }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleObSaveCombined}
+                        className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] rounded font-semibold"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingOB(null)}
+                        className="px-2 py-1 border border-slate-200 hover:bg-slate-50 text-slate-600 text-[11px] rounded"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <input
+                    autoFocus
+                    type="number"
+                    value={obInput}
+                    onChange={(e) => setObInput(e.target.value)}
+                    onBlur={() => handleObSave("withdrawal")}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter")  { e.preventDefault(); handleObSave("withdrawal"); }
+                      if (e.key === "Escape") { e.preventDefault(); setEditingOB(null); }
+                    }}
+                    className={`${CELL_INPUT} text-right font-mono font-bold w-full`}
+                    step="0.01"
+                    min="0"
+                  />
+                )
               ) : (
                 <span className="flex items-center justify-end gap-1">
-                  ₹{fmt(openingBalance)}
+                  {openingBalance < 0 ? (
+                    <span className="text-red-600 font-semibold">₹{fmt(Math.abs(openingBalance))}</span>
+                  ) : (
+                    <span className="text-slate-300">—</span>
+                  )}
                   {onOpeningBalanceChange && (
                     <Pencil size={10} className="text-indigo-400 opacity-0 group-hover/ob:opacity-100 transition-opacity flex-shrink-0" />
                   )}
                 </span>
               )}
             </td>
+
+            {/* Deposit / Receipt Cell */}
+            <td
+              className={`${COL_CELL} text-right font-mono p-0.5 relative ${
+                onOpeningBalanceChange ? "cursor-cell hover:bg-[#fffde7] transition-colors" : ""
+              } ${openingBalance >= 0 && openingBalance !== 0 ? "bg-emerald-50" : ""}`}
+              onClick={(e) => {
+                if (!onOpeningBalanceChange) return;
+                if (editingOB === "deposit") return;
+                setEditingOB("deposit");
+                if (isAllView) {
+                  setSelectedObAccId("");
+                  setObInput("");
+                } else {
+                  setObInput(openingBalance >= 0 ? String(openingBalance) : "");
+                }
+              }}
+              title={onOpeningBalanceChange ? "Click to edit opening balance (Deposit)" : undefined}
+            >
+              {editingOB === "deposit" ? (
+                isAllView ? (
+                  <div className="absolute z-20 right-0 flex flex-col gap-1 bg-white p-2 border border-slate-300 rounded shadow-lg min-w-[220px]" onClick={e => e.stopPropagation()}>
+                    <select
+                      value={selectedObAccId}
+                      onChange={(e) => {
+                        const accId = e.target.value;
+                        setSelectedObAccId(accId);
+                        const acc = accounts?.find(a => a._id === accId);
+                        if (acc) {
+                          const bal = acc.openingBalance;
+                          setObInput(bal >= 0 ? String(bal) : "0");
+                        }
+                      }}
+                      className="text-[11px] border border-slate-300 p-1.5 rounded w-full outline-none focus:border-indigo-500 bg-white"
+                    >
+                      <option value="">-- Select Account --</option>
+                      {accounts?.map(acc => (
+                        <option key={acc._id} value={acc._id}>
+                          {acc.name} (Current: ₹{fmt(acc.openingBalance)})
+                        </option>
+                      ))}
+                    </select>
+                    <div className="flex items-center gap-1">
+                      <input
+                        autoFocus
+                        type="number"
+                        value={obInput}
+                        onChange={(e) => setObInput(e.target.value)}
+                        className={`${CELL_INPUT} text-right font-mono font-bold flex-1`}
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); handleObSaveCombined(); }
+                          if (e.key === "Escape") { e.preventDefault(); setEditingOB(null); }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleObSaveCombined}
+                        className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] rounded font-semibold"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingOB(null)}
+                        className="px-2 py-1 border border-slate-200 hover:bg-slate-50 text-slate-600 text-[11px] rounded"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <input
+                    autoFocus
+                    type="number"
+                    value={obInput}
+                    onChange={(e) => setObInput(e.target.value)}
+                    onBlur={() => handleObSave("deposit")}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter")  { e.preventDefault(); handleObSave("deposit"); }
+                      if (e.key === "Escape") { e.preventDefault(); setEditingOB(null); }
+                    }}
+                    className={`${CELL_INPUT} text-right font-mono font-bold w-full`}
+                    step="0.01"
+                    min="0"
+                  />
+                )
+              ) : (
+                <span className="flex items-center justify-end gap-1">
+                  {openingBalance >= 0 ? (
+                    <span className="text-emerald-600 font-semibold">₹{fmt(openingBalance)}</span>
+                  ) : (
+                    <span className="text-slate-300">—</span>
+                  )}
+                  {onOpeningBalanceChange && (
+                    <Pencil size={10} className="text-indigo-400 opacity-0 group-hover/ob:opacity-100 transition-opacity flex-shrink-0" />
+                  )}
+                </span>
+              )}
+            </td>
+
+            {/* Balance Cell */}
+            <td className={`${COL_CELL} text-right font-bold text-slate-800 font-mono`}>
+              ₹{fmt(openingBalance)}
+              {openingBalance < 0 && <span className="text-[10px] font-normal ml-1 text-red-400">(Cr)</span>}
+            </td>
             <td className={COL_CELL} colSpan={4} />
           </tr>
+
+
 
           {rows.length === 0 ? (
             <tr>
@@ -1149,10 +1358,11 @@ export default function BankCashBook() {
   }, [accountFilter, loadRows]);
 
   // Called when user edits the Opening Balance row
-  const handleOpeningBalanceChange = useCallback(async (newBalance: number) => {
-    if (accountFilter === "all") return; // can't edit combined opening balance
+  const handleOpeningBalanceChange = useCallback(async (newBalance: number, targetAccountId?: string) => {
+    const activeId = targetAccountId || accountFilter;
+    if (activeId === "all") return;
     try {
-      await updateAccount(accountFilter, { openingBalance: newBalance });
+      await updateAccount(activeId, { openingBalance: newBalance });
       toast.success("Opening balance updated", { duration: 1500, icon: "✓" });
       // Reload accounts (to update the summary card) and entries (to recompute running balances)
       const [freshAccounts] = await Promise.all([getAllAccounts()]);
@@ -1163,6 +1373,7 @@ export default function BankCashBook() {
       toast.error(e.message || "Failed to update opening balance");
     }
   }, [accountFilter, loadRows]);
+
 
   const handleBulkEdit = useCallback(async () => {
     if (!bulkAccName.trim() && !bulkAccGroup) {
@@ -1527,9 +1738,11 @@ export default function BankCashBook() {
             contraGroups={groupNames}
             colFilters={colFilters}
             onFilterChange={setColFilters}
-            onOpeningBalanceChange={accountFilter !== "all" ? handleOpeningBalanceChange : undefined}
+            onOpeningBalanceChange={handleOpeningBalanceChange}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
+            isAllView={accountFilter === "all"}
+            accounts={accounts}
           />
         )}
       </div>

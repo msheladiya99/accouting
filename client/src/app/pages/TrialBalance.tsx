@@ -36,30 +36,58 @@ const GroupBadge = ({ value }: { value: string }) => {
   );
 };
 
+// Module-level cache to keep navigation instantaneous
+let cachedSummary: TrialSummary | null = null;
+let cachedFYId: string | null = null;
+
 export default function TrialBalance() {
   const { selectedFY } = useApp();
   const financialYear = selectedFY?.label ?? "—";
 
-  const [summary, setSummary] = useState<TrialSummary | null>(null);
-  const [loading, setLoading]  = useState(true);
+  const [summary, setSummary] = useState<TrialSummary | null>(
+    cachedFYId === selectedFY?._id ? cachedSummary : null
+  );
+  const [loading, setLoading]  = useState(
+    cachedFYId === selectedFY?._id ? !cachedSummary : true
+  );
   const [error, setError]      = useState<string | null>(null);
   const [search, setSearch]    = useState("");
   const [groupFilter, setGroupFilter] = useState<string>("All");
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (isRefresh = false, silent = false) => {
+    if (isRefresh) {
+      setLoading(true);
+    } else if (!silent) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const result = await computeTrialBalance();
       setSummary(result);
+      cachedSummary = result;
+      cachedFYId = selectedFY?._id || null;
     } catch (e: any) {
-      setError(e?.message ?? "Failed to compute trial balance");
+      if (!silent) {
+        setError(e?.message ?? "Failed to compute trial balance");
+      }
     } finally {
       setLoading(false);
     }
   }, [selectedFY?._id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!selectedFY?._id) return;
+
+    const hasCache = cachedFYId === selectedFY._id && cachedSummary !== null;
+    if (hasCache) {
+      setSummary(cachedSummary);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
+    load(false, hasCache);
+  }, [load, selectedFY?._id]);
 
   const allGroups = useMemo(() => {
     if (!summary) return [];

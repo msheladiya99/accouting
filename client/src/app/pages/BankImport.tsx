@@ -149,6 +149,8 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
   const [newAccGroup, setNewAccGroup]       = useState<"Bank" | "Cash">("Bank");
   const [newAccBal, setNewAccBal]           = useState("");
   const [creatingAcc, setCreatingAcc]       = useState(false);
+  const [savingTxns, setSavingTxns]         = useState(false);
+
 
   const [selectedRows, setSelectedRows] = useState<ImportRow[]>([]);
   const [bulkAccName, setBulkAccName] = useState("");
@@ -376,6 +378,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       toast.error(`${incomplete.length} rows still need Account Name and Group`);
       return;
     }
+    setSavingTxns(true);
     try {
       const firstOpRow = rows.find((r) => isOpeningBalRow(r.narration));
       const opBal = firstOpRow
@@ -387,8 +390,11 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       toast.success(`${activeTxns.length} transactions saved`);
     } catch (err: any) {
       toast.error(err?.message || "Failed to save transactions");
+    } finally {
+      setSavingTxns(false);
     }
   }, [rows, selectedAccountId, detectedBankName]);
+
 
   // ── Delete row ────────────────────────────────────────────────────────────
   const deleteRow = useCallback((id: string) => {
@@ -1212,9 +1218,11 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
               </button>
               <button
                 onClick={handleSave}
-                className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors"
+                disabled={savingTxns}
+                className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors disabled:opacity-50"
               >
-                <Save size={14} /> Save {rows.length} Transactions
+                {savingTxns ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                {savingTxns ? "Saving..." : `Save ${rows.length} Transactions`}
               </button>
             </div>
           </div>
@@ -1267,6 +1275,22 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
           </div>
         </div>
       )}
+      {savingTxns && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl border border-slate-100 p-8 shadow-2xl flex flex-col items-center gap-4 text-center max-w-sm animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center mx-auto">
+              <RefreshCw size={28} className="text-indigo-600 animate-spin" />
+            </div>
+            <div>
+              <h3 className="text-slate-900 font-bold text-base">Saving Transactions...</h3>
+              <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                Please wait while we set up the accounts, reconcile values, and save the transaction entries to your ledger book.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

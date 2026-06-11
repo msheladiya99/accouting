@@ -921,34 +921,68 @@ export default function BalanceSheet() {
                 </div>
 
                 {/* Table Box */}
-                <div className="bg-white border border-slate-800 max-w-4xl mx-auto rounded-none shadow-sm">
-                  <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
+                <div className="bg-white border border-slate-800 max-w-4xl mx-auto rounded-none shadow-sm flex flex-col">
+                  
+                  {/* 1. TRADING ACCOUNT PART */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800 border-b border-slate-800">
                     
                     {/* LEFT SIDE (DEBITS) */}
                     <div className="relative flex flex-col justify-between h-full">
                       <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
-                      <div className="flex-grow flex flex-col">
-                        <div className="flex border-b border-slate-800 font-bold text-xs bg-slate-50/50 relative z-10">
-                          <div className="flex-1 py-3 pl-4 text-slate-800 uppercase tracking-wider font-bold">PARTICULARS</div>
-                          <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
+                      <div className="flex-grow flex flex-col justify-between">
+                        <div>
+                          <div className="flex border-b border-slate-800 font-bold text-xs bg-slate-50/50 relative z-10">
+                            <div className="flex-1 py-3 pl-4 text-slate-800 uppercase tracking-wider font-bold">PARTICULARS</div>
+                            <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
+                          </div>
+                          <div className="py-3 relative z-10 space-y-1">
+                            {renderPLRowHelper(tradingLeft)}
+                          </div>
                         </div>
-
-                        <div className="py-3 relative z-10 space-y-1">
-                          {renderPLRowHelper(tradingLeft)}
-                        </div>
-
-                        <div className="flex border-t border-b border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
+                        <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10">
                           <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
                           <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
                             {fmtReport(tradingTotalAmount)}
                           </div>
                         </div>
+                      </div>
+                    </div>
 
+                    {/* RIGHT SIDE (CREDITS) */}
+                    <div className="relative flex flex-col justify-between h-full">
+                      <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
+                      <div className="flex-grow flex flex-col justify-between">
+                        <div>
+                          <div className="flex border-b border-slate-800 font-bold text-xs bg-slate-50/50 relative z-10">
+                            <div className="flex-1 py-3 pl-4 text-slate-800 uppercase tracking-wider font-bold">PARTICULARS</div>
+                            <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
+                          </div>
+                          <div className="py-3 relative z-10 space-y-1">
+                            {renderPLRowHelper(tradingRight)}
+                          </div>
+                        </div>
+                        <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10">
+                          <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
+                          <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
+                            {fmtReport(tradingTotalAmount)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* 2. PROFIT & LOSS PART */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
+                    
+                    {/* LEFT SIDE (DEBITS) */}
+                    <div className="relative flex flex-col justify-between h-full">
+                      <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
+                      <div className="flex-grow flex flex-col justify-between">
                         <div className="py-3 relative z-10 space-y-1">
                           {renderPLRowHelper(plLeft)}
                         </div>
-
-                        <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
+                        <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10">
                           <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
                           <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
                             {fmtReport(plTotalAmount)}
@@ -960,28 +994,11 @@ export default function BalanceSheet() {
                     {/* RIGHT SIDE (CREDITS) */}
                     <div className="relative flex flex-col justify-between h-full">
                       <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
-                      <div className="flex-grow flex flex-col">
-                        <div className="flex border-b border-slate-800 font-bold text-xs bg-slate-50/50 relative z-10">
-                          <div className="flex-1 py-3 pl-4 text-slate-800 uppercase tracking-wider font-bold">PARTICULARS</div>
-                          <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
-                        </div>
-
-                        <div className="py-3 relative z-10 space-y-1">
-                          {renderPLRowHelper(tradingRight)}
-                        </div>
-
-                        <div className="flex border-t border-b border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
-                          <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
-                          <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
-                            {fmtReport(tradingTotalAmount)}
-                          </div>
-                        </div>
-
+                      <div className="flex-grow flex flex-col justify-between">
                         <div className="py-3 relative z-10 space-y-1">
                           {renderPLRowHelper(plRight)}
                         </div>
-
-                        <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
+                        <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10">
                           <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
                           <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
                             {fmtReport(plTotalAmount)}
@@ -991,6 +1008,7 @@ export default function BalanceSheet() {
                     </div>
 
                   </div>
+
                 </div>
               </div>
             );

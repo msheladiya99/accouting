@@ -395,9 +395,23 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     setRows((prev) => prev.filter((r) => r.id !== id));
   }, []);
 
-  const onSelectionChanged = useCallback((event: any) => {
-    setSelectedRows(event.api.getSelectedRows());
+  const updateSelectedRows = useCallback((api: any) => {
+    const visibleSelected: ImportRow[] = [];
+    api.forEachNodeAfterFilterAndSort((node: any) => {
+      if (node.isSelected() && node.data) {
+        visibleSelected.push(node.data);
+      }
+    });
+    setSelectedRows(visibleSelected);
   }, []);
+
+  const onSelectionChanged = useCallback((event: any) => {
+    updateSelectedRows(event.api);
+  }, [updateSelectedRows]);
+
+  const onFilterChanged = useCallback((event: any) => {
+    updateSelectedRows(event.api);
+  }, [updateSelectedRows]);
 
   const handleApplyBulkEdit = useCallback(() => {
     if (!bulkAccName.trim() && !bulkAccGroup) {
@@ -482,12 +496,14 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     checkboxes: true,
     headerCheckbox: true,
     enableClickSelection: false,
+    headerCheckboxFilteredOnly: true,
   }), []);
 
   const selectionColumnDef = useMemo(() => ({
     width: 48,
     pinned: "left" as const,
     suppressHeaderMenuButton: true,
+    headerCheckboxSelectionFilteredOnly: true,
   }), []);
 
   // ── Column defs ───────────────────────────────────────────────────────────
@@ -1079,7 +1095,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => gridRef.current?.api.selectAll()}
+              onClick={() => gridRef.current?.api.selectAllFiltered()}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
             >
               <CheckCircle2 size={13} /> Select All
@@ -1151,6 +1167,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
                 rowSelection={rowSelection}
                 selectionColumnDef={selectionColumnDef}
                 onSelectionChanged={onSelectionChanged}
+                onFilterChanged={onFilterChanged}
                 rowHeight={48}
                 headerHeight={44}
                 floatingFiltersHeight={38}

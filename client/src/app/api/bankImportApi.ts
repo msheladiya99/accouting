@@ -297,8 +297,65 @@ interface TempTxn {
   line: string;
 }
 
+// ── Pre-process: merge split transaction lines ────────────────────────────────
+// Federal Bank (and some other banks) render PDFs where the date+narration is
+// on line N, and the withdrawal/deposit amounts are on line N+1 or N+2.
+// Because isMainLine() requires BOTH a date AND amounts on the same line,
+// such transactions would be entirely missed.
+// This function detects date-only lines and merges the following amount line(s)
+// into them so the main parser sees a single combined line.
+function mergeTransactionLines(lines: string[]): string[] {
+  // Non-global versions for safe use with .test()
+  const HAS_DATE = /^.{0,15}(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2}|\d{1,2}[\s\-\/][a-zA-Z]{3,9}[\s\-\/]\d{2,4}|[a-zA-Z]{3,9}[\s\-\/]\d{1,2},?\s*\d{2,4})/;
+  const HAS_AMT  = /\d[\d,]*\.\d{2}/;
+  const IS_BALANCE_SUMMARY = /closing\s*balance|opening\s*balance|balance\s*[bc][\/.]?f|brought\s*forward|carried\s*forward|page\s*total|grand\s*total/i;
+
+  const result: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const lineHasDate = HAS_DATE.test(line);
+    const lineHasAmt  = HAS_AMT.test(line);
+
+    if (lineHasDate && !lineHasAmt && !IS_BALANCE_SUMMARY.test(line)) {
+      // Date-only transaction line — look ahead up to 3 lines for amounts
+      let merged = line;
+      let j = i + 1;
+      let foundAmt = false;
+
+      while (j < lines.length && j <= i + 3) {
+        const nl = lines[j].trim();
+        if (!nl) { j++; continue; }
+
+        // Stop if next line starts a new transaction or is a balance summary
+        if (HAS_DATE.test(nl) || IS_BALANCE_SUMMARY.test(nl)) break;
+
+        merged = merged + "    " + nl;
+
+        if (HAS_AMT.test(nl)) {
+          i = j;   // Skip absorbed lines
+          foundAmt = true;
+          break;
+        }
+        j++;
+        i = j - 1;
+      }
+
+      result.push(merged);
+    } else {
+      result.push(line);
+    }
+    i++;
+  }
+
+  return result;
+}
+
 function parsePDFText(text: string): RawTransaction[] {
-  const lines  = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  let lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  // Pre-process: merge split transaction lines (date on one line, amounts on next)
+  lines = mergeTransactionLines(lines);
   const tempTxns: TempTxn[] = [];
   let openingBalRow: RawTransaction | null = null;
   let preNarrationForNext = "";

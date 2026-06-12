@@ -366,6 +366,17 @@ export async function createEntry(req: AuthenticatedRequest, res: Response): Pro
       return;
     }
 
+    // Validate date is within the active financial year
+    if (date && req.financialYear) {
+      const d = date.slice(0, 10);
+      if (d < req.financialYear.startDate || d > req.financialYear.endDate) {
+        res.status(400).json({
+          message: `Date ${d} is outside the active financial year (${req.financialYear.label}: ${req.financialYear.startDate} – ${req.financialYear.endDate}).`,
+        });
+        return;
+      }
+    }
+
     const cleanContraName = contraAccountName.trim();
     // Auto-create ledger if it doesn't exist in Ledger master
     const exists = await Ledger.findOne({
@@ -412,6 +423,17 @@ export async function updateEntry(req: AuthenticatedRequest, res: Response): Pro
     if (!entry) {
       res.status(404).json({ message: "Entry not found" });
       return;
+    }
+
+    // Validate date is within the active financial year
+    if (date && req.financialYear) {
+      const d = date.slice(0, 10);
+      if (d < req.financialYear.startDate || d > req.financialYear.endDate) {
+        res.status(400).json({
+          message: `Date ${d} is outside the active financial year (${req.financialYear.label}: ${req.financialYear.startDate} – ${req.financialYear.endDate}).`,
+        });
+        return;
+      }
     }
 
     if (accountId) entry.accountId = accountId;

@@ -53,6 +53,17 @@ export async function createJournalEntry(req: AuthenticatedRequest, res: Respons
       return;
     }
 
+    // Validate date is within the active financial year
+    if (date && req.financialYear) {
+      const d = date.slice(0, 10);
+      if (d < req.financialYear.startDate || d > req.financialYear.endDate) {
+        res.status(400).json({
+          message: `Date ${d} is outside the active financial year (${req.financialYear.label}: ${req.financialYear.startDate} – ${req.financialYear.endDate}).`,
+        });
+        return;
+      }
+    }
+
     const voucherNo = await getNextVoucherNo(req);
     const entry = new JournalEntry({
       voucherNo,
@@ -93,6 +104,17 @@ export async function updateJournalEntry(req: AuthenticatedRequest, res: Respons
     if (debitAmount !== undefined && creditAmount !== undefined && Math.abs(debitAmount - creditAmount) > 0.001) {
       res.status(400).json({ message: "Debit amount must equal credit amount" });
       return;
+    }
+
+    // Validate date is within the active financial year
+    if (date && req.financialYear) {
+      const d = date.slice(0, 10);
+      if (d < req.financialYear.startDate || d > req.financialYear.endDate) {
+        res.status(400).json({
+          message: `Date ${d} is outside the active financial year (${req.financialYear.label}: ${req.financialYear.startDate} – ${req.financialYear.endDate}).`,
+        });
+        return;
+      }
     }
 
     const entry = await JournalEntry.findOne({ _id: id, companyId: req.companyId });

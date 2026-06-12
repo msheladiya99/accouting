@@ -1,7 +1,7 @@
 import {
   useState, useCallback, useMemo, useEffect, useRef,
 } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import {
   Plus, RefreshCw, Trash2, X, Save, Search,
   FileText, CheckCircle2, AlertTriangle, Loader2, Scale,
@@ -15,13 +15,15 @@ import {
   type JournalEntry, type JournalPayload,
 } from "../api/journalVoucherApi";
 import { getAllLedgers, type Ledger } from "../api/ledgerApi";
+import { SmartDateInput } from "../components/ui/SmartDateInput";
+import { parseSmartDate, formatToUIDate } from "../utils/dateUtils";
+import type { FinancialYear } from "../api/financialYearApi";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtAmt = (n: number) =>
   "₹" + Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const fmtDate = (d: string) =>
-  new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" });
+const fmtDate = (d: string) => formatToUIDate(d.slice(0, 10));
 
 const GROUP_COLORS: Record<string, { bg: string; text: string }> = {
   Assets:            { bg: "bg-blue-50",    text: "text-blue-700"    },
@@ -134,14 +136,15 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError }: {
 }
 
 // ── Journal Modal ─────────────────────────────────────────────────────────────
-function JournalModal({ entry, ledgers, loading, onClose, onSubmit }: {
+function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }: {
   entry?: JournalEntry;
   ledgers: Ledger[];
   loading: boolean;
   onClose: () => void;
   onSubmit: (data: JournalPayload) => void;
+  selectedFY: FinancialYear | null;
 }) {
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<JournalPayload>({
+  const { register, handleSubmit, watch, setValue, control, formState: { errors } } = useForm<JournalPayload>({
     defaultValues: {
       date:          entry?.date          ?? new Date().toISOString().slice(0, 10),
       narration:     entry?.narration     ?? "",
@@ -183,8 +186,25 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit }: {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Date <span className="text-red-500">*</span></label>
-              <input type="date" {...register("date", { required: "Date is required" })}
-                className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${errors.date ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"}`} />
+              <Controller
+                name="date"
+                control={control}
+                rules={{
+                  required: "Date is required",
+                  validate: (v) => {
+                    const { error } = parseSmartDate(v, selectedFY);
+                    return error ?? true;
+                  },
+                }}
+                render={({ field }) => (
+                  <SmartDateInput
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    selectedFY={selectedFY}
+                    hasError={!!errors.date}
+                  />
+                )}
+              />
               {errors.date && <p className="mt-1 text-xs text-red-600">{errors.date.message}</p>}
             </div>
             <div>
@@ -301,12 +321,13 @@ type EditCell = { id: string; field: string; value: string };
 
 // ── JournalExcelTable ─────────────────────────────────────────────────────────
 function JournalExcelTable({
-  rows, onDelete, onOpenModal, onCellSave,
+  rows, onDelete, onOpenModal, onCellSave, selectedFY,
 }: {
   rows: JournalEntry[];
   onDelete: (e: JournalEntry) => void;
   onOpenModal: (e: JournalEntry) => void;
   onCellSave: (id: string, patch: Partial<JournalPayload>) => Promise<void>;
+  selectedFY: FinancialYear | null;
 }) {
   const [editCell, setEditCell] = useState<EditCell | null>(null);
   const [saving,   setSaving]   = useState(false);
@@ -326,14 +347,32 @@ function JournalExcelTable({
     setEditCell(null);
 
     const orig = rows.find((r) => r._id === row._id);
-    if (!orig || String((orig as any)[field] ?? "") === value) return;
+    if (!orig) return;
 
     let patch: Partial<JournalPayload> = {};
-    if (field === "date")         patch = { date: value };
-    else if (field === "narration")    patch = { narration: value };
-    else if (field === "debitAmount")  patch = { debitAmount: Math.max(0, Number(value) || 0) };
-    else if (field === "creditAmount") patch = { creditAmount: Math.max(0, Number(value) || 0) };
-    else if (field === "status")       patch = { status: value as any };
+    if (field === "date") {
+      const { date: parsed, error } = parseSmartDate(value, selectedFY);
+      if (error || !parsed) {
+        toast.error(error ?? "Invalid date");
+        return;
+      }
+      if (parsed === orig.date) return; // no change
+      patch = { date: parsed };
+    } else if (field === "narration") {
+      if (value === orig.narration) return;
+      patch = { narration: value };
+    } else if (field === "debitAmount") {
+      const num = Math.max(0, Number(value) || 0);
+      if (num === orig.debitAmount) return;
+      patch = { debitAmount: num };
+    } else if (field === "creditAmount") {
+      const num = Math.max(0, Number(value) || 0);
+      if (num === orig.creditAmount) return;
+      patch = { creditAmount: num };
+    } else if (field === "status") {
+      if (value === orig.status) return;
+      patch = { status: value as any };
+    }
 
     setSaving(true);
     try {
@@ -453,7 +492,7 @@ function JournalExcelTable({
                 </td>
 
                 {/* Date — inline */}
-                <EditableCell row={row} field="date" value={row.date} inputType="date" mono>
+                <EditableCell row={row} field="date" value={row.date ? formatToUIDate(row.date) : ""} inputType="text" mono>
                   <span className="font-mono text-slate-600 cursor-cell">{row.date ? fmtDate(row.date) : "—"}</span>
                 </EditableCell>
 
@@ -743,6 +782,7 @@ export default function JournalVoucher() {
             onDelete={handleDelete}
             onOpenModal={(entry) => setModal({ entry })}
             onCellSave={handleCellSave}
+            selectedFY={selectedFY}
           />
         )}
       </div>
@@ -754,6 +794,7 @@ export default function JournalVoucher() {
           loading={saving}
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
+          selectedFY={selectedFY}
         />
       )}
     </div>

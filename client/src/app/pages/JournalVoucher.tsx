@@ -146,7 +146,7 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
 }) {
   const { register, handleSubmit, watch, setValue, control, formState: { errors } } = useForm<JournalPayload>({
     defaultValues: {
-      date:          entry?.date          ?? new Date().toISOString().slice(0, 10),
+      date:          entry?.date          ?? selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
       narration:     entry?.narration     ?? "",
       debitAccount:  entry?.debitAccount  ?? "",
       debitGroup:    entry?.debitGroup    ?? "",
@@ -154,7 +154,7 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
       creditAccount: entry?.creditAccount ?? "",
       creditGroup:   entry?.creditGroup   ?? "",
       creditAmount:  entry?.creditAmount  ?? 0,
-      status:        entry?.status        ?? "Draft",
+      status:        entry?.status        ?? "Posted",
     },
   });
 

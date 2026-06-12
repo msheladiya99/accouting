@@ -124,7 +124,7 @@ function EntryModal({
   const { register, handleSubmit, watch, setValue, control, formState: { errors } } = useForm<EntryPayload>({
     defaultValues: {
       accountId:          entry?.accountId          ?? accounts[0]?._id ?? "",
-      date:               entry?.date               ?? new Date().toISOString().slice(0, 10),
+      date:               entry?.date               ?? selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
       particulars:        entry?.particulars         ?? "",
       withdrawal:         entry?.withdrawal          ?? 0,
       deposit:            entry?.deposit             ?? 0,

@@ -444,7 +444,27 @@ export async function updateEntry(req: AuthenticatedRequest, res: Response): Pro
       }
     }
     
-    if (contraAccountGroup) entry.contraAccountGroup = contraAccountGroup;
+    if (contraAccountGroup) {
+      entry.contraAccountGroup = contraAccountGroup;
+
+      const ledgerName = entry.contraAccountName;
+      if (ledgerName) {
+        // Also update the Ledger master group name for this account
+        await Ledger.updateOne(
+          { ledgerName: { $regex: new RegExp(`^${ledgerName}$`, "i") }, companyId: req.companyId },
+          { $set: { groupName: contraAccountGroup } }
+        );
+
+        // Update all other BankCashEntry records with the same account name in the same company
+        await BankCashEntry.updateMany(
+          { 
+            contraAccountName: { $regex: new RegExp(`^${ledgerName}$`, "i") }, 
+            companyId: req.companyId 
+          },
+          { $set: { contraAccountGroup } }
+        );
+      }
+    }
 
     // Persist modification status (checkmark)
     (entry as any).isChanged = true;

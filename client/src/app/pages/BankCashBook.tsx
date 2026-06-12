@@ -1634,8 +1634,11 @@ export default function BankCashBook() {
   // Called by ExcelTable when user edits a cell inline
   const handleCellSave = useCallback(async (id: string, patch: Partial<EntryPayload>) => {
     // Optimistically update the local row so the UI is instantaneous
-    setRows((prevRows) =>
-      prevRows.map((r) => {
+    setRows((prevRows) => {
+      const targetRow = prevRows.find((r) => r._id === id);
+      if (!targetRow) return prevRows;
+
+      return prevRows.map((r) => {
         if (r._id === id) {
           let resolvedGroup = patch.contraAccountGroup;
           if (patch.contraAccountName && !patch.contraAccountGroup) {
@@ -1667,9 +1670,23 @@ export default function BankCashBook() {
             isChanged: true,
           };
         }
+
+        // Auto change other entries sharing the same account name if the group name is edited
+        if (
+          patch.contraAccountGroup &&
+          targetRow.contraAccountName &&
+          r.contraAccountName.toLowerCase() === targetRow.contraAccountName.toLowerCase()
+        ) {
+          return {
+            ...r,
+            contraAccountGroup: patch.contraAccountGroup,
+            isChanged: true,
+          };
+        }
+
         return r;
-      })
-    );
+      });
+    });
 
     try {
       await updateEntry(id, patch);

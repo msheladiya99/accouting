@@ -536,10 +536,7 @@ function LedgerAutocomplete({
           ) : (
             filteredLedgers.map((l, index) => {
               const obVal = (l.openingDr || 0) - (l.openingCr || 0);
-              const obStr =
-                obVal !== 0
-                  ? `[OB: ${obVal > 0 ? "Dr" : "Cr"} ₹${fmt(Math.abs(obVal))}]`
-                  : "";
+              const obStr = `[OB: ${obVal > 0 ? "Dr" : obVal < 0 ? "Cr" : "Dr"} ₹${fmt(Math.abs(obVal))}]`;
               const isHighlighted = index === highlightedIndex;
               return (
                 <div
@@ -561,7 +558,7 @@ function LedgerAutocomplete({
                   {obStr && (
                     <span
                       className={`text-[10px] font-mono font-medium ${
-                        obVal > 0 ? "text-emerald-600" : "text-red-500"
+                        obVal > 0 ? "text-emerald-600" : obVal < 0 ? "text-red-500" : "text-slate-500"
                       }`}
                     >
                       {obStr}
@@ -695,6 +692,9 @@ function ExcelTable({
           else if (nameLower.includes("capital")) mappedGroup = "Capital";
         }
         patch.contraAccountGroup = mappedGroup;
+      } else {
+        // Fallback for new ledger name
+        patch.contraAccountGroup = "Expense";
       }
     }
     else if (field === "contraAccountGroup") patch = { contraAccountGroup: value as any };
@@ -1503,12 +1503,14 @@ export default function BankCashBook() {
   const loadRows = useCallback(async (accId: string, silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [entriesData, accountsData] = await Promise.all([
+      const [entriesData, accountsData, ledgersData] = await Promise.all([
         accId === "all" ? getAllEntries() : getEntriesForAccount(accId),
-        getAllAccounts()
+        getAllAccounts(),
+        getAllLedgers()
       ]);
       setRows(entriesData);
       setAccounts(accountsData);
+      setLedgers(ledgersData);
     } catch {
       toast.error("Failed to load entries");
     } finally {

@@ -3,6 +3,7 @@ import { BankCashAccount } from "../models/BankCashAccount";
 import { BankCashEntry } from "../models/BankCashEntry";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { Ledger } from "../models/Ledger";
+import { syncBankCashAccountFromLedger } from "./ledgerController";
 
 // ── BankCashAccount Controller Handlers ───────────────────────────────────────
 export async function syncLedgerFromBankCashAccount(account: any, oldName?: string): Promise<void> {
@@ -365,13 +366,32 @@ export async function createEntry(req: AuthenticatedRequest, res: Response): Pro
       return;
     }
 
+    const cleanContraName = contraAccountName.trim();
+    // Auto-create ledger if it doesn't exist in Ledger master
+    const exists = await Ledger.findOne({
+      ledgerName: { $regex: new RegExp(`^${cleanContraName}$`, "i") },
+      companyId: req.companyId
+    });
+
+    if (!exists) {
+      const newLedger = new Ledger({
+        ledgerName: cleanContraName,
+        groupName: contraAccountGroup,
+        openingDr: 0,
+        openingCr: 0,
+        companyId: req.companyId
+      });
+      await newLedger.save();
+      await syncBankCashAccountFromLedger(newLedger);
+    }
+
     const entry = new BankCashEntry({
       accountId,
       date,
       particulars,
       withdrawal: withdrawal || 0,
       deposit: deposit || 0,
-      contraAccountName,
+      contraAccountName: cleanContraName,
       contraAccountGroup,
       companyId: req.companyId
     });
@@ -399,7 +419,31 @@ export async function updateEntry(req: AuthenticatedRequest, res: Response): Pro
     if (particulars) entry.particulars = particulars;
     if (withdrawal !== undefined) entry.withdrawal = withdrawal;
     if (deposit !== undefined) entry.deposit = deposit;
-    if (contraAccountName) entry.contraAccountName = contraAccountName;
+    
+    if (contraAccountName) {
+      const cleanContraName = contraAccountName.trim();
+      entry.contraAccountName = cleanContraName;
+
+      // Auto-create ledger if it doesn't exist in Ledger master
+      const group = contraAccountGroup || entry.contraAccountGroup || "Expense";
+      const exists = await Ledger.findOne({
+        ledgerName: { $regex: new RegExp(`^${cleanContraName}$`, "i") },
+        companyId: req.companyId
+      });
+
+      if (!exists) {
+        const newLedger = new Ledger({
+          ledgerName: cleanContraName,
+          groupName: group,
+          openingDr: 0,
+          openingCr: 0,
+          companyId: req.companyId
+        });
+        await newLedger.save();
+        await syncBankCashAccountFromLedger(newLedger);
+      }
+    }
+    
     if (contraAccountGroup) entry.contraAccountGroup = contraAccountGroup;
 
     // Persist modification status (checkmark)

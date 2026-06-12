@@ -529,7 +529,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     {
       headerName: "Bank/cash name",
       width: 155,
-      field: "bankName",
+      colId: "bankName",
       filter: "agTextColumnFilter",
       floatingFilter: true,
       valueGetter: () => {

@@ -1500,8 +1500,8 @@ export default function BankCashBook() {
       .catch(() => setGroupNames(Array.from(CONTRA_GROUPS)));
   }, [selectedFY?._id]);
 
-  const loadRows = useCallback(async (accId: string) => {
-    setLoading(true);
+  const loadRows = useCallback(async (accId: string, silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [entriesData, accountsData] = await Promise.all([
         accId === "all" ? getAllEntries() : getEntriesForAccount(accId),
@@ -1512,7 +1512,7 @@ export default function BankCashBook() {
     } catch {
       toast.error("Failed to load entries");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [selectedFY?._id]);
 
@@ -1631,15 +1631,54 @@ export default function BankCashBook() {
 
   // Called by ExcelTable when user edits a cell inline
   const handleCellSave = useCallback(async (id: string, patch: Partial<EntryPayload>) => {
+    // Optimistically update the local row so the UI is instantaneous
+    setRows((prevRows) =>
+      prevRows.map((r) => {
+        if (r._id === id) {
+          let resolvedGroup = patch.contraAccountGroup;
+          if (patch.contraAccountName && !patch.contraAccountGroup) {
+            const matchingLedger = ledgers.find((l) => l.ledgerName === patch.contraAccountName);
+            if (matchingLedger) {
+              const groupName = matchingLedger.groupName;
+              if (CONTRA_GROUPS.includes(groupName as any)) {
+                resolvedGroup = groupName as any;
+              } else {
+                const nameLower = groupName.toLowerCase();
+                if (nameLower.includes("bank")) resolvedGroup = "Bank";
+                else if (nameLower.includes("cash")) resolvedGroup = "Cash";
+                else if (nameLower.includes("debtor")) resolvedGroup = "Sundry Debtors";
+                else if (nameLower.includes("creditor")) resolvedGroup = "Sundry Creditors";
+                else if (nameLower.includes("purchase")) resolvedGroup = "Purchases";
+                else if (nameLower.includes("sale")) resolvedGroup = "Sales";
+                else if (nameLower.includes("expense") || nameLower.includes("direct expense") || nameLower.includes("indirect expense")) resolvedGroup = "Expense";
+                else if (nameLower.includes("income")) resolvedGroup = "Income";
+                else if (nameLower.includes("asset")) resolvedGroup = "Assets";
+                else if (nameLower.includes("liabilit")) resolvedGroup = "Liabilities";
+                else if (nameLower.includes("capital")) resolvedGroup = "Capital";
+              }
+            }
+          }
+          return {
+            ...r,
+            ...patch,
+            ...(resolvedGroup ? { contraAccountGroup: resolvedGroup } : {}),
+            isChanged: true,
+          };
+        }
+        return r;
+      })
+    );
+
     try {
       await updateEntry(id, patch);
       toast.success("Saved", { duration: 1200, icon: "✓" });
-      await loadRows(accountFilter);
+      await loadRows(accountFilter, true); // silent background load
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message || "Failed to save");
+      await loadRows(accountFilter); // full reload to reset state on error
     }
-  }, [accountFilter, loadRows]);
+  }, [accountFilter, loadRows, ledgers]);
 
   // Called when user edits the Opening Balance row
   const handleOpeningBalanceChange = useCallback(async (newBalance: number, targetAccountId?: string) => {

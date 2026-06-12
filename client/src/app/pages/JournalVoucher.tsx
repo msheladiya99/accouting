@@ -228,11 +228,10 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Narration <span className="text-red-500">*</span></label>
-            <input {...register("narration", { required: "Narration is required" })}
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Narration</label>
+            <input {...register("narration")}
               placeholder="Brief description of the journal entry…"
-              className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${errors.narration ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"}`} />
-            {errors.narration && <p className="mt-1 text-xs text-red-600">{errors.narration.message}</p>}
+              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400" />
           </div>
 
           {/* Debit */}

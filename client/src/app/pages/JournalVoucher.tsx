@@ -160,6 +160,19 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
 
   const debitAccount  = watch("debitAccount");
   const creditAccount = watch("creditAccount");
+
+  const debitLedgers = useMemo(() => {
+    return ledgers.filter(
+      (l) => l.ledgerName.trim().toLowerCase() !== (creditAccount || "").trim().toLowerCase()
+    );
+  }, [ledgers, creditAccount]);
+
+  const creditLedgers = useMemo(() => {
+    return ledgers.filter(
+      (l) => l.ledgerName.trim().toLowerCase() !== (debitAccount || "").trim().toLowerCase()
+    );
+  }, [ledgers, debitAccount]);
+
   const debitAmount   = Number(watch("debitAmount")  ?? 0);
   const creditAmount  = Number(watch("creditAmount") ?? 0);
   const diff          = Math.abs(debitAmount - creditAmount);
@@ -241,10 +254,13 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
             </p>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Debit Account <span className="text-red-500">*</span></label>
-              <LedgerCombobox ledgers={ledgers} value={debitAccount}
+              <LedgerCombobox ledgers={debitLedgers} value={debitAccount}
                 onChange={(name, group) => { setValue("debitAccount", name); setValue("debitGroup", group); }}
                 placeholder="Select debit ledger" hasError={!!errors.debitAccount} />
-              <input type="hidden" {...register("debitAccount", { required: "Debit account is required" })} />
+              <input type="hidden" {...register("debitAccount", {
+                required: "Debit account is required",
+                validate: (v) => v.trim().toLowerCase() !== (creditAccount || "").trim().toLowerCase() || "Debit and Credit accounts must be different"
+              })} />
               <input type="hidden" {...register("debitGroup")} />
               {errors.debitAccount && <p className="mt-1 text-xs text-red-600">{errors.debitAccount.message}</p>}
             </div>
@@ -268,10 +284,13 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
             </p>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Credit Account <span className="text-red-500">*</span></label>
-              <LedgerCombobox ledgers={ledgers} value={creditAccount}
+              <LedgerCombobox ledgers={creditLedgers} value={creditAccount}
                 onChange={(name, group) => { setValue("creditAccount", name); setValue("creditGroup", group); }}
                 placeholder="Select credit ledger" hasError={!!errors.creditAccount} />
-              <input type="hidden" {...register("creditAccount", { required: "Credit account is required" })} />
+              <input type="hidden" {...register("creditAccount", {
+                required: "Credit account is required",
+                validate: (v) => v.trim().toLowerCase() !== (debitAccount || "").trim().toLowerCase() || "Debit and Credit accounts must be different"
+              })} />
               <input type="hidden" {...register("creditGroup")} />
               {errors.creditAccount && <p className="mt-1 text-xs text-red-600">{errors.creditAccount.message}</p>}
             </div>
@@ -604,6 +623,10 @@ export default function JournalVoucher() {
     const dr = Number(data.debitAmount);
     const cr = Number(data.creditAmount);
     if (Math.abs(dr - cr) > 0.001) { toast.error("Debit amount must equal credit amount"); return; }
+    if (data.debitAccount.trim().toLowerCase() === data.creditAccount.trim().toLowerCase()) {
+      toast.error("Debit and Credit accounts must be different");
+      return;
+    }
     setSaving(true);
     try {
       if (modal?.entry) {

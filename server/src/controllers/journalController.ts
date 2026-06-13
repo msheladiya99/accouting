@@ -48,6 +48,11 @@ export async function createJournalEntry(req: AuthenticatedRequest, res: Respons
   } = req.body;
 
   try {
+    if (debitAccount && creditAccount && debitAccount.trim().toLowerCase() === creditAccount.trim().toLowerCase()) {
+      res.status(400).json({ message: "Debit and Credit accounts must be different" });
+      return;
+    }
+
     if (Math.abs(debitAmount - creditAmount) > 0.001) {
       res.status(400).json({ message: "Debit amount must equal credit amount" });
       return;
@@ -69,10 +74,10 @@ export async function createJournalEntry(req: AuthenticatedRequest, res: Respons
       voucherNo,
       date,
       narration,
-      debitAccount,
+      debitAccount: debitAccount ? debitAccount.trim().toUpperCase() : "",
       debitGroup,
       debitAmount,
-      creditAccount,
+      creditAccount: creditAccount ? creditAccount.trim().toUpperCase() : "",
       creditGroup,
       creditAmount,
       status: status || "Draft",
@@ -123,12 +128,19 @@ export async function updateJournalEntry(req: AuthenticatedRequest, res: Respons
       return;
     }
 
+    const nextDebit = debitAccount !== undefined ? debitAccount : entry.debitAccount;
+    const nextCredit = creditAccount !== undefined ? creditAccount : entry.creditAccount;
+    if (nextDebit && nextCredit && nextDebit.trim().toLowerCase() === nextCredit.trim().toLowerCase()) {
+      res.status(400).json({ message: "Debit and Credit accounts must be different" });
+      return;
+    }
+
     if (date) entry.date = date;
     if (narration) entry.narration = narration;
-    if (debitAccount) entry.debitAccount = debitAccount;
+    if (debitAccount) entry.debitAccount = debitAccount.trim().toUpperCase();
     if (debitGroup) entry.debitGroup = debitGroup;
     if (debitAmount !== undefined) entry.debitAmount = debitAmount;
-    if (creditAccount) entry.creditAccount = creditAccount;
+    if (creditAccount) entry.creditAccount = creditAccount.trim().toUpperCase();
     if (creditGroup) entry.creditGroup = creditGroup;
     if (creditAmount !== undefined) entry.creditAmount = creditAmount;
     if (status) entry.status = status;

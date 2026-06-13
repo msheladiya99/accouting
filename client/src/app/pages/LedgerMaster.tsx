@@ -429,7 +429,7 @@ export default function LedgerMaster() {
     if (newValue === oldValue) return;
     const field = column.colId as keyof Ledger;
     const payload: LedgerPayload = {
-      ledgerName: field === "ledgerName" ? newValue : data.ledgerName,
+      ledgerName: field === "ledgerName" ? (newValue ? String(newValue).trim().toUpperCase() : "") : data.ledgerName,
       groupName:  field === "groupName"  ? newValue : data.groupName,
     };
     if (!payload.ledgerName.trim()) {

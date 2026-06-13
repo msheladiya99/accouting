@@ -139,6 +139,13 @@ function EntryModal({
   const deposit           = Number(watch("deposit")    ?? 0);
   const contraAccountName = watch("contraAccountName");
 
+  const filteredLedgers = useMemo(() => {
+    if (!ledgers || !selectedAccount) return ledgers;
+    return ledgers.filter(
+      (l) => l.ledgerName.trim().toLowerCase() !== selectedAccount.name.trim().toLowerCase()
+    );
+  }, [ledgers, selectedAccount]);
+
   useEffect(() => {
     if (!contraAccountName || !ledgers) return;
     const matchingLedger = ledgers.find((l) => l.ledgerName === contraAccountName);
@@ -252,7 +259,7 @@ function EntryModal({
             {ledgers && ledgers.length > 0 ? (
               <>
                 <LedgerAutocomplete
-                  ledgers={ledgers}
+                  ledgers={filteredLedgers}
                   value={contraAccountName || ""}
                   onChange={(val) => setValue("contraAccountName", val, { shouldValidate: true })}
                   onSelect={(val) => setValue("contraAccountName", val, { shouldValidate: true })}
@@ -263,11 +270,17 @@ function EntryModal({
                       : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 font-medium text-slate-800"
                   }`}
                 />
-                <input type="hidden" {...register("contraAccountName", { required: "Account name is required" })} />
+                <input type="hidden" {...register("contraAccountName", {
+                  required: "Account name is required",
+                  validate: (v) => v.trim().toLowerCase() !== (selectedAccount?.name || "").trim().toLowerCase() || "Contra account cannot be the same as the Bank/Cash account"
+                })} />
               </>
             ) : (
               <input
-                {...register("contraAccountName", { required: "Account name is required" })}
+                {...register("contraAccountName", {
+                  required: "Account name is required",
+                  validate: (v) => v.trim().toLowerCase() !== (selectedAccount?.name || "").trim().toLowerCase() || "Contra account cannot be the same as the Bank/Cash account"
+                })}
                 placeholder="e.g. ABC Corp Ltd., Salary Expense…"
                 className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${
                   errors.contraAccountName
@@ -700,8 +713,13 @@ function ExcelTable({
     else if (field === "withdrawal")    patch = { withdrawal: Math.max(0, Number(value) || 0), deposit: 0 };
     else if (field === "deposit")       patch = { deposit: Math.max(0, Number(value) || 0), withdrawal: 0 };
     else if (field === "contraAccountName") {
-      patch.contraAccountName = value;
-      const matchingLedger = ledgers?.find(l => l.ledgerName === value);
+      const cleanValue = value ? value.trim().toUpperCase() : "";
+      if (cleanValue && row.accountName && cleanValue.toLowerCase() === row.accountName.trim().toLowerCase()) {
+        toast.error("Contra account cannot be the same as the Bank/Cash account");
+        return;
+      }
+      patch.contraAccountName = cleanValue;
+      const matchingLedger = ledgers?.find(l => l.ledgerName.trim().toUpperCase() === cleanValue);
       if (matchingLedger) {
         const groupName = matchingLedger.groupName;
         let mappedGroup: any = "Expense";
@@ -1565,6 +1583,13 @@ export default function BankCashBook() {
     const w = Number(data.withdrawal ?? 0);
     const d = Number(data.deposit    ?? 0);
     if (w === 0 && d === 0) { toast.error("Enter either a withdrawal or deposit amount"); return; }
+
+    const selectedAcc = accounts.find((a) => a._id === data.accountId);
+    if (selectedAcc && data.contraAccountName.trim().toLowerCase() === selectedAcc.name.trim().toLowerCase()) {
+      toast.error("Contra account cannot be the same as the Bank/Cash account");
+      return;
+    }
+
     setSaving(true);
     try {
       if (modal?.entry) {

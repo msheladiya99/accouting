@@ -429,7 +429,7 @@ export default function LedgerMaster() {
     if (newValue === oldValue) return;
     const field = column.colId as keyof Ledger;
     const payload: LedgerPayload = {
-      ledgerName: field === "ledgerName" ? newValue : data.ledgerName,
+      ledgerName: field === "ledgerName" ? (newValue ? String(newValue).trim().toUpperCase() : "") : data.ledgerName,
       groupName:  field === "groupName"  ? newValue : data.groupName,
     };
     if (!payload.ledgerName.trim()) {
@@ -488,7 +488,7 @@ export default function LedgerMaster() {
       sortable: false,
       editable: false,
       valueGetter: (p) => (p.node?.rowIndex ?? 0) + 1,
-      cellStyle: { color: "#94a3b8", fontSize: "12px", textAlign: "center" },
+      cellStyle: { color: "#94a3b8", fontSize: "12px", textAlign: "center" } as any,
     },
     {
       field: "ledgerName",
@@ -534,7 +534,7 @@ export default function LedgerMaster() {
       floatingFilter: true,
       valueFormatter: (p) =>
         new Date(p.value).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
-      cellStyle: { color: "#64748b", fontSize: "12px" },
+      cellStyle: { color: "#64748b", fontSize: "12px" } as any,
     },
     {
       field: "updatedAt",
@@ -543,7 +543,7 @@ export default function LedgerMaster() {
       editable: false,
       valueFormatter: (p) =>
         new Date(p.value).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
-      cellStyle: { color: "#64748b", fontSize: "12px" },
+      cellStyle: { color: "#64748b", fontSize: "12px" } as any,
     },
     {
       headerName: "Actions",

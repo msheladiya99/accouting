@@ -378,6 +378,15 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       toast.error(`${incomplete.length} rows still need Account Name and Group`);
       return;
     }
+
+    const selectedAccount = accounts.find((a) => a._id === selectedAccountId);
+    const targetAccountName = (selectedAccount ? selectedAccount.name : detectedBankName || "").trim().toLowerCase();
+    const sameAccountRow = activeTxns.find((r) => r.aiAccountName.trim().toLowerCase() === targetAccountName);
+    if (sameAccountRow) {
+      toast.error(`Contra account cannot be the same as the destination Bank/Cash account: "${sameAccountRow.aiAccountName}"`);
+      return;
+    }
+
     setSavingTxns(true);
     try {
       const firstOpRow = rows.find((r) => isOpeningBalRow(r.narration));
@@ -529,7 +538,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     {
       headerName: "Bank/cash name",
       width: 155,
-      field: "bankName",
+      colId: "bankName",
       filter: "agTextColumnFilter",
       floatingFilter: true,
       valueGetter: () => {

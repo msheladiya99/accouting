@@ -61,6 +61,7 @@ apiRouter.delete("/financial-year/:id", financialYearController.deleteFY);
 apiRouter.get("/ledger", ledgerController.getAllLedgers);
 apiRouter.post("/ledger/bulk-opening-balances", ledgerController.updateBulkOpeningBalances);
 apiRouter.post("/ledger/bulk-delete", ledgerController.bulkDeleteLedgers);
+apiRouter.get("/ledger/statement/:name", ledgerController.getLedgerStatement);
 apiRouter.get("/ledger/:id", ledgerController.getLedgerById);
 apiRouter.post("/ledger", ledgerController.createLedger);
 apiRouter.put("/ledger/:id", ledgerController.updateLedger);

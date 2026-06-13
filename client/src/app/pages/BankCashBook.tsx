@@ -1,7 +1,10 @@
 import {
   useState, useCallback, useMemo, useEffect, useRef,
 } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
+import { SmartDateInput } from "../components/ui/SmartDateInput";
+import { parseSmartDate, formatToUIDate } from "../utils/dateUtils";
+import type { FinancialYear } from "../api/financialYearApi";
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, X, Save,
   Landmark, Wallet, TrendingDown, TrendingUp, DollarSign,
@@ -107,7 +110,7 @@ const GROUP_COLORS: Record<AccountGroup, { bg: string; text: string; icon: React
 
 // ── Entry Modal ───────────────────────────────────────────────────────────────
 function EntryModal({
-  accounts, entry, loading, onClose, onSubmit, contraGroups, ledgers,
+  accounts, entry, loading, onClose, onSubmit, contraGroups, ledgers, selectedFY,
 }: {
   accounts: BankCashAccount[];
   entry?: BankCashRow;
@@ -116,11 +119,12 @@ function EntryModal({
   onSubmit: (data: EntryPayload) => void;
   contraGroups: string[];
   ledgers?: Ledger[];
+  selectedFY: FinancialYear | null;
 }) {
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<EntryPayload>({
+  const { register, handleSubmit, watch, setValue, control, formState: { errors } } = useForm<EntryPayload>({
     defaultValues: {
       accountId:          entry?.accountId          ?? accounts[0]?._id ?? "",
-      date:               entry?.date               ?? new Date().toISOString().slice(0, 10),
+      date:               entry?.date               ?? selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
       particulars:        entry?.particulars         ?? "",
       withdrawal:         entry?.withdrawal          ?? 0,
       deposit:            entry?.deposit             ?? 0,
@@ -134,6 +138,13 @@ function EntryModal({
   const withdrawal        = Number(watch("withdrawal") ?? 0);
   const deposit           = Number(watch("deposit")    ?? 0);
   const contraAccountName = watch("contraAccountName");
+
+  const filteredLedgers = useMemo(() => {
+    if (!ledgers || !selectedAccount) return ledgers;
+    return ledgers.filter(
+      (l) => l.ledgerName.trim().toLowerCase() !== selectedAccount.name.trim().toLowerCase()
+    );
+  }, [ledgers, selectedAccount]);
 
   useEffect(() => {
     if (!contraAccountName || !ledgers) return;
@@ -205,8 +216,25 @@ function EntryModal({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Date <span className="text-red-500">*</span></label>
-              <input type="date" {...register("date", { required: "Date is required" })}
-                className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${errors.date ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"}`} />
+              <Controller
+                name="date"
+                control={control}
+                rules={{
+                  required: "Date is required",
+                  validate: (v) => {
+                    const { error } = parseSmartDate(v, selectedFY);
+                    return error ?? true;
+                  },
+                }}
+                render={({ field }) => (
+                  <SmartDateInput
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    selectedFY={selectedFY}
+                    hasError={!!errors.date}
+                  />
+                )}
+              />
               {errors.date && <p className="mt-1 text-xs text-red-600">{errors.date.message}</p>}
             </div>
             <div>
@@ -231,7 +259,7 @@ function EntryModal({
             {ledgers && ledgers.length > 0 ? (
               <>
                 <LedgerAutocomplete
-                  ledgers={ledgers}
+                  ledgers={filteredLedgers}
                   value={contraAccountName || ""}
                   onChange={(val) => setValue("contraAccountName", val, { shouldValidate: true })}
                   onSelect={(val) => setValue("contraAccountName", val, { shouldValidate: true })}
@@ -242,11 +270,17 @@ function EntryModal({
                       : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 font-medium text-slate-800"
                   }`}
                 />
-                <input type="hidden" {...register("contraAccountName", { required: "Account name is required" })} />
+                <input type="hidden" {...register("contraAccountName", {
+                  required: "Account name is required",
+                  validate: (v) => v.trim().toLowerCase() !== (selectedAccount?.name || "").trim().toLowerCase() || "Contra account cannot be the same as the Bank/Cash account"
+                })} />
               </>
             ) : (
               <input
-                {...register("contraAccountName", { required: "Account name is required" })}
+                {...register("contraAccountName", {
+                  required: "Account name is required",
+                  validate: (v) => v.trim().toLowerCase() !== (selectedAccount?.name || "").trim().toLowerCase() || "Contra account cannot be the same as the Bank/Cash account"
+                })}
                 placeholder="e.g. ABC Corp Ltd., Salary Expense…"
                 className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${
                   errors.contraAccountName
@@ -536,10 +570,7 @@ function LedgerAutocomplete({
           ) : (
             filteredLedgers.map((l, index) => {
               const obVal = (l.openingDr || 0) - (l.openingCr || 0);
-              const obStr =
-                obVal !== 0
-                  ? `[OB: ${obVal > 0 ? "Dr" : "Cr"} ₹${fmt(Math.abs(obVal))}]`
-                  : "";
+              const obStr = `[OB: ${obVal > 0 ? "Dr" : obVal < 0 ? "Cr" : "Dr"} ₹${fmt(Math.abs(obVal))}]`;
               const isHighlighted = index === highlightedIndex;
               return (
                 <div
@@ -561,7 +592,7 @@ function LedgerAutocomplete({
                   {obStr && (
                     <span
                       className={`text-[10px] font-mono font-medium ${
-                        obVal > 0 ? "text-emerald-600" : "text-red-500"
+                        obVal > 0 ? "text-emerald-600" : obVal < 0 ? "text-red-500" : "text-slate-500"
                       }`}
                     >
                       {obStr}
@@ -584,6 +615,7 @@ function ExcelTable({
   selectedIds, onSelectionChange,
   isAllView, accounts,
   ledgers,
+  selectedFY,
 }: {
   rows: BankCashRow[];
   openingBalance: number;
@@ -609,6 +641,7 @@ function ExcelTable({
   isAllView?: boolean;
   accounts?: BankCashAccount[];
   ledgers?: Ledger[];
+  selectedFY?: FinancialYear | null;
 }) {
   const [editCell, setEditCell]         = useState<EditCell | null>(null);
   const [saving,   setSaving]           = useState(false);
@@ -668,13 +701,26 @@ function ExcelTable({
     setEditCell(null);
 
     let patch: Partial<EntryPayload> = {};
-    if (field === "date")               patch = { date: value };
-    else if (field === "particulars")   patch = { particulars: value };
+    if (field === "date") {
+      const { date: parsed, error } = parseSmartDate(value, selectedFY ?? null);
+      if (error || !parsed) {
+        toast.error(error ?? "Invalid date");
+        return;
+      }
+      const orig = rows.find((r) => r._id === row._id);
+      if (orig && parsed === orig.date) return;
+      patch = { date: parsed };
+    } else if (field === "particulars")   patch = { particulars: value };
     else if (field === "withdrawal")    patch = { withdrawal: Math.max(0, Number(value) || 0), deposit: 0 };
     else if (field === "deposit")       patch = { deposit: Math.max(0, Number(value) || 0), withdrawal: 0 };
     else if (field === "contraAccountName") {
-      patch.contraAccountName = value;
-      const matchingLedger = ledgers?.find(l => l.ledgerName === value);
+      const cleanValue = value ? value.trim().toUpperCase() : "";
+      if (cleanValue && row.accountName && cleanValue.toLowerCase() === row.accountName.trim().toLowerCase()) {
+        toast.error("Contra account cannot be the same as the Bank/Cash account");
+        return;
+      }
+      patch.contraAccountName = cleanValue;
+      const matchingLedger = ledgers?.find(l => l.ledgerName.trim().toUpperCase() === cleanValue);
       if (matchingLedger) {
         const groupName = matchingLedger.groupName;
         let mappedGroup: any = "Expense";
@@ -695,6 +741,9 @@ function ExcelTable({
           else if (nameLower.includes("capital")) mappedGroup = "Capital";
         }
         patch.contraAccountGroup = mappedGroup;
+      } else {
+        // Fallback for new ledger name
+        patch.contraAccountGroup = "Expense";
       }
     }
     else if (field === "contraAccountGroup") patch = { contraAccountGroup: value as any };
@@ -1317,7 +1366,7 @@ function ExcelTable({
                 </td>
 
                 {/* Date — editable */}
-                <EditableCell row={row} field="date" value={row.date} inputType="date" mono>
+                <EditableCell row={row} field="date" value={row.date ? formatToUIDate(row.date) : ""} inputType="text" mono>
                   <span className="font-mono text-slate-600 cursor-cell block">
                     {fmtDate(row.date)}
                   </span>
@@ -1500,19 +1549,21 @@ export default function BankCashBook() {
       .catch(() => setGroupNames(Array.from(CONTRA_GROUPS)));
   }, [selectedFY?._id]);
 
-  const loadRows = useCallback(async (accId: string) => {
-    setLoading(true);
+  const loadRows = useCallback(async (accId: string, silent = false) => {
+    if (!silent) setLoading(true);
     try {
-      const [entriesData, accountsData] = await Promise.all([
+      const [entriesData, accountsData, ledgersData] = await Promise.all([
         accId === "all" ? getAllEntries() : getEntriesForAccount(accId),
-        getAllAccounts()
+        getAllAccounts(),
+        getAllLedgers()
       ]);
       setRows(entriesData);
       setAccounts(accountsData);
+      setLedgers(ledgersData);
     } catch {
       toast.error("Failed to load entries");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [selectedFY?._id]);
 
@@ -1533,6 +1584,13 @@ export default function BankCashBook() {
     const w = Number(data.withdrawal ?? 0);
     const d = Number(data.deposit    ?? 0);
     if (w === 0 && d === 0) { toast.error("Enter either a withdrawal or deposit amount"); return; }
+
+    const selectedAcc = accounts.find((a) => a._id === data.accountId);
+    if (selectedAcc && data.contraAccountName.trim().toLowerCase() === selectedAcc.name.trim().toLowerCase()) {
+      toast.error("Contra account cannot be the same as the Bank/Cash account");
+      return;
+    }
+
     setSaving(true);
     try {
       if (modal?.entry) {
@@ -1631,15 +1689,71 @@ export default function BankCashBook() {
 
   // Called by ExcelTable when user edits a cell inline
   const handleCellSave = useCallback(async (id: string, patch: Partial<EntryPayload>) => {
+    // Optimistically update the local row so the UI is instantaneous
+    setRows((prevRows) => {
+      const targetRow = prevRows.find((r) => r._id === id);
+      if (!targetRow) return prevRows;
+
+      return prevRows.map((r) => {
+        if (r._id === id) {
+          let resolvedGroup = patch.contraAccountGroup;
+          if (patch.contraAccountName && !patch.contraAccountGroup) {
+            const matchingLedger = ledgers.find((l) => l.ledgerName === patch.contraAccountName);
+            if (matchingLedger) {
+              const groupName = matchingLedger.groupName;
+              if (CONTRA_GROUPS.includes(groupName as any)) {
+                resolvedGroup = groupName as any;
+              } else {
+                const nameLower = groupName.toLowerCase();
+                if (nameLower.includes("bank")) resolvedGroup = "Bank";
+                else if (nameLower.includes("cash")) resolvedGroup = "Cash";
+                else if (nameLower.includes("debtor")) resolvedGroup = "Sundry Debtors";
+                else if (nameLower.includes("creditor")) resolvedGroup = "Sundry Creditors";
+                else if (nameLower.includes("purchase")) resolvedGroup = "Purchases";
+                else if (nameLower.includes("sale")) resolvedGroup = "Sales";
+                else if (nameLower.includes("expense") || nameLower.includes("direct expense") || nameLower.includes("indirect expense")) resolvedGroup = "Expense";
+                else if (nameLower.includes("income")) resolvedGroup = "Income";
+                else if (nameLower.includes("asset")) resolvedGroup = "Assets";
+                else if (nameLower.includes("liabilit")) resolvedGroup = "Liabilities";
+                else if (nameLower.includes("capital")) resolvedGroup = "Capital";
+              }
+            }
+          }
+          return {
+            ...r,
+            ...patch,
+            ...(resolvedGroup ? { contraAccountGroup: resolvedGroup } : {}),
+            isChanged: true,
+          };
+        }
+
+        // Auto change other entries sharing the same account name if the group name is edited
+        if (
+          patch.contraAccountGroup &&
+          targetRow.contraAccountName &&
+          r.contraAccountName.toLowerCase() === targetRow.contraAccountName.toLowerCase()
+        ) {
+          return {
+            ...r,
+            contraAccountGroup: patch.contraAccountGroup,
+            isChanged: true,
+          };
+        }
+
+        return r;
+      });
+    });
+
     try {
       await updateEntry(id, patch);
       toast.success("Saved", { duration: 1200, icon: "✓" });
-      await loadRows(accountFilter);
+      await loadRows(accountFilter, true); // silent background load
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.message || "Failed to save");
+      await loadRows(accountFilter); // full reload to reset state on error
     }
-  }, [accountFilter, loadRows]);
+  }, [accountFilter, loadRows, ledgers]);
 
   // Called when user edits the Opening Balance row
   const handleOpeningBalanceChange = useCallback(async (newBalance: number, targetAccountId?: string) => {
@@ -2063,6 +2177,7 @@ export default function BankCashBook() {
             isAllView={accountFilter === "all"}
             accounts={accounts}
             ledgers={ledgers}
+            selectedFY={selectedFY}
           />
         )}
       </div>
@@ -2076,6 +2191,7 @@ export default function BankCashBook() {
           onSubmit={handleSubmit}
           contraGroups={groupNames}
           ledgers={ledgers}
+          selectedFY={selectedFY}
         />
       )}
 

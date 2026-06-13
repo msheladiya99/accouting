@@ -3,6 +3,7 @@ import { BankCashAccount } from "../models/BankCashAccount";
 import { BankCashEntry } from "../models/BankCashEntry";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { Ledger } from "../models/Ledger";
+import { syncBankCashAccountFromLedger } from "./ledgerController";
 
 // ── BankCashAccount Controller Handlers ───────────────────────────────────────
 export async function syncLedgerFromBankCashAccount(account: any, oldName?: string): Promise<void> {
@@ -14,7 +15,7 @@ export async function syncLedgerFromBankCashAccount(account: any, oldName?: stri
   const groupName = "Bank Accounts (Banks)";
   const openingDr = openingBalance >= 0 ? openingBalance : 0;
   const openingCr = openingBalance < 0 ? Math.abs(openingBalance) : 0;
-  const finalName = name.trim();
+  const finalName = name.trim().toUpperCase();
   const nameToSearch = oldName ? oldName.trim() : finalName;
 
   let ledger = await Ledger.findOne({
@@ -140,7 +141,7 @@ export async function createAccount(req: AuthenticatedRequest, res: Response): P
     }
 
     const account = new BankCashAccount({
-      name: name.trim(),
+      name: name.trim().toUpperCase(),
       group,
       openingBalance: openingBalance || 0,
       companyId: req.companyId
@@ -176,7 +177,7 @@ export async function updateAccount(req: AuthenticatedRequest, res: Response): P
         res.status(400).json({ message: "Another account with this name already exists in this company" });
         return;
       }
-      account.name = name.trim();
+      account.name = name.trim().toUpperCase();
     }
     if (group) account.group = group;
     if (openingBalance !== undefined) account.openingBalance = openingBalance;
@@ -365,13 +366,54 @@ export async function createEntry(req: AuthenticatedRequest, res: Response): Pro
       return;
     }
 
+    // Validate date is within the active financial year
+    if (date && req.financialYear) {
+      const d = date.slice(0, 10);
+      if (d < req.financialYear.startDate || d > req.financialYear.endDate) {
+        res.status(400).json({
+          message: `Date ${d} is outside the active financial year (${req.financialYear.label}: ${req.financialYear.startDate} – ${req.financialYear.endDate}).`,
+        });
+        return;
+      }
+    }
+
+    const cleanContraName = contraAccountName.trim().toUpperCase();
+
+    const account = await BankCashAccount.findOne({ _id: accountId, companyId: req.companyId });
+    if (!account) {
+      res.status(404).json({ message: "Bank/Cash account not found" });
+      return;
+    }
+    if (account.name.trim().toLowerCase() === cleanContraName.toLowerCase()) {
+      res.status(400).json({ message: "Contra account cannot be the same as the Bank/Cash account" });
+      return;
+    }
+
+    // Auto-create ledger if it doesn't exist in Ledger master
+    const exists = await Ledger.findOne({
+      ledgerName: { $regex: new RegExp(`^${cleanContraName}$`, "i") },
+      companyId: req.companyId
+    });
+
+    if (!exists) {
+      const newLedger = new Ledger({
+        ledgerName: cleanContraName,
+        groupName: contraAccountGroup,
+        openingDr: 0,
+        openingCr: 0,
+        companyId: req.companyId
+      });
+      await newLedger.save();
+      await syncBankCashAccountFromLedger(newLedger);
+    }
+
     const entry = new BankCashEntry({
       accountId,
       date,
       particulars,
       withdrawal: withdrawal || 0,
       deposit: deposit || 0,
-      contraAccountName,
+      contraAccountName: cleanContraName,
       contraAccountGroup,
       companyId: req.companyId
     });
@@ -394,13 +436,82 @@ export async function updateEntry(req: AuthenticatedRequest, res: Response): Pro
       return;
     }
 
+    // Validate date is within the active financial year
+    if (date && req.financialYear) {
+      const d = date.slice(0, 10);
+      if (d < req.financialYear.startDate || d > req.financialYear.endDate) {
+        res.status(400).json({
+          message: `Date ${d} is outside the active financial year (${req.financialYear.label}: ${req.financialYear.startDate} – ${req.financialYear.endDate}).`,
+        });
+        return;
+      }
+    }
+
+    const checkAccountId = accountId || entry.accountId;
+    const checkContraName = contraAccountName !== undefined ? contraAccountName.trim() : entry.contraAccountName;
+    if (checkAccountId) {
+      const account = await BankCashAccount.findOne({ _id: checkAccountId, companyId: req.companyId });
+      if (!account) {
+        res.status(404).json({ message: "Bank/Cash account not found" });
+        return;
+      }
+      if (checkContraName && account.name.trim().toLowerCase() === checkContraName.toLowerCase()) {
+        res.status(400).json({ message: "Contra account cannot be the same as the Bank/Cash account" });
+        return;
+      }
+    }
+
     if (accountId) entry.accountId = accountId;
     if (date) entry.date = date;
     if (particulars) entry.particulars = particulars;
     if (withdrawal !== undefined) entry.withdrawal = withdrawal;
     if (deposit !== undefined) entry.deposit = deposit;
-    if (contraAccountName) entry.contraAccountName = contraAccountName;
-    if (contraAccountGroup) entry.contraAccountGroup = contraAccountGroup;
+    
+    if (contraAccountName) {
+      const cleanContraName = contraAccountName.trim().toUpperCase();
+      entry.contraAccountName = cleanContraName;
+
+      // Auto-create ledger if it doesn't exist in Ledger master
+      const group = contraAccountGroup || entry.contraAccountGroup || "Expense";
+      const exists = await Ledger.findOne({
+        ledgerName: { $regex: new RegExp(`^${cleanContraName}$`, "i") },
+        companyId: req.companyId
+      });
+
+      if (!exists) {
+        const newLedger = new Ledger({
+          ledgerName: cleanContraName,
+          groupName: group,
+          openingDr: 0,
+          openingCr: 0,
+          companyId: req.companyId
+        });
+        await newLedger.save();
+        await syncBankCashAccountFromLedger(newLedger);
+      }
+    }
+    
+    if (contraAccountGroup) {
+      entry.contraAccountGroup = contraAccountGroup;
+
+      const ledgerName = entry.contraAccountName;
+      if (ledgerName) {
+        // Also update the Ledger master group name for this account
+        await Ledger.updateOne(
+          { ledgerName: { $regex: new RegExp(`^${ledgerName}$`, "i") }, companyId: req.companyId },
+          { $set: { groupName: contraAccountGroup } }
+        );
+
+        // Update all other BankCashEntry records with the same account name in the same company
+        await BankCashEntry.updateMany(
+          { 
+            contraAccountName: { $regex: new RegExp(`^${ledgerName}$`, "i") }, 
+            companyId: req.companyId 
+          },
+          { $set: { contraAccountGroup } }
+        );
+      }
+    }
 
     // Persist modification status (checkmark)
     (entry as any).isChanged = true;

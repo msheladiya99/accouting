@@ -34,7 +34,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
         res.status(400).json({ message: "Bank name is required to auto-create a bank account. Please select an existing account or enter a valid name." });
         return;
       }
-      const finalBankName = bankName.trim();
+      const finalBankName = bankName.trim().toUpperCase();
       // Auto-create BankCashAccount
       let acc = await BankCashAccount.findOne({
         name: { $regex: new RegExp(`^${finalBankName}$`, "i") },
@@ -67,6 +67,21 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       return;
     }
 
+    const accountObj = await BankCashAccount.findOne({ _id: targetAccountId, companyId: req.companyId });
+    if (!accountObj) {
+      res.status(404).json({ message: "Bank/Cash account not found" });
+      return;
+    }
+
+    // Check if any row's contra account name is the same as the Bank/Cash account name
+    const targetNameClean = accountObj.name.trim().toLowerCase();
+    for (const r of rows) {
+      if (r.aiAccountName && r.aiAccountName.trim().toLowerCase() === targetNameClean) {
+        res.status(400).json({ message: `Contra account cannot be the same as the Bank/Cash account: "${r.aiAccountName}"` });
+        return;
+      }
+    }
+
     const now = new Date();
     const companyObjId = new Types.ObjectId(req.companyId as string);
     const preparedImport = rows.map((r: any) => ({
@@ -74,7 +89,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       narration: r.narration,
       withdrawal: r.withdrawal || 0,
       deposit: r.deposit || 0,
-      accountName: r.aiAccountName,
+      accountName: r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "",
       accountGroup: r.aiAccountGroup,
       importedAt: now,
       companyId: companyObjId
@@ -83,25 +98,22 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
     await ImportedTransaction.insertMany(preparedImport);
 
     // Ensure all unique ledgers are created in the Ledger master
-    const uniqueLedgers = new Map<string, string>(); // ledgerName (lowercase) -> groupName
+    const uniqueLedgers = new Map<string, string>(); // ledgerName (uppercase) -> groupName
     for (const r of rows) {
       if (r.aiAccountName?.trim() && r.aiAccountGroup?.trim()) {
-        uniqueLedgers.set(r.aiAccountName.trim().toLowerCase(), r.aiAccountGroup.trim());
+        uniqueLedgers.set(r.aiAccountName.trim().toUpperCase(), r.aiAccountGroup.trim());
       }
     }
 
-    for (const [nameLower, groupName] of uniqueLedgers.entries()) {
-      const originalName = rows.find(r => r.aiAccountName?.trim().toLowerCase() === nameLower)?.aiAccountName.trim();
-      if (!originalName) continue;
-
+    for (const [nameUpper, groupName] of uniqueLedgers.entries()) {
       const exists = await Ledger.findOne({
-        ledgerName: { $regex: new RegExp(`^${originalName}$`, "i") },
+        ledgerName: nameUpper,
         companyId: req.companyId
       });
 
       if (!exists) {
         const newLedger = new Ledger({
-          ledgerName: originalName,
+          ledgerName: nameUpper,
           groupName,
           openingDr: 0,
           openingCr: 0,
@@ -125,7 +137,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
         particulars: r.narration,
         withdrawal: r.withdrawal || 0,
         deposit: r.deposit || 0,
-        contraAccountName: r.aiAccountName,
+        contraAccountName: r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "",
         contraAccountGroup: r.aiAccountGroup
       };
     });

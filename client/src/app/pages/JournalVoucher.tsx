@@ -1,7 +1,7 @@
 import {
   useState, useCallback, useMemo, useEffect, useRef,
 } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import {
   Plus, RefreshCw, Trash2, X, Save, Search,
   FileText, CheckCircle2, AlertTriangle, Loader2, Scale,
@@ -15,13 +15,15 @@ import {
   type JournalEntry, type JournalPayload,
 } from "../api/journalVoucherApi";
 import { getAllLedgers, type Ledger } from "../api/ledgerApi";
+import { SmartDateInput } from "../components/ui/SmartDateInput";
+import { parseSmartDate, formatToUIDate } from "../utils/dateUtils";
+import type { FinancialYear } from "../api/financialYearApi";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtAmt = (n: number) =>
   "₹" + Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const fmtDate = (d: string) =>
-  new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" });
+const fmtDate = (d: string) => formatToUIDate(d.slice(0, 10));
 
 const GROUP_COLORS: Record<string, { bg: string; text: string }> = {
   Assets:            { bg: "bg-blue-50",    text: "text-blue-700"    },
@@ -134,16 +136,17 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError }: {
 }
 
 // ── Journal Modal ─────────────────────────────────────────────────────────────
-function JournalModal({ entry, ledgers, loading, onClose, onSubmit }: {
+function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }: {
   entry?: JournalEntry;
   ledgers: Ledger[];
   loading: boolean;
   onClose: () => void;
   onSubmit: (data: JournalPayload) => void;
+  selectedFY: FinancialYear | null;
 }) {
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<JournalPayload>({
+  const { register, handleSubmit, watch, setValue, control, formState: { errors } } = useForm<JournalPayload>({
     defaultValues: {
-      date:          entry?.date          ?? new Date().toISOString().slice(0, 10),
+      date:          entry?.date          ?? selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
       narration:     entry?.narration     ?? "",
       debitAccount:  entry?.debitAccount  ?? "",
       debitGroup:    entry?.debitGroup    ?? "",
@@ -151,12 +154,25 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit }: {
       creditAccount: entry?.creditAccount ?? "",
       creditGroup:   entry?.creditGroup   ?? "",
       creditAmount:  entry?.creditAmount  ?? 0,
-      status:        entry?.status        ?? "Draft",
+      status:        entry?.status        ?? "Posted",
     },
   });
 
   const debitAccount  = watch("debitAccount");
   const creditAccount = watch("creditAccount");
+
+  const debitLedgers = useMemo(() => {
+    return ledgers.filter(
+      (l) => l.ledgerName.trim().toLowerCase() !== (creditAccount || "").trim().toLowerCase()
+    );
+  }, [ledgers, creditAccount]);
+
+  const creditLedgers = useMemo(() => {
+    return ledgers.filter(
+      (l) => l.ledgerName.trim().toLowerCase() !== (debitAccount || "").trim().toLowerCase()
+    );
+  }, [ledgers, debitAccount]);
+
   const debitAmount   = Number(watch("debitAmount")  ?? 0);
   const creditAmount  = Number(watch("creditAmount") ?? 0);
   const diff          = Math.abs(debitAmount - creditAmount);
@@ -183,8 +199,25 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit }: {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Date <span className="text-red-500">*</span></label>
-              <input type="date" {...register("date", { required: "Date is required" })}
-                className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${errors.date ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"}`} />
+              <Controller
+                name="date"
+                control={control}
+                rules={{
+                  required: "Date is required",
+                  validate: (v) => {
+                    const { error } = parseSmartDate(v, selectedFY);
+                    return error ?? true;
+                  },
+                }}
+                render={({ field }) => (
+                  <SmartDateInput
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    selectedFY={selectedFY}
+                    hasError={!!errors.date}
+                  />
+                )}
+              />
               {errors.date && <p className="mt-1 text-xs text-red-600">{errors.date.message}</p>}
             </div>
             <div>
@@ -208,11 +241,10 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit }: {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Narration <span className="text-red-500">*</span></label>
-            <input {...register("narration", { required: "Narration is required" })}
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Narration</label>
+            <input {...register("narration")}
               placeholder="Brief description of the journal entry…"
-              className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${errors.narration ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"}`} />
-            {errors.narration && <p className="mt-1 text-xs text-red-600">{errors.narration.message}</p>}
+              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400" />
           </div>
 
           {/* Debit */}
@@ -222,10 +254,13 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit }: {
             </p>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Debit Account <span className="text-red-500">*</span></label>
-              <LedgerCombobox ledgers={ledgers} value={debitAccount}
+              <LedgerCombobox ledgers={debitLedgers} value={debitAccount}
                 onChange={(name, group) => { setValue("debitAccount", name); setValue("debitGroup", group); }}
                 placeholder="Select debit ledger" hasError={!!errors.debitAccount} />
-              <input type="hidden" {...register("debitAccount", { required: "Debit account is required" })} />
+              <input type="hidden" {...register("debitAccount", {
+                required: "Debit account is required",
+                validate: (v) => v.trim().toLowerCase() !== (creditAccount || "").trim().toLowerCase() || "Debit and Credit accounts must be different"
+              })} />
               <input type="hidden" {...register("debitGroup")} />
               {errors.debitAccount && <p className="mt-1 text-xs text-red-600">{errors.debitAccount.message}</p>}
             </div>
@@ -249,10 +284,13 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit }: {
             </p>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Credit Account <span className="text-red-500">*</span></label>
-              <LedgerCombobox ledgers={ledgers} value={creditAccount}
+              <LedgerCombobox ledgers={creditLedgers} value={creditAccount}
                 onChange={(name, group) => { setValue("creditAccount", name); setValue("creditGroup", group); }}
                 placeholder="Select credit ledger" hasError={!!errors.creditAccount} />
-              <input type="hidden" {...register("creditAccount", { required: "Credit account is required" })} />
+              <input type="hidden" {...register("creditAccount", {
+                required: "Credit account is required",
+                validate: (v) => v.trim().toLowerCase() !== (debitAccount || "").trim().toLowerCase() || "Debit and Credit accounts must be different"
+              })} />
               <input type="hidden" {...register("creditGroup")} />
               {errors.creditAccount && <p className="mt-1 text-xs text-red-600">{errors.creditAccount.message}</p>}
             </div>
@@ -301,12 +339,13 @@ type EditCell = { id: string; field: string; value: string };
 
 // ── JournalExcelTable ─────────────────────────────────────────────────────────
 function JournalExcelTable({
-  rows, onDelete, onOpenModal, onCellSave,
+  rows, onDelete, onOpenModal, onCellSave, selectedFY,
 }: {
   rows: JournalEntry[];
   onDelete: (e: JournalEntry) => void;
   onOpenModal: (e: JournalEntry) => void;
   onCellSave: (id: string, patch: Partial<JournalPayload>) => Promise<void>;
+  selectedFY: FinancialYear | null;
 }) {
   const [editCell, setEditCell] = useState<EditCell | null>(null);
   const [saving,   setSaving]   = useState(false);
@@ -326,14 +365,32 @@ function JournalExcelTable({
     setEditCell(null);
 
     const orig = rows.find((r) => r._id === row._id);
-    if (!orig || String((orig as any)[field] ?? "") === value) return;
+    if (!orig) return;
 
     let patch: Partial<JournalPayload> = {};
-    if (field === "date")         patch = { date: value };
-    else if (field === "narration")    patch = { narration: value };
-    else if (field === "debitAmount")  patch = { debitAmount: Math.max(0, Number(value) || 0) };
-    else if (field === "creditAmount") patch = { creditAmount: Math.max(0, Number(value) || 0) };
-    else if (field === "status")       patch = { status: value as any };
+    if (field === "date") {
+      const { date: parsed, error } = parseSmartDate(value, selectedFY);
+      if (error || !parsed) {
+        toast.error(error ?? "Invalid date");
+        return;
+      }
+      if (parsed === orig.date) return; // no change
+      patch = { date: parsed };
+    } else if (field === "narration") {
+      if (value === orig.narration) return;
+      patch = { narration: value };
+    } else if (field === "debitAmount") {
+      const num = Math.max(0, Number(value) || 0);
+      if (num === orig.debitAmount) return;
+      patch = { debitAmount: num };
+    } else if (field === "creditAmount") {
+      const num = Math.max(0, Number(value) || 0);
+      if (num === orig.creditAmount) return;
+      patch = { creditAmount: num };
+    } else if (field === "status") {
+      if (value === orig.status) return;
+      patch = { status: value as any };
+    }
 
     setSaving(true);
     try {
@@ -453,7 +510,7 @@ function JournalExcelTable({
                 </td>
 
                 {/* Date — inline */}
-                <EditableCell row={row} field="date" value={row.date} inputType="date" mono>
+                <EditableCell row={row} field="date" value={row.date ? formatToUIDate(row.date) : ""} inputType="text" mono>
                   <span className="font-mono text-slate-600 cursor-cell">{row.date ? fmtDate(row.date) : "—"}</span>
                 </EditableCell>
 
@@ -566,6 +623,10 @@ export default function JournalVoucher() {
     const dr = Number(data.debitAmount);
     const cr = Number(data.creditAmount);
     if (Math.abs(dr - cr) > 0.001) { toast.error("Debit amount must equal credit amount"); return; }
+    if (data.debitAccount.trim().toLowerCase() === data.creditAccount.trim().toLowerCase()) {
+      toast.error("Debit and Credit accounts must be different");
+      return;
+    }
     setSaving(true);
     try {
       if (modal?.entry) {
@@ -600,7 +661,7 @@ export default function JournalVoucher() {
 
   const handleCellSave = useCallback(async (id: string, patch: Partial<JournalPayload>) => {
     try {
-      const updated = await updateJournalEntry(id, patch);
+      const updated = await updateJournalEntry(id, patch as JournalPayload);
       setEntries((p) => p.map((e) => e._id === id ? updated : e));
       toast.success("Saved", { duration: 1200, icon: "✓" });
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
@@ -743,6 +804,7 @@ export default function JournalVoucher() {
             onDelete={handleDelete}
             onOpenModal={(entry) => setModal({ entry })}
             onCellSave={handleCellSave}
+            selectedFY={selectedFY}
           />
         )}
       </div>
@@ -754,6 +816,7 @@ export default function JournalVoucher() {
           loading={saving}
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
+          selectedFY={selectedFY}
         />
       )}
     </div>

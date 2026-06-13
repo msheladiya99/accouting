@@ -6,6 +6,7 @@ import { BankCashEntry } from "../models/BankCashEntry";
 import { AccountGroup } from "../models/AccountGroup";
 import { FinancialYear } from "../models/FinancialYear";
 import { BankCashAccount } from "../models/BankCashAccount";
+import { ImportedTransaction } from "../models/ImportedTransaction";
 
 const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
   "Capital Account": "Capital",
@@ -252,7 +253,7 @@ export async function createLedger(req: AuthenticatedRequest, res: Response): Pr
       return;
     }
 
-    const trimmedName = ledgerName.trim();
+    const trimmedName = ledgerName.trim().toUpperCase();
     const exists = await Ledger.findOne({
       ledgerName: { $regex: new RegExp(`^${trimmedName}$`, "i") },
       companyId: req.companyId
@@ -292,7 +293,7 @@ export async function updateLedger(req: AuthenticatedRequest, res: Response): Pr
     const oldName = ledger.ledgerName;
 
     if (ledgerName) {
-      const trimmedName = ledgerName.trim();
+      const trimmedName = ledgerName.trim().toUpperCase();
       const duplicate = await Ledger.findOne({
         ledgerName: { $regex: new RegExp(`^${trimmedName}$`, "i") },
         companyId: req.companyId,
@@ -376,7 +377,7 @@ export async function updateBulkOpeningBalances(req: AuthenticatedRequest, res: 
       const { ledgerName, groupName, openingDr, openingCr } = b;
       if (!ledgerName || !groupName) continue;
 
-      const trimmedName = ledgerName.trim();
+      const trimmedName = ledgerName.trim().toUpperCase();
       let ledger = await Ledger.findOne({
         ledgerName: { $regex: new RegExp(`^${trimmedName}$`, "i") },
         companyId: req.companyId
@@ -407,5 +408,212 @@ export async function updateBulkOpeningBalances(req: AuthenticatedRequest, res: 
     res.json({ message: "Opening balances updated successfully", count: results.length });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to update bulk opening balances" });
+  }
+}
+
+// ── Ledger Statement ────────────────────────────────────────────────────────────
+export async function getLedgerStatement(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { name } = req.params;
+  try {
+    const ledgerName = decodeURIComponent(name).trim();
+    const companyId = req.companyId;
+    const fyStart = req.financialYear?.startDate;
+    const fyEnd   = req.financialYear?.endDate;
+
+    // Find the ledger for opening balance and group info
+    const ledger = await Ledger.findOne({
+      ledgerName: { $regex: new RegExp(`^${ledgerName}$`, "i") },
+      companyId
+    });
+
+    // Also check if it is a BankCashAccount (Bank/Cash)
+    const bankAccount = await BankCashAccount.findOne({
+      name: { $regex: new RegExp(`^${ledgerName}$`, "i") },
+      companyId
+    });
+
+    // Determine opening balance
+    let openingBalance = 0;
+    let groupName = ledger?.groupName ?? (bankAccount?.group ?? "Unknown");
+    if (ledger) {
+      openingBalance = (ledger.openingDr || 0) - (ledger.openingCr || 0);
+    } else if (bankAccount) {
+      openingBalance = bankAccount.openingBalance || 0;
+    }
+
+    // ── Collect all transactions ──────────────────────────────────────────────
+    interface LedgerLine {
+      date: string;
+      particulars: string;
+      voucherNo: string;
+      voucherType: string;
+      debit: number;
+      credit: number;
+    }
+
+    const lines: LedgerLine[] = [];
+
+    // 1. Bank/Cash entries where this ledger is the ACCOUNT (bank/cash side)
+    if (bankAccount) {
+      const bankEntriesQuery: any = { accountId: bankAccount._id.toString(), companyId };
+      if (fyStart && fyEnd) bankEntriesQuery.date = { $gte: fyStart, $lte: fyEnd };
+      const bankEntries = await BankCashEntry.find(bankEntriesQuery).sort({ date: 1, createdAt: 1 });
+      for (const e of bankEntries) {
+        if (e.deposit > 0) {
+          lines.push({
+            date: e.date.slice(0, 10),
+            particulars: e.particulars || e.contraAccountName,
+            voucherNo: "",
+            voucherType: "Bank/Cash",
+            debit: e.deposit,
+            credit: 0,
+          });
+        }
+        if (e.withdrawal > 0) {
+          lines.push({
+            date: e.date.slice(0, 10),
+            particulars: e.particulars || e.contraAccountName,
+            voucherNo: "",
+            voucherType: "Bank/Cash",
+            debit: 0,
+            credit: e.withdrawal,
+          });
+        }
+      }
+    }
+
+    // 2. Bank/Cash entries where this ledger is the CONTRA ACCOUNT
+    const contraQuery: any = {
+      contraAccountName: { $regex: new RegExp(`^${ledgerName}$`, "i") },
+      companyId
+    };
+    if (fyStart && fyEnd) contraQuery.date = { $gte: fyStart, $lte: fyEnd };
+    const contraEntries = await BankCashEntry.find(contraQuery).sort({ date: 1, createdAt: 1 });
+    for (const e of contraEntries) {
+      if (e.deposit > 0) {
+        // Bank got money IN → contra ledger is credited
+        lines.push({
+          date: e.date.slice(0, 10),
+          particulars: e.particulars || (e as any).accountName || "Bank/Cash",
+          voucherNo: "",
+          voucherType: "Bank/Cash",
+          debit: 0,
+          credit: e.deposit,
+        });
+      }
+      if (e.withdrawal > 0) {
+        // Bank paid OUT → contra ledger is debited
+        lines.push({
+          date: e.date.slice(0, 10),
+          particulars: e.particulars || (e as any).accountName || "Bank/Cash",
+          voucherNo: "",
+          voucherType: "Bank/Cash",
+          debit: e.withdrawal,
+          credit: 0,
+        });
+      }
+    }
+
+    // 3. Journal entries – debit side
+    const jDebitQuery: any = {
+      debitAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") },
+      companyId
+    };
+    if (fyStart && fyEnd) jDebitQuery.date = { $gte: fyStart, $lte: fyEnd };
+    const jDebitEntries = await JournalEntry.find(jDebitQuery).sort({ date: 1, createdAt: 1 });
+    for (const e of jDebitEntries) {
+      lines.push({
+        date: e.date.slice(0, 10),
+        particulars: e.narration || `By ${e.creditAccount}`,
+        voucherNo: e.voucherNo,
+        voucherType: "Journal",
+        debit: e.debitAmount,
+        credit: 0,
+      });
+    }
+
+    // 4. Journal entries – credit side
+    const jCreditQuery: any = {
+      creditAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") },
+      companyId
+    };
+    if (fyStart && fyEnd) jCreditQuery.date = { $gte: fyStart, $lte: fyEnd };
+    const jCreditEntries = await JournalEntry.find(jCreditQuery).sort({ date: 1, createdAt: 1 });
+    for (const e of jCreditEntries) {
+      lines.push({
+        date: e.date.slice(0, 10),
+        particulars: e.narration || `To ${e.debitAccount}`,
+        voucherNo: e.voucherNo,
+        voucherType: "Journal",
+        debit: 0,
+        credit: e.creditAmount,
+      });
+    }
+
+    // 5. Imported transactions (bank import) — where this ledger is the contra account
+    try {
+      const importQuery: any = {
+        accountName: { $regex: new RegExp(`^${ledgerName}$`, "i") },
+        companyId
+      };
+      if (fyStart && fyEnd) importQuery.date = { $gte: fyStart, $lte: fyEnd };
+      const importedTxns = await ImportedTransaction.find(importQuery).sort({ date: 1, createdAt: 1 });
+      for (const t of importedTxns) {
+        if (t.deposit > 0) {
+          lines.push({
+            date: t.date.slice(0, 10),
+            particulars: t.narration || "Bank Import",
+            voucherNo: "",
+            voucherType: "Import",
+            debit: 0,
+            credit: t.deposit,
+          });
+        }
+        if (t.withdrawal > 0) {
+          lines.push({
+            date: t.date.slice(0, 10),
+            particulars: t.narration || "Bank Import",
+            voucherNo: "",
+            voucherType: "Import",
+            debit: t.withdrawal,
+            credit: 0,
+          });
+        }
+      }
+    } catch {
+      // ImportedTransaction may not exist or may have different shape — skip
+    }
+
+    // ── Sort by date, then voucherNo ─────────────────────────────────────────
+    lines.sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return a.voucherNo.localeCompare(b.voucherNo);
+    });
+
+    // ── Compute running balance ───────────────────────────────────────────────
+    let running = openingBalance;
+    const rows = lines.map((l, i) => {
+      running += l.debit - l.credit;
+      return {
+        srNo: i + 1,
+        date: l.date,
+        particulars: l.particulars,
+        voucherNo: l.voucherNo,
+        voucherType: l.voucherType,
+        debit: l.debit,
+        credit: l.credit,
+        balance: running,
+      };
+    });
+
+    res.json({
+      ledgerName,
+      groupName,
+      openingBalance,
+      closingBalance: running,
+      rows,
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to retrieve ledger statement" });
   }
 }

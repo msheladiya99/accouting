@@ -1,9 +1,12 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import dns from "dns";
 import { connectDB } from "./config/db";
 import { apiRouter } from "./routes/api";
 import { tenantMiddleware } from "./middleware/tenant";
+
+dns.setDefaultResultOrder("ipv4first");
 
 dotenv.config();
 

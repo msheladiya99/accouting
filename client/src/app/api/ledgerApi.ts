@@ -105,3 +105,30 @@ export async function saveBulkOpeningBalances(
   const res = await axiosClient.post<{ message: string; count: number }>("/ledger/bulk-opening-balances", payload);
   return res.data;
 }
+
+// ── Ledger Statement ──────────────────────────────────────────────────────────
+
+export interface LedgerStatementRow {
+  srNo: number;
+  date: string;
+  particulars: string;
+  voucherNo: string;
+  voucherType: "Bank/Cash" | "Journal" | "Import";
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export interface LedgerStatement {
+  ledgerName: string;
+  groupName: string;
+  openingBalance: number;
+  closingBalance: number;
+  rows: LedgerStatementRow[];
+}
+
+export async function getLedgerStatement(ledgerName: string): Promise<LedgerStatement> {
+  const encoded = encodeURIComponent(ledgerName);
+  const res = await axiosClient.get<LedgerStatement>(`/ledger/statement/${encoded}`);
+  return res.data;
+}

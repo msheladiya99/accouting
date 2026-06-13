@@ -615,6 +615,7 @@ function ExcelTable({
   selectedIds, onSelectionChange,
   isAllView, accounts,
   ledgers,
+  selectedFY,
 }: {
   rows: BankCashRow[];
   openingBalance: number;

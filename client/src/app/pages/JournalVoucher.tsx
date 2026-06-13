@@ -661,7 +661,7 @@ export default function JournalVoucher() {
 
   const handleCellSave = useCallback(async (id: string, patch: Partial<JournalPayload>) => {
     try {
-      const updated = await updateJournalEntry(id, patch);
+      const updated = await updateJournalEntry(id, patch as JournalPayload);
       setEntries((p) => p.map((e) => e._id === id ? updated : e));
       toast.success("Saved", { duration: 1200, icon: "✓" });
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));

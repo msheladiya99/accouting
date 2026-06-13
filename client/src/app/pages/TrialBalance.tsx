@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { AgGridReact } from "ag-grid-react";
-import { ModuleRegistry, AllCommunityModule } from "ag-grid-community";
+import { ModuleRegistry, AllCommunityModule, type ColDef, type ColGroupDef } from "ag-grid-community";
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
 import {
@@ -429,9 +429,9 @@ export default function TrialBalance() {
   const difference = Math.abs(globalTotals.closeDr - globalTotals.closeCr);
   const isBalanced = difference < 0.01;
 
-  const columnDefs = useMemo(() => [
+  const columnDefs = useMemo<(ColDef<TrialRow> | ColGroupDef<TrialRow>)[]>(() => [
     {
-      field: "ledgerName",
+      field: "ledgerName" as keyof TrialRow,
       headerName: "Ledger Name",
       flex: 1,
       minWidth: 200,
@@ -450,7 +450,7 @@ export default function TrialBalance() {
         ),
     },
     {
-      field: "group",
+      field: "group" as keyof TrialRow,
       headerName: "Group",
       width: 150,
       cellRenderer: (p: any) =>
@@ -460,7 +460,7 @@ export default function TrialBalance() {
       headerName: "Opening Balance",
       children: [
         {
-          field: "openingDr",
+          field: "openingDr" as keyof TrialRow,
           headerName: "Debit",
           width: 130,
           type: "numericColumn",
@@ -471,7 +471,7 @@ export default function TrialBalance() {
           }),
         },
         {
-          field: "openingCr",
+          field: "openingCr" as keyof TrialRow,
           headerName: "Credit",
           width: 130,
           type: "numericColumn",
@@ -487,7 +487,7 @@ export default function TrialBalance() {
       headerName: "Transactions",
       children: [
         {
-          field: "transactionDr",
+          field: "transactionDr" as keyof TrialRow,
           headerName: "Debit",
           width: 130,
           type: "numericColumn",
@@ -498,7 +498,7 @@ export default function TrialBalance() {
           }),
         },
         {
-          field: "transactionCr",
+          field: "transactionCr" as keyof TrialRow,
           headerName: "Credit",
           width: 130,
           type: "numericColumn",
@@ -514,7 +514,7 @@ export default function TrialBalance() {
       headerName: "Closing Balance",
       children: [
         {
-          field: "closingDr",
+          field: "closingDr" as keyof TrialRow,
           headerName: "Debit",
           width: 140,
           type: "numericColumn",
@@ -525,7 +525,7 @@ export default function TrialBalance() {
           }),
         },
         {
-          field: "closingCr",
+          field: "closingCr" as keyof TrialRow,
           headerName: "Credit",
           width: 140,
           type: "numericColumn",

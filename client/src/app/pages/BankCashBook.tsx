@@ -656,6 +656,7 @@ function ExcelTable({
   selectedFY?: FinancialYear | null;
 }) {
   const [editCell, setEditCell]         = useState<EditCell | null>(null);
+  const [focusedCell, setFocusedCell]   = useState<{ id: string; field: string } | null>(null);
   const [saving,   setSaving]           = useState(false);
   const [editingOB, setEditingOB]       = useState<"withdrawal" | "deposit" | null>(null);
   const [obInput,   setObInput]         = useState("");
@@ -703,7 +704,15 @@ function ExcelTable({
 
   function startEdit(id: string, field: string, value: string | number) {
     if (saving) return;
+    setFocusedCell({ id, field });
     setEditCell({ id, field, value: String(value) });
+  }
+
+  function focusCell(id: string, field: string) {
+    setFocusedCell({ id, field });
+    setTimeout(() => {
+      document.getElementById(`cell-${id}-${field}`)?.focus();
+    }, 0);
   }
 
   async function commitEdit(row: BankCashRow, overrideValue?: string) {
@@ -812,29 +821,113 @@ function ExcelTable({
 
     const nextRow = rows[nextRowIndex];
     const nextField = fields[nextFieldIndex];
-    const nextValue = nextRow ? (nextRow as any)[nextField] : "";
 
-    // Commit current edit asynchronously (non-blocking for UI responsiveness)
+    // Commit current edit
     commitEdit(rows[rowIndex]);
 
-    // Start editing the next cell instantly
+    // Focus next cell instead of starting edit
     if (nextRow) {
-      startEdit(nextRow._id, nextField, nextValue);
+      focusCell(nextRow._id, nextField);
+    }
+  }
+
+  function navigateFocus(rowId: string, currentField: string, direction: "next" | "prev" | "down" | "up") {
+    const rowIndex = rows.findIndex(r => r._id === rowId);
+    if (rowIndex === -1) return;
+    const fieldIndex = fields.indexOf(currentField);
+    if (fieldIndex === -1) return;
+
+    let nextRowIndex = rowIndex;
+    let nextFieldIndex = fieldIndex;
+
+    if (direction === "next") {
+      if (fieldIndex < fields.length - 1) {
+        nextFieldIndex = fieldIndex + 1;
+      } else if (rowIndex < rows.length - 1) {
+        nextRowIndex = rowIndex + 1;
+        nextFieldIndex = 0;
+      }
+    } else if (direction === "prev") {
+      if (fieldIndex > 0) {
+        nextFieldIndex = fieldIndex - 1;
+      } else if (rowIndex > 0) {
+        nextRowIndex = rowIndex - 1;
+        nextFieldIndex = fields.length - 1;
+      }
+    } else if (direction === "down") {
+      if (rowIndex < rows.length - 1) {
+        nextRowIndex = rowIndex + 1;
+      }
+    } else if (direction === "up") {
+      if (rowIndex > 0) {
+        nextRowIndex = rowIndex - 1;
+      }
+    }
+
+    const nextRow = rows[nextRowIndex];
+    const nextField = fields[nextFieldIndex];
+
+    if (nextRow) {
+      focusCell(nextRow._id, nextField);
     }
   }
 
   function handleKeyDown(e: React.KeyboardEvent, row: BankCashRow, field: string, inputType?: string) {
-    if (e.key === "Enter")  { e.preventDefault(); navigateCell(row._id, field, "down"); }
-    if (e.key === "Escape") { e.preventDefault(); setEditCell(null); }
+    if (e.key === "Enter")  { 
+      e.preventDefault(); 
+      navigateCell(row._id, field, "down"); 
+    }
+    if (e.key === "Escape") { 
+      e.preventDefault(); 
+      setEditCell(null); 
+      setTimeout(() => {
+        document.getElementById(`cell-${row._id}-${field}`)?.focus();
+      }, 50);
+    }
     if (e.key === "Tab")    {
       e.preventDefault();
       navigateCell(row._id, field, e.shiftKey ? "prev" : "next");
     }
-    if (inputType !== "select") {
-      if (e.key === "ArrowUp")    { e.preventDefault(); navigateCell(row._id, field, "up"); }
-      if (e.key === "ArrowDown")  { e.preventDefault(); navigateCell(row._id, field, "down"); }
-      if (e.key === "ArrowLeft")  { e.preventDefault(); navigateCell(row._id, field, "prev"); }
-      if (e.key === "ArrowRight") { e.preventDefault(); navigateCell(row._id, field, "next"); }
+  }
+
+  function handleFocusedCellKeyDown(e: React.KeyboardEvent, row: BankCashRow, field: string, value: string | number) {
+    if (e.key === "F2" || e.key === "Enter") {
+      e.preventDefault();
+      startEdit(row._id, field, value);
+      return;
+    }
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+      navigateFocus(row._id, field, e.shiftKey ? "prev" : "next");
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      navigateFocus(row._id, field, "down");
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      navigateFocus(row._id, field, "up");
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      navigateFocus(row._id, field, "prev");
+      return;
+    }
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      navigateFocus(row._id, field, "next");
+      return;
+    }
+
+    // Any printable single character starts editing and sets the initial value
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      startEdit(row._id, field, e.key);
     }
   }
 
@@ -847,6 +940,7 @@ function ExcelTable({
     inputType?: "text" | "number" | "date" | "select" | "select-ledger"; children?: React.ReactNode;
   }) {
     const isEditing = editCell?.id === row._id && editCell?.field === field;
+    const isFocused = focusedCell?.id === row._id && focusedCell?.field === field;
     const tdClass = `${COL_CELL} ${className} cursor-cell hover:bg-[#fffde7] transition-colors`;
 
     if (isEditing) {
@@ -906,9 +1000,13 @@ function ExcelTable({
 
     return (
       <td
-        className={tdClass}
-        title="Click to edit"
-        onClick={() => startEdit(row._id, field, value)}
+        id={`cell-${row._id}-${field}`}
+        tabIndex={0}
+        className={`${tdClass} ${isFocused ? "ring-2 ring-indigo-500 bg-[#fffde7] outline-none" : ""}`}
+        title="Click to select, F2/Enter to edit"
+        onClick={() => focusCell(row._id, field)}
+        onDoubleClick={() => startEdit(row._id, field, value)}
+        onKeyDown={(e) => handleFocusedCellKeyDown(e, row, field, value)}
       >
         {children ?? (
           <span className={`block w-full ${align === "right" ? "text-right" : ""} ${mono ? "font-mono" : ""}`}>

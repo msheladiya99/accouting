@@ -95,7 +95,27 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       companyId: companyObjId
     }));
 
-    await ImportedTransaction.insertMany(preparedImport);
+    // Deduplicate ImportedTransaction entries
+    const existingImports = await ImportedTransaction.find(
+      { companyId: { $in: [req.companyId, companyObjId] } },
+      { date: 1, narration: 1, withdrawal: 1, deposit: 1, accountName: 1 }
+    ).lean();
+
+    const existingImportFingerprints = new Set(
+      existingImports.map((e: any) =>
+        `${e.date}||${(e.narration || "").trim().toLowerCase()}||${e.withdrawal}||${e.deposit}||${(e.accountName || "").trim().toUpperCase()}`
+      )
+    );
+
+    const newImports = preparedImport.filter((e) => {
+      const fp = `${e.date}||${(e.narration || "").trim().toLowerCase()}||${e.withdrawal}||${e.deposit}||${e.accountName}`;
+      return !existingImportFingerprints.has(fp);
+    });
+
+    if (newImports.length > 0) {
+      await ImportedTransaction.insertMany(newImports);
+    }
+
 
     // Ensure all unique ledgers are created in the Ledger master
     const uniqueLedgers = new Map<string, string>(); // ledgerName (uppercase) -> groupName

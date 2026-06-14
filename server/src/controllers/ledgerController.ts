@@ -327,11 +327,22 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
       return;
     }
 
-    await BankCashAccount.deleteOne({
+    const account = await BankCashAccount.findOne({
       name: { $regex: new RegExp(`^${ledger.ledgerName.trim()}$`, "i") },
-      group: "Bank",
       companyId: req.companyId
     });
+
+    if (account) {
+      const { Types: MongoTypes } = require("mongoose");
+      let companyIdFilter: any;
+      try {
+        companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+      } catch {
+        companyIdFilter = req.companyId;
+      }
+      await BankCashEntry.deleteMany({ accountId: account._id.toString(), companyId: companyIdFilter });
+      await BankCashAccount.deleteOne({ _id: account._id });
+    }
 
     await Ledger.deleteOne({ _id: id, companyId: req.companyId });
     res.json({ message: "Ledger deleted successfully" });
@@ -351,11 +362,23 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
     const ledgers = await Ledger.find({ _id: { $in: ids }, companyId: req.companyId });
     const ledgerNames = ledgers.map(l => l.ledgerName.trim());
 
-    await BankCashAccount.deleteMany({
+    const accounts = await BankCashAccount.find({
       name: { $in: ledgerNames.map(name => new RegExp(`^${name}$`, "i")) },
-      group: "Bank",
       companyId: req.companyId
     });
+    const accountIds = accounts.map(a => a._id.toString());
+
+    if (accountIds.length > 0) {
+      const { Types: MongoTypes } = require("mongoose");
+      let companyIdFilter: any;
+      try {
+        companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+      } catch {
+        companyIdFilter = req.companyId;
+      }
+      await BankCashEntry.deleteMany({ accountId: { $in: accountIds }, companyId: companyIdFilter });
+      await BankCashAccount.deleteMany({ _id: { $in: accounts.map(a => a._id) } });
+    }
 
     const result = await Ledger.deleteMany({ _id: { $in: ids }, companyId: req.companyId });
     res.json({ message: `${result.deletedCount} ledgers deleted successfully`, count: result.deletedCount });
@@ -550,39 +573,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
       });
     }
 
-    // 5. Imported transactions (bank import) — where this ledger is the contra account
-    try {
-      const importQuery: any = {
-        accountName: { $regex: new RegExp(`^${ledgerName}$`, "i") },
-        companyId
-      };
-      if (fyStart && fyEnd) importQuery.date = { $gte: fyStart, $lte: fyEnd };
-      const importedTxns = await ImportedTransaction.find(importQuery).sort({ date: 1, createdAt: 1 });
-      for (const t of importedTxns) {
-        if (t.deposit > 0) {
-          lines.push({
-            date: t.date.slice(0, 10),
-            particulars: t.narration || "Bank Import",
-            voucherNo: "",
-            voucherType: "Import",
-            debit: 0,
-            credit: t.deposit,
-          });
-        }
-        if (t.withdrawal > 0) {
-          lines.push({
-            date: t.date.slice(0, 10),
-            particulars: t.narration || "Bank Import",
-            voucherNo: "",
-            voucherType: "Import",
-            debit: t.withdrawal,
-            credit: 0,
-          });
-        }
-      }
-    } catch {
-      // ImportedTransaction may not exist or may have different shape — skip
-    }
+
 
     // ── Sort by date, then voucherNo ─────────────────────────────────────────
     lines.sort((a, b) => {

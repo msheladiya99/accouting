@@ -90,7 +90,7 @@ let cachedSummary: TrialSummary | null = null;
 let cachedFYId: string | null = null;
 
 // ── Ledger Statement Modal ─────────────────────────────────────────────────────
-function LedgerStatementModal({
+export function LedgerStatementModal({
   ledgerName,
   onClose,
 }: {

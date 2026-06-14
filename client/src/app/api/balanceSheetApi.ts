@@ -117,32 +117,44 @@ export async function computeBalanceSheet(cache?: {
     const netCr = row.closingCr;
     let parentCategory = groupParentsMap[row.group.trim().toLowerCase()] || "Assets";
 
-    // Classify Profit & Loss A/c dynamically based on net balance: debit balance (loss) is an Asset, credit balance (profit) is Capital
-    if (row.group === "Profit & Loss A/c") {
-      const netCrDr = netCr - netDr;
-      if (netCrDr >= 0) {
-        parentCategory = "Capital";
-      } else {
-        parentCategory = "Assets";
-      }
+    // Skip Income/Expense groups — they go to P&L, not Balance Sheet
+    if (parentCategory === "Income") {
+      totalRevenue += netCr - netDr;
+      continue;
+    }
+    if (parentCategory === "Expense") {
+      totalExpense += netDr - netCr;
+      continue;
     }
 
-    if (parentCategory === "Assets") {
-      const amount = netDr - netCr;
+    // ── CORE RULE: classify by ACTUAL balance direction ──────────────────────
+    // Credit balance (Cr > Dr) → Liabilities/Capital side
+    // Debit balance  (Dr > Cr) → Assets side
+    const netCredit = netCr - netDr; // positive = credit balance, negative = debit balance
+
+    if (Math.abs(netCredit) < 0.001) continue; // zero balance — skip
+
+    if (netCredit > 0) {
+      // ── Credit balance → Liabilities/Capital side ────────────────────────
+      if (parentCategory === "Capital") {
+        // Capital ledger with credit balance → Capital section
+        const amount = netCredit;
+        if (!capitalMap.has(row.group)) capitalMap.set(row.group, []);
+        capitalMap.get(row.group)!.push({ ledgerName: row.ledgerName, amount });
+      } else {
+        // Asset or Liability ledger with credit balance → Liabilities section
+        // (e.g. bank overdraft, advance received from customer, etc.)
+        const amount = netCredit;
+        if (!liabMap.has(row.group)) liabMap.set(row.group, []);
+        liabMap.get(row.group)!.push({ ledgerName: row.ledgerName, amount });
+      }
+    } else {
+      // ── Debit balance → Assets side ───────────────────────────────────────
+      // Applies to all groups: normal assets, but also liabilities/capital that
+      // have gone into debit (e.g. prepaid to creditor, drawings > capital, etc.)
+      const amount = -netCredit; // convert to positive
       if (!assetMap.has(row.group)) assetMap.set(row.group, []);
       assetMap.get(row.group)!.push({ ledgerName: row.ledgerName, amount });
-    } else if (parentCategory === "Liabilities") {
-      const amount = netCr - netDr;
-      if (!liabMap.has(row.group)) liabMap.set(row.group, []);
-      liabMap.get(row.group)!.push({ ledgerName: row.ledgerName, amount });
-    } else if (parentCategory === "Capital") {
-      const amount = netCr - netDr;
-      if (!capitalMap.has(row.group)) capitalMap.set(row.group, []);
-      capitalMap.get(row.group)!.push({ ledgerName: row.ledgerName, amount });
-    } else if (parentCategory === "Income") {
-      totalRevenue += netCr - netDr;
-    } else if (parentCategory === "Expense") {
-      totalExpense += netDr - netCr;
     }
   }
 

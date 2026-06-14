@@ -5,7 +5,7 @@ const journalEntrySchema = new Schema(
     companyId: { type: Schema.Types.ObjectId, ref: "Company", required: true },
     voucherNo: { type: String, required: true },
     date: { type: String, required: true }, // Format: "YYYY-MM-DD"
-    narration: { type: String, required: true },
+    narration: { type: String, default: "" },
     debitAccount: { type: String, required: true },
     debitGroup: { type: String, required: true },
     debitAmount: { type: Number, required: true },

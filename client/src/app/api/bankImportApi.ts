@@ -60,21 +60,61 @@ const MONTHS_MAP: Record<string, string> = {
 
 function parseDate(val: unknown): string {
   if (!val) return "";
-  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  
+  // ── 1. Handle JavaScript Date objects (extract local components to avoid timezone shift) ──
+  if (val instanceof Date) {
+    const yyyy = val.getFullYear();
+    const mm = String(val.getMonth() + 1).padStart(2, "0");
+    const dd = String(val.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  
+  // ── 2. Handle Numeric Excel date serial numbers (typically 30000 to 60000) ──
+  if (typeof val === "number") {
+    if (val > 30000 && val < 60000) {
+      const d = new Date(Math.round((val - 25569) * 86400 * 1000));
+      if (!isNaN(d.getTime())) {
+        const yyyy = d.getUTCFullYear();
+        const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+        const dd = String(d.getUTCDate()).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd}`;
+      }
+    }
+  }
+
   const s = String(val).trim();
-  // DD/MM/YYYY or DD-MM-YYYY
-  const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  
+  // Handle stringified Excel serial date number
+  if (/^\d{5}$/.test(s)) {
+    const num = parseInt(s, 10);
+    if (num > 30000 && num < 60000) {
+      const d = new Date(Math.round((num - 25569) * 86400 * 1000));
+      if (!isNaN(d.getTime())) {
+        const yyyy = d.getUTCFullYear();
+        const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+        const dd = String(d.getUTCDate()).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd}`;
+      }
+    }
+  }
+
+  // ── 3. DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY ──
+  const m1 = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
   if (m1) {
     const [, dd, mm, yy] = m1;
     const yyyy = yy.length === 2 ? "20" + yy : yy;
     return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
   }
-  // YYYY-MM-DD
-  const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m2) return s;
+  
+  // ── 4. YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD ──
+  const m2 = s.match(/^(\d{4})[\/\-\.](\d{2})[\/\-\.](\d{2})$/);
+  if (m2) {
+    const [, yyyy, mm, dd] = m2;
+    return `${yyyy}-${mm}-${dd}`;
+  }
 
-  // DD-MMM-YYYY or DD MMM YYYY or DD-MMM-YY
-  const m3 = s.match(/^(\d{1,2})[\s\/\-]([a-zA-Z]{3,9})[\s\/\-](\d{2,4})$/);
+  // ── 5. DD-MMM-YYYY or DD MMM YYYY or DD-MMM-YY (accepting dot separator) ──
+  const m3 = s.match(/^(\d{1,2})[\s\/\-\.]([a-zA-Z]{3,9})[\s\/\-\.](\d{2,4})$/);
   if (m3) {
     const [, dd, monthName, yy] = m3;
     const mm = MONTHS_MAP[monthName.toLowerCase()];
@@ -84,8 +124,8 @@ function parseDate(val: unknown): string {
     }
   }
 
-  // MMM-DD-YYYY or MMM DD, YYYY
-  const m4 = s.match(/^([a-zA-Z]{3,9})[\s\/\-](\d{1,2})(?:,\s*|[\s\/\-])(\d{2,4})$/);
+  // ── 6. MMM-DD-YYYY or MMM DD, YYYY (accepting dot separator) ──
+  const m4 = s.match(/^([a-zA-Z]{3,9})[\s\/\-\.](\d{1,2})(?:,\s*|[\s\/\-\.])(\d{2,4})$/);
   if (m4) {
     const [, monthName, dd, yy] = m4;
     const mm = MONTHS_MAP[monthName.toLowerCase()];
@@ -96,7 +136,12 @@ function parseDate(val: unknown): string {
   }
 
   const d = new Date(s);
-  return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+  if (!isNaN(d.getTime())) {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+  }
+  return "";
 }
 
 function toNum(val: unknown): number {

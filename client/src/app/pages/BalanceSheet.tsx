@@ -640,6 +640,12 @@ export default function BalanceSheet() {
       ]
     : [];
 
+  // Compute totals from DISPLAYED rows only (so manual addition matches the shown total)
+  const displayedLiabTotal = leftRows.reduce((sum, row) => sum + (row.amount ?? 0), 0);
+  const displayedAssetsTotal = rightRows.reduce((sum, row) => sum + (row.amount ?? 0), 0);
+  const displayedDifference = Math.abs(displayedAssetsTotal - displayedLiabTotal);
+  const displayedIsBalanced = displayedDifference < 1;
+
   return (
     <div className="p-4 lg:p-6 space-y-5">
       <FYBanner />
@@ -688,18 +694,18 @@ export default function BalanceSheet() {
         <>
           {/* Balance banner */}
           <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
-            data.isBalanced
+            displayedIsBalanced
               ? "bg-emerald-50 border-emerald-200 text-emerald-800"
               : "bg-red-50 border-red-200 text-red-800"
           }`}>
-            {data.isBalanced
+            {displayedIsBalanced
               ? <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
               : <AlertTriangle size={18} className="text-red-500 shrink-0" />}
             <div className="flex-1">
               <span className="text-sm font-medium">
-                {data.isBalanced
+                {displayedIsBalanced
                   ? "Balance Sheet is Balanced — Assets = Liabilities + Capital"
-                  : `Out of Balance! Difference: \u20B9${data.difference.toLocaleString("en-IN")}`}
+                  : `Out of Balance! Difference: \u20B9${displayedDifference.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
               </span>
             </div>
             <span className="text-xs text-slate-500 hidden sm:block">
@@ -715,7 +721,7 @@ export default function BalanceSheet() {
               </div>
               <div>
                 <p className="text-xs text-slate-500">Total Assets</p>
-                <p className="font-bold text-slate-900 tabular-nums">{fmt(data.totalAssets)}</p>
+                <p className="font-bold text-slate-900 tabular-nums">{fmt(displayedAssetsTotal)}</p>
               </div>
             </div>
             <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-center gap-3">
@@ -724,14 +730,14 @@ export default function BalanceSheet() {
               </div>
               <div>
                 <p className="text-xs text-slate-500">Total Liabilities + Capital</p>
-                <p className="font-bold text-slate-900 tabular-nums">{fmt(data.totalLiabCap)}</p>
+                <p className="font-bold text-slate-900 tabular-nums">{fmt(displayedLiabTotal)}</p>
               </div>
             </div>
             <div className={`rounded-xl p-4 shadow-sm border flex items-center gap-3 ${
-              data.isBalanced ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"
+              displayedIsBalanced ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"
             }`}>
               <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shrink-0">
-                <Scale size={18} className={data.isBalanced ? "text-emerald-600" : "text-red-600"} />
+                <Scale size={18} className={displayedIsBalanced ? "text-emerald-600" : "text-red-600"} />
               </div>
               <div>
                 <p className="text-xs text-slate-500">
@@ -1183,7 +1189,7 @@ export default function BalanceSheet() {
                   <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
                     <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
                     <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
-                      {fmtReport(data.totalLiabCap)}
+                      {fmtReport(displayedLiabTotal)}
                     </div>
                   </div>
                 </div>
@@ -1222,7 +1228,7 @@ export default function BalanceSheet() {
                   <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10 mt-auto">
                     <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
                     <div className="w-[140px] shrink-0 py-3 text-right pr-4 font-mono text-xs tabular-nums font-bold">
-                      {fmtReport(data.totalAssets)}
+                      {fmtReport(displayedAssetsTotal)}
                     </div>
                   </div>
                 </div>
@@ -1232,30 +1238,31 @@ export default function BalanceSheet() {
 
             {/* Balance equation footer */}
             <div className={`flex flex-wrap items-center justify-center gap-4 py-4 px-6 rounded-xl border-2 max-w-4xl mx-auto mt-6 ${
-              data.isBalanced ? "border-emerald-300 bg-emerald-50" : "border-red-300 bg-red-50"
+              displayedIsBalanced ? "border-emerald-300 bg-emerald-50" : "border-red-300 bg-red-50"
             }`}>
               <div className="text-center">
                 <p className="text-xs text-slate-500 uppercase tracking-wide">Total Assets</p>
-                <p className="font-bold text-blue-700 tabular-nums">{fmt(data.totalAssets)}</p>
+                <p className="font-bold text-blue-700 tabular-nums">{fmt(displayedAssetsTotal)}</p>
               </div>
-              <span className={`text-xl font-bold ${data.isBalanced ? "text-emerald-600" : "text-red-500"}`}>=</span>
+              <span className={`text-xl font-bold ${displayedIsBalanced ? "text-emerald-600" : "text-red-500"}`}>
+                {displayedIsBalanced ? "=" : "≠"}
+              </span>
               <div className="text-center">
                 <p className="text-xs text-slate-500 uppercase tracking-wide">Liabilities + Capital</p>
-                <p className="font-bold text-indigo-700 tabular-nums">{fmt(data.totalLiabCap)}</p>
+                <p className="font-bold text-indigo-700 tabular-nums">{fmt(displayedLiabTotal)}</p>
               </div>
-              {!data.isBalanced && (
+              {!displayedIsBalanced && (
                 <>
-                  <span className="text-red-500 font-bold">≠</span>
                   <div className="text-center">
                     <p className="text-xs text-red-500 uppercase tracking-wide">Difference</p>
-                    <p className="font-bold text-red-600 tabular-nums">{fmt(data.difference)}</p>
+                    <p className="font-bold text-red-600 tabular-nums">{fmt(displayedDifference)}</p>
                   </div>
                 </>
               )}
               <span className={`ml-2 text-sm font-bold px-3 py-1 rounded-full ${
-                data.isBalanced ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+                displayedIsBalanced ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
               }`}>
-                {data.isBalanced ? "Balanced ✓" : "Out of Balance ✗"}
+                {displayedIsBalanced ? "Balanced ✓" : "Out of Balance ✗"}
               </span>
             </div>
           </div>

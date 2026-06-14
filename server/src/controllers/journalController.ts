@@ -136,7 +136,7 @@ export async function updateJournalEntry(req: AuthenticatedRequest, res: Respons
     }
 
     if (date) entry.date = date;
-    if (narration) entry.narration = narration;
+    if (narration !== undefined) entry.narration = narration;
     if (debitAccount) entry.debitAccount = debitAccount.trim().toUpperCase();
     if (debitGroup) entry.debitGroup = debitGroup;
     if (debitAmount !== undefined) entry.debitAmount = debitAmount;

@@ -58,62 +58,71 @@ const MONTHS_MAP: Record<string, string> = {
   july: "07", august: "08", september: "09", october: "10", november: "11", december: "12"
 };
 
+/** Convert an Excel serial number to YYYY-MM-DD using pure UTC arithmetic (no timezone offset). */
+function excelSerialToISO(serial: number): string {
+  // Excel epoch is 1899-12-30 (accounting for the Lotus 1-2-3 leap year bug).
+  // Multiply days by 86400000 ms and add to that epoch in UTC.
+  const MS_PER_DAY = 86400000;
+  // Correct for Excel's erroneous "day 60 = Feb 29, 1900" by subtracting 25569 days
+  // to convert to Unix epoch (1970-01-01).
+  const unixMs = Math.round((serial - 25569) * MS_PER_DAY);
+  const d = new Date(unixMs);
+  if (isNaN(d.getTime())) return "";
+  const yyyy = d.getUTCFullYear();
+  const mm   = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd   = String(d.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function parseDate(val: unknown): string {
   if (!val) return "";
-  
-  // ── 1. Handle JavaScript Date objects (extract local components to avoid timezone shift) ──
+
+  // ── 1. JavaScript Date objects ─────────────────────────────────────────────
+  // XLSX with cellDates:true produces Date objects in UTC (midnight UTC).
+  // Use UTC getters to avoid any local-timezone shift.
   if (val instanceof Date) {
-    const yyyy = val.getFullYear();
-    const mm = String(val.getMonth() + 1).padStart(2, "0");
-    const dd = String(val.getDate()).padStart(2, "0");
+    if (isNaN(val.getTime())) return "";
+    const yyyy = val.getUTCFullYear();
+    const mm   = String(val.getUTCMonth() + 1).padStart(2, "0");
+    const dd   = String(val.getUTCDate()).padStart(2, "0");
     return `${yyyy}-${mm}-${dd}`;
   }
-  
-  // ── 2. Handle Numeric Excel date serial numbers (typically 30000 to 60000) ──
+
+  // ── 2. Numeric Excel serial (e.g. 45463 = 25-Jun-2024) ────────────────────
   if (typeof val === "number") {
     if (val > 30000 && val < 60000) {
-      const d = new Date(Math.round((val - 25569) * 86400 * 1000));
-      if (!isNaN(d.getTime())) {
-        const yyyy = d.getUTCFullYear();
-        const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-        const dd = String(d.getUTCDate()).padStart(2, "0");
-        return `${yyyy}-${mm}-${dd}`;
-      }
+      return excelSerialToISO(val);
     }
+    return "";
   }
 
   const s = String(val).trim();
-  
-  // Handle stringified Excel serial date number
+  if (!s) return "";
+
+  // ── 3. Stringified Excel serial (5-digit number like "45463") ─────────────
   if (/^\d{5}$/.test(s)) {
     const num = parseInt(s, 10);
     if (num > 30000 && num < 60000) {
-      const d = new Date(Math.round((num - 25569) * 86400 * 1000));
-      if (!isNaN(d.getTime())) {
-        const yyyy = d.getUTCFullYear();
-        const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-        const dd = String(d.getUTCDate()).padStart(2, "0");
-        return `${yyyy}-${mm}-${dd}`;
-      }
+      return excelSerialToISO(num);
     }
   }
 
-  // ── 3. DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY ──
+  // ── 4. DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY ─────────────────────────────
   const m1 = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
   if (m1) {
     const [, dd, mm, yy] = m1;
     const yyyy = yy.length === 2 ? "20" + yy : yy;
     return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
   }
-  
-  // ── 4. YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD ──
+
+  // ── 5. YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD ─────────────────────────────
   const m2 = s.match(/^(\d{4})[\/\-\.](\d{2})[\/\-\.](\d{2})$/);
   if (m2) {
     const [, yyyy, mm, dd] = m2;
     return `${yyyy}-${mm}-${dd}`;
   }
 
-  // ── 5. DD-MMM-YYYY or DD MMM YYYY or DD-MMM-YY (accepting dot separator) ──
+  // ── 6. DD-MMM-YYYY or DD MMM YYYY or DD-MMM-YY ────────────────────────────
   const m3 = s.match(/^(\d{1,2})[\s\/\-\.]([a-zA-Z]{3,9})[\s\/\-\.](\d{2,4})$/);
   if (m3) {
     const [, dd, monthName, yy] = m3;
@@ -124,7 +133,7 @@ function parseDate(val: unknown): string {
     }
   }
 
-  // ── 6. MMM-DD-YYYY or MMM DD, YYYY (accepting dot separator) ──
+  // ── 7. MMM-DD-YYYY or MMM DD, YYYY ────────────────────────────────────────
   const m4 = s.match(/^([a-zA-Z]{3,9})[\s\/\-\.](\d{1,2})(?:,\s*|[\s\/\-\.])(\d{2,4})$/);
   if (m4) {
     const [, monthName, dd, yy] = m4;
@@ -135,12 +144,20 @@ function parseDate(val: unknown): string {
     }
   }
 
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) {
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
+  // ── 8. Last-resort: parse as ISO string using UTC to avoid timezone shift ──
+  // Only attempt if it looks like a parseable date string.
+  if (/\d{4}/.test(s)) {
+    // Force UTC by appending T00:00:00Z if it looks like a date-only string
+    const attempt = /T|Z/i.test(s) ? s : s + "T00:00:00Z";
+    const d = new Date(attempt);
+    if (!isNaN(d.getTime())) {
+      const yyyy = d.getUTCFullYear();
+      const mm   = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const dd   = String(d.getUTCDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    }
   }
+
   return "";
 }
 

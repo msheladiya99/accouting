@@ -46,8 +46,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // Start Server after connecting to MongoDB
 async function startServer() {
   await connectDB();
-  app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+  const portNum = typeof PORT === "string" ? parseInt(PORT, 10) : Number(PORT);
+  app.listen(portNum, "0.0.0.0", () => {
+    console.log(`Server is running on port ${portNum} (bound to 0.0.0.0)`);
   });
 }
 

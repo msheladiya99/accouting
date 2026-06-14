@@ -43,6 +43,24 @@ const fmtDate = (d: string) => {
   return dt.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 };
 
+const fmtMiracleSigned = (v: number) => {
+  if (v === 0) return "NIL";
+  return `₹${Math.abs(v).toLocaleString("en-IN")} ${v >= 0 ? "DB" : "CR"}`;
+};
+
+const fmtMiracleDate = (d: string) => {
+  if (!d) return "";
+  const parts = d.split("-");
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const dt = new Date(d);
+  const day = String(dt.getDate()).padStart(2, '0');
+  const month = String(dt.getMonth() + 1).padStart(2, '0');
+  const year = dt.getFullYear();
+  return `${day}/${month}/${year}`;
+};
+
 const GroupBadge = ({ value }: { value: string }) => {
   const c = GROUP_COLORS[value] ?? { bg: "bg-slate-100", text: "text-slate-600" };
   return (
@@ -54,12 +72,14 @@ const GroupBadge = ({ value }: { value: string }) => {
 
 const VoucherBadge = ({ type }: { type: string }) => {
   const map: Record<string, string> = {
-    "Bank/Cash": "bg-sky-100 text-sky-700",
-    "Journal":   "bg-violet-100 text-violet-700",
-    "Import":    "bg-amber-100 text-amber-700",
+    "BPmt": "bg-sky-100 text-sky-700 font-mono",
+    "BRct": "bg-emerald-100 text-emerald-700 font-mono",
+    "JVou": "bg-violet-100 text-violet-700 font-mono",
+    "CPmt": "bg-amber-100 text-amber-700 font-mono",
+    "CRct": "bg-cyan-100 text-cyan-700 font-mono",
   };
   return (
-    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${map[type] ?? "bg-slate-100 text-slate-600"}`}>
+    <span className={`px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${map[type] ?? "bg-slate-100 text-slate-600"}`}>
       {type}
     </span>
   );
@@ -77,6 +97,7 @@ function LedgerStatementModal({
   ledgerName: string;
   onClose: () => void;
 }) {
+  const { selectedFY, sidebarCollapsed } = useApp();
   const [statement, setStatement] = useState<LedgerStatement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,10 +126,11 @@ function LedgerStatementModal({
     if (!q) return statement.rows;
     return statement.rows.filter(
       (r) =>
-        r.particulars.toLowerCase().includes(q) ||
-        r.voucherNo.toLowerCase().includes(q) ||
-        r.voucherType.toLowerCase().includes(q) ||
-        r.date.includes(q),
+        (r.accountName || "").toLowerCase().includes(q) ||
+        (r.particulars || "").toLowerCase().includes(q) ||
+        (r.voucherNo || "").toLowerCase().includes(q) ||
+        (r.voucherType || "").toLowerCase().includes(q) ||
+        (r.date || "").includes(q),
     );
   }, [statement, search]);
 
@@ -119,209 +141,204 @@ function LedgerStatementModal({
   return (
     /* Overlay */
     <div
-      className="fixed inset-0 z-50 flex items-stretch justify-end"
+      className={`fixed inset-y-0 right-0 z-50 flex items-stretch justify-end transition-all duration-300
+        ${sidebarCollapsed ? "lg:left-[72px]" : "lg:left-[240px]"} left-0`}
       style={{ background: "rgba(15,23,42,0.55)", backdropFilter: "blur(2px)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      {/* Sliding Panel */}
+      {/* Sliding Panel - styled like Miracle 9.0 */}
       <div
-        className="relative flex flex-col bg-white shadow-2xl"
-        style={{ width: "min(860px, 100vw)", animation: "slideInRight 0.22s ease-out" }}
+        className="relative flex flex-col bg-[#eaf2f9] w-full h-full text-slate-800"
+        style={{ animation: "slideInRight 0.22s ease-out" }}
       >
-        {/* ── Header ── */}
-        <div className="flex items-start justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-indigo-600 to-indigo-700">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${c.bg} ${c.text}`}>
-                {statement?.groupName ?? "—"}
-              </span>
-            </div>
-            <h2 className="text-xl font-bold text-white leading-tight tracking-tight">
-              {ledgerName}
-            </h2>
-            <p className="text-indigo-200 text-xs mt-0.5">Ledger Account Statement</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg text-indigo-200 hover:text-white hover:bg-indigo-500 transition-colors mt-0.5"
-            aria-label="Close"
-          >
-            <X size={18} />
-          </button>
+        {/* ── Path Breadcrumb ── */}
+        <div className="max-w-7xl mx-auto w-full px-6 pt-3 text-[11px] font-semibold text-indigo-700 tracking-wide select-none">
+          Report -{'>'} Account Books -{'>'} Ledger -{'>'} Ledger
         </div>
 
-        {/* ── Summary Cards ── */}
-        {statement && !loading && (
-          <div className="grid grid-cols-3 gap-3 px-6 py-3 bg-slate-50 border-b border-slate-100">
-            {[
-              {
-                label: "Opening Balance",
-                value: fmtSigned(statement.openingBalance),
-                icon: Minus,
-                color: "text-slate-600",
-                iconBg: "bg-slate-100",
-              },
-              {
-                label: "Total Debit",
-                value: statement.rows.reduce((s, r) => s + r.debit, 0) > 0
-                  ? `₹${statement.rows.reduce((s, r) => s + r.debit, 0).toLocaleString("en-IN")}`
-                  : "—",
-                icon: TrendingUp,
-                color: "text-emerald-600",
-                iconBg: "bg-emerald-50",
-              },
-              {
-                label: "Total Credit",
-                value: statement.rows.reduce((s, r) => s + r.credit, 0) > 0
-                  ? `₹${statement.rows.reduce((s, r) => s + r.credit, 0).toLocaleString("en-IN")}`
-                  : "—",
-                icon: TrendingDown,
-                color: "text-red-500",
-                iconBg: "bg-red-50",
-              },
-            ].map(({ label, value, icon: Icon, color, iconBg }) => (
-              <div key={label} className="bg-white rounded-xl px-4 py-3 shadow-sm border border-slate-100 flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${iconBg}`}>
-                  <Icon size={15} className={color} />
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500">{label}</p>
-                  <p className={`font-bold text-sm ${color}`}>{value}</p>
-                </div>
+        {/* ── Header ── */}
+        <div className="max-w-7xl mx-auto w-full px-6 py-2">
+          <div className="flex items-baseline justify-between border-b border-slate-300 pb-2">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 leading-none">
+                Ledger <span className="uppercase">{ledgerName}</span>
+              </h2>
+              <div className="text-xs font-semibold text-slate-600 mt-2">
+                Group <span className="text-slate-800">{statement?.groupName ?? "—"}</span>
               </div>
-            ))}
+            </div>
+            <div className="text-right text-xs font-semibold text-slate-600 select-none">
+              <div>
+                From <span className="text-slate-800">{selectedFY ? fmtMiracleDate(selectedFY.startDate) : "—"}</span> To <span className="text-slate-800">{selectedFY ? fmtMiracleDate(selectedFY.endDate) : "—"}</span>
+              </div>
+              <div className="mt-1.5 flex items-center gap-1 justify-end">
+                <input type="checkbox" id="audit-chk" disabled className="rounded border-slate-300" />
+                <label htmlFor="audit-chk" className="cursor-not-allowed select-none">Account Audit</label>
+              </div>
+            </div>
           </div>
-        )}
+        </div>
 
-        {/* ── Closing Balance Banner ── */}
-        {statement && !loading && (
-          <div className="px-6 py-2 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
-            <span className="text-xs text-indigo-700 font-medium">Closing Balance</span>
-            <span className={`text-sm font-bold ${statement.closingBalance >= 0 ? "text-emerald-700" : "text-red-600"}`}>
-              {fmtSigned(statement.closingBalance)}
-            </span>
-          </div>
-        )}
-
-        {/* ── Search ── */}
-        <div className="px-6 py-3 border-b border-slate-100 bg-white">
-          <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 max-w-xs">
+        {/* ── Search Bar ── */}
+        <div className="max-w-7xl mx-auto w-full px-6 py-1.5">
+          <div className="flex items-center gap-2 bg-white rounded border border-slate-300 px-2.5 py-1.5 max-w-xs shadow-sm">
             <Search size={13} className="text-slate-400 shrink-0" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search particulars, voucher..."
-              className="bg-transparent text-sm outline-none text-slate-700 placeholder-slate-400 w-full"
+              className="bg-transparent text-xs outline-none text-slate-700 placeholder-slate-400 w-full"
             />
           </div>
         </div>
 
-        {/* ── Table ── */}
-        <div className="flex-1 overflow-auto px-6 pb-6 pt-2">
-          {loading ? (
-            <div className="flex items-center justify-center h-48 gap-2 text-slate-500 text-sm">
-              <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-              Loading ledger statement…
-            </div>
-          ) : error ? (
-            <div className="flex items-center justify-center h-48 gap-2 text-red-500 text-sm">
-              <AlertTriangle size={16} /> {error}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-48 gap-2 text-slate-400 text-sm">
-              <FileText size={32} className="opacity-30" />
-              {search ? "No entries match your search" : "No transactions found for this ledger in the current financial year"}
-            </div>
-          ) : (
-            <table className="w-full text-sm border-separate" style={{ borderSpacing: 0 }}>
-              <thead>
-                <tr className="sticky top-0 z-10">
-                  {["#", "Date", "Particulars", "Voucher No", "Type", "Debit (₹)", "Credit (₹)", "Balance"].map((h, i) => (
-                    <th
-                      key={h}
-                      className="bg-slate-50 text-slate-500 font-semibold text-xs uppercase tracking-wide px-3 py-2.5 border-b border-slate-200 whitespace-nowrap"
-                      style={{ textAlign: i >= 5 ? "right" : "left" }}
+        {/* ── Table Container ── */}
+        <div className="flex-1 overflow-auto py-2">
+          <div className="max-w-7xl mx-auto w-full px-6 pb-6">
+            {loading ? (
+              <div className="flex items-center justify-center h-48 gap-2 text-slate-500 text-sm">
+                <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                Loading ledger statement…
+              </div>
+            ) : error ? (
+              <div className="flex items-center justify-center h-48 gap-2 text-red-500 text-sm">
+                <AlertTriangle size={16} /> {error}
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-48 gap-2 text-slate-400 text-sm">
+                <FileText size={32} className="opacity-30" />
+                {search ? "No entries match your search" : "No transactions found for this ledger in the current financial year"}
+              </div>
+            ) : (
+              <table className="w-full text-xs font-mono border-collapse border border-slate-400" style={{ borderSpacing: 0 }}>
+                <thead>
+                  <tr className="sticky top-0 z-10">
+                    {["Date", "Type", "Vou/Doc No.", "Account Name", "Debit", "Credit", "Closing Balance"].map((h, i) => (
+                      <th
+                        key={h}
+                        className="bg-[#cfe3f5] text-slate-800 font-bold border border-slate-400 px-3 py-2 text-left whitespace-nowrap"
+                        style={{ textAlign: i >= 4 ? "right" : "left" }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="bg-white">
+                  {/* Opening balance row - represented as a standard table row */}
+                  {statement && (
+                    <tr className="bg-slate-50 hover:bg-slate-100/70 border-b border-slate-300">
+                      <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                      <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                      <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                      <td className="px-3 py-2 border border-slate-300 text-slate-700 font-sans font-semibold">Opening Balance</td>
+                      <td className="px-3 py-2 border border-slate-300 text-right font-medium text-emerald-700">
+                        {statement.openingBalance > 0 ? statement.openingBalance.toFixed(2) : "NIL"}
+                      </td>
+                      <td className="px-3 py-2 border border-slate-300 text-right font-medium text-red-600">
+                        {statement.openingBalance < 0 ? Math.abs(statement.openingBalance).toFixed(2) : "NIL"}
+                      </td>
+                      <td className="px-3 py-2 border border-slate-300 text-right font-semibold text-slate-800">
+                        {fmtMiracleSigned(statement.openingBalance)}
+                      </td>
+                    </tr>
+                  )}
+                  {filtered.map((row) => (
+                    <tr
+                      key={row.srNo}
+                      className="hover:bg-slate-50 transition-colors border-b border-slate-300"
                     >
-                      {h}
-                    </th>
+                      <td className="px-3 py-2 border border-slate-300 text-slate-600 whitespace-nowrap">{fmtMiracleDate(row.date)}</td>
+                      <td className="px-3 py-2 border border-slate-300 text-slate-700 font-sans font-semibold">{row.voucherType}</td>
+                      <td className="px-3 py-2 border border-slate-300 text-slate-500 font-mono">
+                        {row.voucherNo || "—"}
+                      </td>
+                      <td className="px-3 py-2 border border-slate-300 text-slate-800 font-sans max-w-[200px]">
+                        <div className="font-semibold">{row.accountName || "—"}</div>
+                        {row.particulars && row.particulars !== row.accountName && (
+                          <div className="text-[10px] text-slate-400 truncate mt-0.5" title={row.particulars}>
+                            {row.particulars}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 border border-slate-300 text-right text-emerald-700 font-medium">
+                        {row.debit > 0 ? row.debit.toFixed(2) : "NIL"}
+                      </td>
+                      <td className="px-3 py-2 border border-slate-300 text-right text-red-600 font-medium">
+                        {row.credit > 0 ? row.credit.toFixed(2) : "NIL"}
+                      </td>
+                      <td className="px-3 py-2 border border-slate-300 text-right font-semibold text-slate-800">
+                        {fmtMiracleSigned(row.balance)}
+                      </td>
+                    </tr>
                   ))}
-                </tr>
-                {/* Opening balance row */}
-                {statement && (
-                  <tr className="bg-indigo-50">
-                    <td className="px-3 py-2 text-indigo-400 text-xs" colSpan={5}>
-                      <span className="font-semibold text-indigo-600">Opening Balance</span>
+                </tbody>
+                {/* Totals & Closing Balance footers styled exactly like Miracle */}
+                <tfoot className="bg-[#e6f0fa]">
+                  <tr className="font-bold border-t border-slate-400">
+                    <td colSpan={3} className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                    <td className="px-3 py-2 border border-slate-300 text-right text-slate-800 uppercase font-sans">
+                      Total
                     </td>
-                    <td className="px-3 py-2 text-right font-semibold text-emerald-700 text-xs">
-                      {statement.openingBalance > 0 ? `₹${statement.openingBalance.toLocaleString("en-IN")}` : "—"}
+                    <td className="px-3 py-2 border border-slate-300 text-right text-emerald-700">
+                      {totalDebit > 0 ? totalDebit.toFixed(2) : "NIL"}
                     </td>
-                    <td className="px-3 py-2 text-right font-semibold text-red-600 text-xs">
-                      {statement.openingBalance < 0 ? `₹${Math.abs(statement.openingBalance).toLocaleString("en-IN")}` : "—"}
+                    <td className="px-3 py-2 border border-slate-300 text-right text-red-600">
+                      {totalCredit > 0 ? totalCredit.toFixed(2) : "NIL"}
                     </td>
-                    <td className="px-3 py-2 text-right font-semibold text-slate-700 text-xs">
-                      {fmtSigned(statement.openingBalance)}
+                    <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                  </tr>
+                  <tr className="font-bold border-t border-slate-400">
+                    <td colSpan={3} className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                    <td className="px-3 py-2 border border-slate-300 text-right text-slate-800 uppercase font-sans">
+                      Closing Balance
+                    </td>
+                    <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                    <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                    <td className="px-3 py-2 border border-slate-300 text-right text-slate-800">
+                      {statement ? fmtMiracleSigned(statement.closingBalance) : "NIL"}
                     </td>
                   </tr>
-                )}
-              </thead>
-              <tbody>
-                {filtered.map((row, idx) => (
-                  <tr
-                    key={row.srNo}
-                    className={`transition-colors ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"} hover:bg-indigo-50/40`}
-                  >
-                    <td className="px-3 py-2.5 text-slate-400 text-xs border-b border-slate-100">{row.srNo}</td>
-                    <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap border-b border-slate-100">{fmtDate(row.date)}</td>
-                    <td className="px-3 py-2.5 text-slate-800 border-b border-slate-100 max-w-[200px]">
-                      <span className="line-clamp-2">{row.particulars || "—"}</span>
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-500 font-mono text-xs whitespace-nowrap border-b border-slate-100">
-                      {row.voucherNo || "—"}
-                    </td>
-                    <td className="px-3 py-2.5 border-b border-slate-100">
-                      <VoucherBadge type={row.voucherType} />
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-medium border-b border-slate-100">
-                      {row.debit > 0 ? (
-                        <span className="text-emerald-700">₹{row.debit.toLocaleString("en-IN")}</span>
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-medium border-b border-slate-100">
-                      {row.credit > 0 ? (
-                        <span className="text-red-600">₹{row.credit.toLocaleString("en-IN")}</span>
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-semibold border-b border-slate-100">
-                      <span className={row.balance >= 0 ? "text-emerald-700" : "text-red-600"}>
-                        {fmtSigned(row.balance)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              {/* Totals footer */}
-              <tfoot>
-                <tr className="bg-slate-100">
-                  <td colSpan={5} className="px-3 py-2.5 font-bold text-slate-700 text-xs uppercase">
-                    Totals
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-bold text-emerald-700">
-                    {totalDebit > 0 ? `₹${totalDebit.toLocaleString("en-IN")}` : "—"}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-bold text-red-600">
-                    {totalCredit > 0 ? `₹${totalCredit.toLocaleString("en-IN")}` : "—"}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-bold text-slate-700">
-                    {statement ? fmtSigned(statement.closingBalance) : "—"}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          )}
+                </tfoot>
+              </table>
+            )}
+          </div>
+        </div>
+
+        {/* ── Miracle Action Bottom Toolbar ── */}
+        <div className="bg-[#d0e1f3] border-t border-slate-300 py-2.5 px-6 flex flex-wrap gap-2 items-center justify-between text-xs font-semibold select-none shadow-inner">
+          <div className="flex flex-wrap gap-1">
+            {[
+              "Add", "Edit", "Delete", "Print", "Vou. Cancel", "Audit", "Detail", "Filter", "Date", "Format"
+            ].map((btn) => (
+              <button
+                key={btn}
+                disabled
+                className="bg-[#f0f4f8] text-slate-700 border border-slate-400 rounded px-2.5 py-1 hover:bg-slate-200 hover:border-slate-500 cursor-not-allowed min-w-[54px] shadow-sm text-center"
+              >
+                {btn}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1 items-center">
+            {[
+              "Next A/c", "Prev A/c", "Report Setup", "Optional Vou.", "Disp. Optional", "Copy Vou", "Voucher Print", "E-Mail", "Graph"
+            ].map((btn) => (
+              <button
+                key={btn}
+                disabled
+                className="bg-[#f0f4f8] text-slate-700 border border-slate-400 rounded px-2 py-1 hover:bg-slate-200 hover:border-slate-500 cursor-not-allowed shadow-sm text-center"
+              >
+                {btn}
+              </button>
+            ))}
+            <button
+              onClick={onClose}
+              className="bg-red-50 text-red-700 border border-red-400 rounded px-4 py-1 hover:bg-red-100 hover:border-red-500 transition-colors ml-4 cursor-pointer font-bold shadow-sm"
+            >
+              Exit (ESC)
+            </button>
+          </div>
         </div>
       </div>
 

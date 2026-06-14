@@ -111,13 +111,15 @@ export async function saveBulkOpeningBalances(
 export interface LedgerStatementRow {
   srNo: number;
   date: string;
+  accountName: string;
   particulars: string;
   voucherNo: string;
-  voucherType: "Bank/Cash" | "Journal" | "Import";
+  voucherType: string;
   debit: number;
   credit: number;
   balance: number;
 }
+
 
 export interface LedgerStatement {
   ledgerName: string;

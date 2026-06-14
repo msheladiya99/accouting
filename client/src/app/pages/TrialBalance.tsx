@@ -151,6 +151,15 @@ function LedgerStatementModal({
         className="relative flex flex-col bg-[#eaf2f9] w-full h-full text-slate-800"
         style={{ animation: "slideInRight 0.22s ease-out" }}
       >
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          className="absolute right-4 top-3 p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors z-50 cursor-pointer"
+          title="Close (ESC)"
+        >
+          <X size={18} />
+        </button>
+
         {/* ── Path Breadcrumb ── */}
         <div className="max-w-7xl mx-auto w-full px-6 pt-3 text-[11px] font-semibold text-indigo-700 tracking-wide select-none">
           Report -{'>'} Account Books -{'>'} Ledger -{'>'} Ledger
@@ -305,41 +314,6 @@ function LedgerStatementModal({
           </div>
         </div>
 
-        {/* ── Miracle Action Bottom Toolbar ── */}
-        <div className="bg-[#d0e1f3] border-t border-slate-300 py-2.5 px-6 flex flex-wrap gap-2 items-center justify-between text-xs font-semibold select-none shadow-inner">
-          <div className="flex flex-wrap gap-1">
-            {[
-              "Add", "Edit", "Delete", "Print", "Vou. Cancel", "Audit", "Detail", "Filter", "Date", "Format"
-            ].map((btn) => (
-              <button
-                key={btn}
-                disabled
-                className="bg-[#f0f4f8] text-slate-700 border border-slate-400 rounded px-2.5 py-1 hover:bg-slate-200 hover:border-slate-500 cursor-not-allowed min-w-[54px] shadow-sm text-center"
-              >
-                {btn}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-1 items-center">
-            {[
-              "Next A/c", "Prev A/c", "Report Setup", "Optional Vou.", "Disp. Optional", "Copy Vou", "Voucher Print", "E-Mail", "Graph"
-            ].map((btn) => (
-              <button
-                key={btn}
-                disabled
-                className="bg-[#f0f4f8] text-slate-700 border border-slate-400 rounded px-2 py-1 hover:bg-slate-200 hover:border-slate-500 cursor-not-allowed shadow-sm text-center"
-              >
-                {btn}
-              </button>
-            ))}
-            <button
-              onClick={onClose}
-              className="bg-red-50 text-red-700 border border-red-400 rounded px-4 py-1 hover:bg-red-100 hover:border-red-500 transition-colors ml-4 cursor-pointer font-bold shadow-sm"
-            >
-              Exit (ESC)
-            </button>
-          </div>
-        </div>
       </div>
 
       <style>{`

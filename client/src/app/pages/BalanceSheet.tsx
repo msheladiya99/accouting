@@ -11,6 +11,7 @@ import { getAllEntries, getAllAccounts } from "../api/bankCashBookApi";
 import { getAllJournalEntries } from "../api/journalVoucherApi";
 import { getAllLedgers } from "../api/ledgerApi";
 import { getAllGroups } from "../api/accountGroupApi";
+import { LedgerStatementModal } from "./TrialBalance";
 
 const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
   "Capital Account": "Capital",
@@ -167,6 +168,7 @@ interface ReportRow {
   label: string;
   amount?: number;
   depth: number;
+  ledgerName?: string;
 }
 
 function flattenSection(structuredItems: any[]): ReportRow[] {
@@ -194,7 +196,8 @@ function flattenSection(structuredItems: any[]): ReportRow[] {
           type: depth === 0 ? 'header' : 'subheader',
           label: item.title,
           amount: item.ledgers[0].amount,
-          depth: depth
+          depth: depth,
+          ledgerName: item.ledgers[0].ledgerName
         });
       } else {
         rows.push({
@@ -207,7 +210,8 @@ function flattenSection(structuredItems: any[]): ReportRow[] {
             type: 'ledger',
             label: l.ledgerName,
             amount: l.amount,
-            depth: depth + 1
+            depth: depth + 1,
+            ledgerName: l.ledgerName
           });
         });
       }
@@ -231,7 +235,8 @@ function flattenUnmatched(unmatchedGroups: any[]): ReportRow[] {
         type: 'ledger',
         label: l.ledgerName,
         amount: l.amount,
-        depth: 1
+        depth: 1,
+        ledgerName: l.ledgerName
       });
     });
   });
@@ -528,6 +533,7 @@ export default function BalanceSheet() {
   const [loading, setLoading] = useState(cachedFYId === resolvedFYId ? !cachedData : true);
   const [error, setError]     = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedLedger, setSelectedLedger] = useState<string | null>(null);
 
   const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>(
     cachedFYId === resolvedFYId ? cachedCapitalAccounts : []
@@ -787,19 +793,19 @@ export default function BalanceSheet() {
             if (tpl.totalOpeningStock > 0) {
               tradingLeft.push({ label: "TO OPENING STOCK", isHeader: true, depth: 0 });
               tpl.openingStockRows.forEach((r: any) => {
-                tradingLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+                tradingLeft.push({ label: r.name, amount: r.amount, depth: 1, ledgerName: r.name });
               });
             }
             if (tpl.totalPurchases > 0) {
               tradingLeft.push({ label: "TO PURCHASE A/C", isHeader: true, depth: 0 });
               tpl.purchaseRows.forEach((r: any) => {
-                tradingLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+                tradingLeft.push({ label: r.name, amount: r.amount, depth: 1, ledgerName: r.name });
               });
             }
             if (tpl.totalDirectExp > 0) {
               tradingLeft.push({ label: "TO DIRECT EXPENSES", isHeader: true, depth: 0 });
               tpl.directExpRows.forEach((r: any) => {
-                tradingLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+                tradingLeft.push({ label: r.name, amount: r.amount, depth: 1, ledgerName: r.name });
               });
             }
             if (tpl.grossProfit > 0) {
@@ -810,13 +816,13 @@ export default function BalanceSheet() {
             if (tpl.totalSales > 0) {
               tradingRight.push({ label: "BY SALES A/C", isHeader: true, depth: 0 });
               tpl.salesRows.forEach((r: any) => {
-                tradingRight.push({ label: r.name, amount: r.amount, depth: 1 });
+                tradingRight.push({ label: r.name, amount: r.amount, depth: 1, ledgerName: r.name });
               });
             }
             if (tpl.totalClosingStock > 0) {
               tradingRight.push({ label: "BY INVENTORY", isHeader: true, depth: 0 });
               tpl.closingStockRows.forEach((r: any) => {
-                tradingRight.push({ label: "STOCK IN TRADE", amount: r.amount, depth: 1 });
+                tradingRight.push({ label: "STOCK IN TRADE", amount: r.amount, depth: 1, ledgerName: r.name });
               });
             }
             if (tpl.grossProfit < 0) {
@@ -842,19 +848,19 @@ export default function BalanceSheet() {
             if (tpl.totalFinancialExp > 0) {
               plLeft.push({ label: "TO FINANCIAL EXPENSES", isHeader: true, depth: 0 });
               tpl.financialExpRows.forEach((r: any) => {
-                plLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+                plLeft.push({ label: r.name, amount: r.amount, depth: 1, ledgerName: r.name });
               });
             }
             if (tpl.totalIndirectExp > 0) {
               plLeft.push({ label: "TO INDIRECT EXPENSES", isHeader: true, depth: 0 });
               tpl.indirectExpRows.forEach((r: any) => {
-                plLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+                plLeft.push({ label: r.name, amount: r.amount, depth: 1, ledgerName: r.name });
               });
             }
             if (tpl.totalDepreciation > 0) {
               plLeft.push({ label: "TO DEPRECIATION", isHeader: true, depth: 0 });
               tpl.depreciationRows.forEach((r: any) => {
-                plLeft.push({ label: r.name, amount: r.amount, depth: 1 });
+                plLeft.push({ label: r.name, amount: r.amount, depth: 1, ledgerName: r.name });
               });
             }
             if (tpl.netProfit > 0) {
@@ -868,7 +874,7 @@ export default function BalanceSheet() {
             if (tpl.totalIndirectIncome > 0) {
               plRight.push({ label: "BY INDIRECT INCOMES", isHeader: true, depth: 0 });
               tpl.indirectIncomeRows.forEach((r: any) => {
-                plRight.push({ label: r.name, amount: r.amount, depth: 1 });
+                plRight.push({ label: r.name, amount: r.amount, depth: 1, ledgerName: r.name });
               });
             }
             if (tpl.netProfit < 0) {
@@ -902,7 +908,21 @@ export default function BalanceSheet() {
 
                 return (
                   <div key={idx} className={`flex py-0.5 items-center min-h-[22px] ${fontClass}`}>
-                    <div className={`flex-1 pr-2 uppercase ${indentClass} ${row.isHeader ? 'underline decoration-slate-300 underline-offset-2' : ''}`}>
+                    <div
+                      onClick={() => row.ledgerName && setSelectedLedger(row.ledgerName)}
+                      onKeyDown={(e) => {
+                        if (row.ledgerName && (e.key === "Enter" || e.key === " ")) {
+                          e.preventDefault();
+                          setSelectedLedger(row.ledgerName);
+                        }
+                      }}
+                      tabIndex={row.ledgerName ? 0 : undefined}
+                      className={`flex-1 pr-2 uppercase ${indentClass} ${
+                        row.isHeader ? 'underline decoration-slate-300 underline-offset-2' : ''
+                      } ${
+                        row.ledgerName ? 'cursor-pointer hover:text-indigo-600 hover:underline transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:bg-indigo-50/50 rounded-sm' : ''
+                      }`}
+                    >
                       {row.label}
                     </div>
                     <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
@@ -1049,7 +1069,20 @@ export default function BalanceSheet() {
                         {company?.address || "ADDRESS"}
                       </p>
                       <p className="text-sm font-bold text-slate-800 mt-2 uppercase tracking-widest font-bold">
-                        CAPITAL ACCOUNT OF {account.ledgerName}
+                        CAPITAL ACCOUNT OF{" "}
+                        <span
+                          onClick={() => setSelectedLedger(account.ledgerName)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setSelectedLedger(account.ledgerName);
+                            }
+                          }}
+                          tabIndex={0}
+                          className="cursor-pointer hover:text-indigo-600 hover:underline transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:bg-indigo-50/50 rounded-sm px-1"
+                        >
+                          {account.ledgerName}
+                        </span>
                       </p>
                     </div>
 
@@ -1175,7 +1208,21 @@ export default function BalanceSheet() {
 
                         return (
                           <div key={idx} className={`flex py-0.5 items-center ${fontClass}`}>
-                            <div className={`flex-1 pr-2 uppercase ${indentClass} ${row.type === 'header' || row.type === 'subheader' ? 'underline decoration-slate-300 underline-offset-2' : ''}`}>
+                            <div
+                              onClick={() => row.ledgerName && setSelectedLedger(row.ledgerName)}
+                              onKeyDown={(e) => {
+                                if (row.ledgerName && (e.key === "Enter" || e.key === " ")) {
+                                  e.preventDefault();
+                                  setSelectedLedger(row.ledgerName);
+                                }
+                              }}
+                              tabIndex={row.ledgerName ? 0 : undefined}
+                              className={`flex-1 pr-2 uppercase ${indentClass} ${
+                                row.type === 'header' || row.type === 'subheader' ? 'underline decoration-slate-300 underline-offset-2' : ''
+                              } ${
+                                row.ledgerName ? 'cursor-pointer hover:text-indigo-600 hover:underline transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:bg-indigo-50/50 rounded-sm' : ''
+                              }`}
+                            >
                               {row.label}
                             </div>
                             <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
@@ -1214,7 +1261,21 @@ export default function BalanceSheet() {
 
                         return (
                           <div key={idx} className={`flex py-0.5 items-center ${fontClass}`}>
-                            <div className={`flex-1 pr-2 uppercase ${indentClass} ${row.type === 'header' || row.type === 'subheader' ? 'underline decoration-slate-300 underline-offset-2' : ''}`}>
+                            <div
+                              onClick={() => row.ledgerName && setSelectedLedger(row.ledgerName)}
+                              onKeyDown={(e) => {
+                                if (row.ledgerName && (e.key === "Enter" || e.key === " ")) {
+                                  e.preventDefault();
+                                  setSelectedLedger(row.ledgerName);
+                                }
+                              }}
+                              tabIndex={row.ledgerName ? 0 : undefined}
+                              className={`flex-1 pr-2 uppercase ${indentClass} ${
+                                row.type === 'header' || row.type === 'subheader' ? 'underline decoration-slate-300 underline-offset-2' : ''
+                              } ${
+                                row.ledgerName ? 'cursor-pointer hover:text-indigo-600 hover:underline transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:bg-indigo-50/50 rounded-sm' : ''
+                              }`}
+                            >
                               {row.label}
                             </div>
                             <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
@@ -1267,6 +1328,13 @@ export default function BalanceSheet() {
             </div>
           </div>
         </>
+      )}
+
+      {selectedLedger && (
+        <LedgerStatementModal
+          ledgerName={selectedLedger}
+          onClose={() => setSelectedLedger(null)}
+        />
       )}
     </div>
   );

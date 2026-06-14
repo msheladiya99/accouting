@@ -467,6 +467,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
     // ── Collect all transactions ──────────────────────────────────────────────
     interface LedgerLine {
       date: string;
+      accountName: string;
       particulars: string;
       voucherNo: string;
       voucherType: string;
@@ -476,18 +477,31 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
 
     const lines: LedgerLine[] = [];
 
+    // Load all BankCashAccounts to resolve contra account names for Bank/Cash entries
+    const bankAccounts = await BankCashAccount.find({ companyId });
+    const bankAccountMap = new Map<string, { name: string; group: string }>();
+    bankAccounts.forEach((a) => {
+      bankAccountMap.set(a._id.toString(), { name: a.name, group: a.group });
+    });
+
     // 1. Bank/Cash entries where this ledger is the ACCOUNT (bank/cash side)
     if (bankAccount) {
       const bankEntriesQuery: any = { accountId: bankAccount._id.toString(), companyId };
       if (fyStart && fyEnd) bankEntriesQuery.date = { $gte: fyStart, $lte: fyEnd };
       const bankEntries = await BankCashEntry.find(bankEntriesQuery).sort({ date: 1, createdAt: 1 });
       for (const e of bankEntries) {
+        const isBank = bankAccount.group === "Bank";
+        const vType = isBank
+          ? (e.deposit > 0 ? "BRct" : "BPmt")
+          : (e.deposit > 0 ? "CRct" : "CPmt");
+
         if (e.deposit > 0) {
           lines.push({
             date: e.date.slice(0, 10),
+            accountName: e.contraAccountName,
             particulars: e.particulars || e.contraAccountName,
             voucherNo: "",
-            voucherType: "Bank/Cash",
+            voucherType: vType,
             debit: e.deposit,
             credit: 0,
           });
@@ -495,9 +509,10 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
         if (e.withdrawal > 0) {
           lines.push({
             date: e.date.slice(0, 10),
+            accountName: e.contraAccountName,
             particulars: e.particulars || e.contraAccountName,
             voucherNo: "",
-            voucherType: "Bank/Cash",
+            voucherType: vType,
             debit: 0,
             credit: e.withdrawal,
           });
@@ -513,13 +528,21 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
     if (fyStart && fyEnd) contraQuery.date = { $gte: fyStart, $lte: fyEnd };
     const contraEntries = await BankCashEntry.find(contraQuery).sort({ date: 1, createdAt: 1 });
     for (const e of contraEntries) {
+      const accInfo = bankAccountMap.get(e.accountId);
+      const isBank = accInfo?.group === "Bank";
+      const vType = isBank
+        ? (e.deposit > 0 ? "BRct" : "BPmt")
+        : (e.deposit > 0 ? "CRct" : "CPmt");
+      const bankName = accInfo?.name || "Bank/Cash";
+
       if (e.deposit > 0) {
         // Bank got money IN → contra ledger is credited
         lines.push({
           date: e.date.slice(0, 10),
-          particulars: e.particulars || (e as any).accountName || "Bank/Cash",
+          accountName: bankName,
+          particulars: e.particulars || bankName,
           voucherNo: "",
-          voucherType: "Bank/Cash",
+          voucherType: vType,
           debit: 0,
           credit: e.deposit,
         });
@@ -528,9 +551,10 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
         // Bank paid OUT → contra ledger is debited
         lines.push({
           date: e.date.slice(0, 10),
-          particulars: e.particulars || (e as any).accountName || "Bank/Cash",
+          accountName: bankName,
+          particulars: e.particulars || bankName,
           voucherNo: "",
-          voucherType: "Bank/Cash",
+          voucherType: vType,
           debit: e.withdrawal,
           credit: 0,
         });
@@ -547,9 +571,10 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
     for (const e of jDebitEntries) {
       lines.push({
         date: e.date.slice(0, 10),
+        accountName: e.creditAccount,
         particulars: e.narration || `By ${e.creditAccount}`,
         voucherNo: e.voucherNo,
-        voucherType: "Journal",
+        voucherType: "JVou",
         debit: e.debitAmount,
         credit: 0,
       });
@@ -565,15 +590,14 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
     for (const e of jCreditEntries) {
       lines.push({
         date: e.date.slice(0, 10),
+        accountName: e.debitAccount,
         particulars: e.narration || `To ${e.debitAccount}`,
         voucherNo: e.voucherNo,
-        voucherType: "Journal",
+        voucherType: "JVou",
         debit: 0,
         credit: e.creditAmount,
       });
     }
-
-
 
     // ── Sort by date, then voucherNo ─────────────────────────────────────────
     lines.sort((a, b) => {
@@ -588,6 +612,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
       return {
         srNo: i + 1,
         date: l.date,
+        accountName: l.accountName,
         particulars: l.particulars,
         voucherNo: l.voucherNo,
         voucherType: l.voucherType,

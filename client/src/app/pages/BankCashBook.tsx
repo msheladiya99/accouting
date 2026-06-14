@@ -158,28 +158,50 @@ function EntryModal({
 
   useEffect(() => {
     if (!contraAccountName || !ledgers) return;
-    const matchingLedger = ledgers.find((l) => l.ledgerName === contraAccountName);
-    if (matchingLedger) {
-      const groupName = matchingLedger.groupName;
-      let mappedGroup = "Expense";
-      if (contraGroups.includes(groupName)) {
-        mappedGroup = groupName;
-      } else {
-        const nameLower = groupName.toLowerCase();
-        if (nameLower.includes("bank")) mappedGroup = "Bank";
-        else if (nameLower.includes("cash")) mappedGroup = "Cash";
-        else if (nameLower.includes("debtor")) mappedGroup = "Sundry Debtors";
-        else if (nameLower.includes("creditor")) mappedGroup = "Sundry Creditors";
-        else if (nameLower.includes("purchase")) mappedGroup = "Purchases";
-        else if (nameLower.includes("sale")) mappedGroup = "Sales";
-        else if (nameLower.includes("expense") || nameLower.includes("direct expense") || nameLower.includes("indirect expense")) mappedGroup = "Expense";
-        else if (nameLower.includes("income")) mappedGroup = "Income";
-        else if (nameLower.includes("asset")) mappedGroup = "Assets";
-        else if (nameLower.includes("liabilit")) mappedGroup = "Liabilities";
-        else if (nameLower.includes("capital")) mappedGroup = "Capital";
-      }
-      setValue("contraAccountGroup", mappedGroup as any);
+    const matchingLedger = ledgers.find(
+      (l) => l.ledgerName.trim().toLowerCase() === contraAccountName.trim().toLowerCase()
+    );
+    if (!matchingLedger) return;
+
+    const groupName = matchingLedger.groupName?.trim() ?? "";
+
+    // 1. Exact match — the ledger's group is directly available as a contra group option
+    if (contraGroups.includes(groupName)) {
+      setValue("contraAccountGroup", groupName as any);
+      return;
     }
+
+    // 2. Case-insensitive match
+    const exactCI = contraGroups.find(
+      (g) => g.trim().toLowerCase() === groupName.toLowerCase()
+    );
+    if (exactCI) {
+      setValue("contraAccountGroup", exactCI as any);
+      return;
+    }
+
+    // 3. Partial / keyword fallback for groups not in contraGroups list
+    const nameLower = groupName.toLowerCase();
+    let mappedGroup = "Expense"; // safe default
+    if (nameLower.includes("bank"))                                         mappedGroup = "Bank";
+    else if (nameLower.includes("cash"))                                    mappedGroup = "Cash";
+    else if (nameLower.includes("debtor"))                                  mappedGroup = "Sundry Debtors";
+    else if (nameLower.includes("creditor"))                                mappedGroup = "Sundry Creditors";
+    else if (nameLower.includes("purchase"))                                mappedGroup = "Purchase Account";
+    else if (nameLower.includes("sale"))                                    mappedGroup = "Sales Account";
+    else if (nameLower.includes("income"))                                  mappedGroup = "Income";
+    else if (nameLower.includes("expense") || nameLower.includes("direct") || nameLower.includes("indirect")) mappedGroup = "Expense";
+    else if (nameLower.includes("asset"))                                   mappedGroup = "Assets";
+    else if (nameLower.includes("liabilit"))                                mappedGroup = "Liabilities";
+    else if (nameLower.includes("capital"))                                 mappedGroup = "Capital";
+    else if (nameLower.includes("loan") || nameLower.includes("advance"))   mappedGroup = "Loans & Advances";
+    else if (nameLower.includes("deposit"))                                 mappedGroup = "Deposits";
+    // Use groupName itself as fallback if it doesn't match anything above
+    else mappedGroup = groupName || "Expense";
+
+    // Prefer the actual groupName if it's a valid contraGroup option (last safety net)
+    const finalGroup = contraGroups.includes(mappedGroup) ? mappedGroup : (contraGroups.includes(groupName) ? groupName : mappedGroup);
+    setValue("contraAccountGroup", finalGroup as any);
   }, [contraAccountName, ledgers, contraGroups, setValue]);
 
   return (
@@ -1597,28 +1619,48 @@ export default function BankCashBook() {
 
   useEffect(() => {
     if (!bulkAccName.trim() || !ledgers || ledgers.length === 0) return;
-    const matchingLedger = ledgers.find((l) => l.ledgerName === bulkAccName);
-    if (matchingLedger) {
-      const groupName = matchingLedger.groupName;
-      let mappedGroup = "Expense";
-      if (groupNames.includes(groupName)) {
-        mappedGroup = groupName;
-      } else {
-        const nameLower = groupName.toLowerCase();
-        if (nameLower.includes("bank")) mappedGroup = "Bank";
-        else if (nameLower.includes("cash")) mappedGroup = "Cash";
-        else if (nameLower.includes("debtor")) mappedGroup = "Sundry Debtors";
-        else if (nameLower.includes("creditor")) mappedGroup = "Sundry Creditors";
-        else if (nameLower.includes("purchase")) mappedGroup = "Purchases";
-        else if (nameLower.includes("sale")) mappedGroup = "Sales";
-        else if (nameLower.includes("expense") || nameLower.includes("direct expense") || nameLower.includes("indirect expense")) mappedGroup = "Expense";
-        else if (nameLower.includes("income")) mappedGroup = "Income";
-        else if (nameLower.includes("asset")) mappedGroup = "Assets";
-        else if (nameLower.includes("liabilit")) mappedGroup = "Liabilities";
-        else if (nameLower.includes("capital")) mappedGroup = "Capital";
-      }
-      setBulkAccGroup(mappedGroup);
+    const matchingLedger = ledgers.find(
+      (l) => l.ledgerName.trim().toLowerCase() === bulkAccName.trim().toLowerCase()
+    );
+    if (!matchingLedger) return;
+
+    const groupName = matchingLedger.groupName?.trim() ?? "";
+
+    // 1. Exact match
+    if (groupNames.includes(groupName)) {
+      setBulkAccGroup(groupName);
+      return;
     }
+
+    // 2. Case-insensitive match
+    const exactCI = groupNames.find(
+      (g) => g.trim().toLowerCase() === groupName.toLowerCase()
+    );
+    if (exactCI) {
+      setBulkAccGroup(exactCI);
+      return;
+    }
+
+    // 3. Keyword fallback
+    const nameLower = groupName.toLowerCase();
+    let mappedGroup = "Expense";
+    if (nameLower.includes("bank"))                                         mappedGroup = "Bank";
+    else if (nameLower.includes("cash"))                                    mappedGroup = "Cash";
+    else if (nameLower.includes("debtor"))                                  mappedGroup = "Sundry Debtors";
+    else if (nameLower.includes("creditor"))                                mappedGroup = "Sundry Creditors";
+    else if (nameLower.includes("purchase"))                                mappedGroup = "Purchase Account";
+    else if (nameLower.includes("sale"))                                    mappedGroup = "Sales Account";
+    else if (nameLower.includes("income"))                                  mappedGroup = "Income";
+    else if (nameLower.includes("expense") || nameLower.includes("direct") || nameLower.includes("indirect")) mappedGroup = "Expense";
+    else if (nameLower.includes("asset"))                                   mappedGroup = "Assets";
+    else if (nameLower.includes("liabilit"))                                mappedGroup = "Liabilities";
+    else if (nameLower.includes("capital"))                                 mappedGroup = "Capital";
+    else if (nameLower.includes("loan") || nameLower.includes("advance"))   mappedGroup = "Loans & Advances";
+    else if (nameLower.includes("deposit"))                                 mappedGroup = "Deposits";
+    else mappedGroup = groupName || "Expense";
+
+    const finalGroup = groupNames.includes(mappedGroup) ? mappedGroup : (groupNames.includes(groupName) ? groupName : mappedGroup);
+    setBulkAccGroup(finalGroup);
   }, [bulkAccName, ledgers, groupNames]);
 
   const [colFilters,      setColFilters]      = useState({

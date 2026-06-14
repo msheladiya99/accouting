@@ -96,6 +96,15 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError }: {
           value={open ? query : (selected?.ledgerName ?? "")}
           onFocus={() => { setOpen(true); setQuery(""); }}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              if (open) {
+                e.stopPropagation();
+                setOpen(false);
+                setQuery("");
+              }
+            }
+          }}
           placeholder={open ? "Search ledger…" : (placeholder ?? "Select ledger")}
           className="bg-transparent text-sm outline-none text-slate-800 placeholder-slate-400 w-full"
         />
@@ -141,10 +150,10 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
   ledgers: Ledger[];
   loading: boolean;
   onClose: () => void;
-  onSubmit: (data: JournalPayload) => void;
+  onSubmit: (data: JournalPayload) => Promise<boolean> | boolean | void;
   selectedFY: FinancialYear | null;
 }) {
-  const { register, handleSubmit, watch, setValue, control, formState: { errors } } = useForm<JournalPayload>({
+  const { register, handleSubmit, watch, setValue, control, reset, formState: { errors } } = useForm<JournalPayload>({
     defaultValues: {
       date:          entry?.date          ?? selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
       narration:     entry?.narration     ?? "",
@@ -157,6 +166,9 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
       status:        entry?.status        ?? "Posted",
     },
   });
+
+  const narrationRef = useRef<HTMLInputElement | null>(null);
+  const { ref: narrationRegisterRef, ...narrationRegister } = register("narration");
 
   const debitAccount  = watch("debitAccount");
   const creditAccount = watch("creditAccount");
@@ -178,6 +190,36 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
   const diff          = Math.abs(debitAmount - creditAmount);
   const isBalanced    = debitAmount > 0 && creditAmount > 0 && diff < 0.001;
 
+  const handleFormSubmit = async (data: JournalPayload) => {
+    const success = await onSubmit(data);
+    if (success && !entry) {
+      reset({
+        date: watch("date") ?? selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
+        narration: "",
+        debitAccount: "",
+        debitGroup: "",
+        debitAmount: 0,
+        creditAccount: "",
+        creditGroup: "",
+        creditAmount: 0,
+        status: watch("status") ?? "Posted",
+      });
+      setTimeout(() => {
+        narrationRef.current?.focus();
+      }, 0);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -195,7 +237,7 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500"><X size={18} /></button>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
+        <form onSubmit={handleSubmit(handleFormSubmit)} className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Date <span className="text-red-500">*</span></label>
@@ -242,7 +284,12 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Narration</label>
-            <input {...register("narration")}
+            <input
+              {...narrationRegister}
+              ref={(e) => {
+                narrationRegisterRef(e);
+                narrationRef.current = e;
+              }}
               placeholder="Brief description of the journal entry…"
               className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400" />
           </div>
@@ -619,13 +666,13 @@ export default function JournalVoucher() {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleSubmit = useCallback(async (data: JournalPayload) => {
+  const handleSubmit = useCallback(async (data: JournalPayload): Promise<boolean> => {
     const dr = Number(data.debitAmount);
     const cr = Number(data.creditAmount);
-    if (Math.abs(dr - cr) > 0.001) { toast.error("Debit amount must equal credit amount"); return; }
+    if (Math.abs(dr - cr) > 0.001) { toast.error("Debit amount must equal credit amount"); return false; }
     if (data.debitAccount.trim().toLowerCase() === data.creditAccount.trim().toLowerCase()) {
       toast.error("Debit and Credit accounts must be different");
-      return;
+      return false;
     }
     setSaving(true);
     try {
@@ -633,15 +680,17 @@ export default function JournalVoucher() {
         const updated = await updateJournalEntry(modal.entry._id, data);
         setEntries((p) => p.map((e) => e._id === updated._id ? updated : e));
         toast.success(`${updated.voucherNo} updated`);
+        setModal(null);
       } else {
         const created = await createJournalEntry(data);
         setEntries((p) => [created, ...p]);
         toast.success(`${created.voucherNo} created`);
       }
-      setModal(null);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      return true;
     } catch (err: any) {
       toast.error(err.message);
+      return false;
     } finally {
       setSaving(false);
     }

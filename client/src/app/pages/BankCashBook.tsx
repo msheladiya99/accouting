@@ -133,6 +133,16 @@ function EntryModal({
     },
   });
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   const selectedAccountId = watch("accountId");
   const selectedAccount   = accounts.find((a) => a._id === selectedAccountId);
   const withdrawal        = Number(watch("withdrawal") ?? 0);
@@ -540,8 +550,10 @@ function LedgerAutocomplete({
         if (onKeyDown) onKeyDown(e);
       }
     } else if (e.key === "Escape") {
-      setIsOpen(false);
-      if (inputRef.current) inputRef.current.blur();
+      if (isOpen) {
+        e.stopPropagation();
+        setIsOpen(false);
+      }
     } else {
       if (onKeyDown) onKeyDown(e);
     }

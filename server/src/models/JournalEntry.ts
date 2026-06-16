@@ -6,12 +6,20 @@ const journalEntrySchema = new Schema(
     voucherNo: { type: String, required: true },
     date: { type: String, required: true }, // Format: "YYYY-MM-DD"
     narration: { type: String, default: "" },
-    debitAccount: { type: String, required: true },
-    debitGroup: { type: String, required: true },
-    debitAmount: { type: Number, required: true },
-    creditAccount: { type: String, required: true },
-    creditGroup: { type: String, required: true },
-    creditAmount: { type: Number, required: true },
+    items: [
+      {
+        type: { type: String, enum: ["Db", "Cr"], required: true },
+        accountName: { type: String, required: true },
+        groupName: { type: String, required: true },
+        amount: { type: Number, required: true }
+      }
+    ],
+    debitAccount: { type: String },
+    debitGroup: { type: String },
+    debitAmount: { type: Number },
+    creditAccount: { type: String },
+    creditGroup: { type: String },
+    creditAmount: { type: Number },
     status: { type: String, enum: ["Draft", "Posted"], default: "Draft" }
   },
   { timestamps: true }

@@ -1,10 +1,18 @@
 import axiosClient from "./axiosClient";
 
+export interface JournalItem {
+  type: "Db" | "Cr";
+  accountName: string;
+  groupName: string;
+  amount: number;
+}
+
 export interface JournalEntry {
   _id: string;
   voucherNo: string;
   date: string;
   narration: string;
+  items?: JournalItem[];
   debitAccount: string;
   debitGroup: string;
   debitAmount: number;
@@ -18,12 +26,13 @@ export interface JournalEntry {
 export interface JournalPayload {
   date: string;
   narration: string;
-  debitAccount: string;
-  debitGroup: string;
-  debitAmount: number;
-  creditAccount: string;
-  creditGroup: string;
-  creditAmount: number;
+  items?: JournalItem[];
+  debitAccount?: string;
+  debitGroup?: string;
+  debitAmount?: number;
+  creditAccount?: string;
+  creditGroup?: string;
+  creditAmount?: number;
   status: "Draft" | "Posted";
 }
 

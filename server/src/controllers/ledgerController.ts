@@ -81,13 +81,20 @@ async function getCalculatedLedgerBalances(
     ledgerMap[l.ledgerName] = { dr: 0, cr: 0 };
   });
 
-  priorJournalEntries.forEach((e) => {
-    if (ledgerMap[e.debitAccount]) {
-      ledgerMap[e.debitAccount].dr += e.debitAmount;
-    }
-    if (ledgerMap[e.creditAccount]) {
-      ledgerMap[e.creditAccount].cr += e.creditAmount;
-    }
+  priorJournalEntries.forEach((e: any) => {
+    const items = e.items && e.items.length > 0 ? e.items : [
+      { type: "Db", accountName: e.debitAccount, groupName: e.debitGroup, amount: e.debitAmount },
+      { type: "Cr", accountName: e.creditAccount, groupName: e.creditGroup, amount: e.creditAmount }
+    ];
+    items.forEach((item: any) => {
+      if (ledgerMap[item.accountName]) {
+        if (item.type === "Db") {
+          ledgerMap[item.accountName].dr += Number(item.amount || 0);
+        } else {
+          ledgerMap[item.accountName].cr += Number(item.amount || 0);
+        }
+      }
+    });
   });
 
   priorBankCashEntries.forEach((e) => {
@@ -561,42 +568,59 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
       }
     }
 
-    // 3. Journal entries – debit side
-    const jDebitQuery: any = {
-      debitAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") },
-      companyId
+    // 3. Journal entries
+    const jEntriesQuery: any = {
+      companyId,
+      $or: [
+        { debitAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") } },
+        { creditAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") } },
+        { "items.accountName": { $regex: new RegExp(`^${ledgerName}$`, "i") } }
+      ]
     };
-    if (fyStart && fyEnd) jDebitQuery.date = { $gte: fyStart, $lte: fyEnd };
-    const jDebitEntries = await JournalEntry.find(jDebitQuery).sort({ date: 1, createdAt: 1 });
-    for (const e of jDebitEntries) {
-      lines.push({
-        date: e.date.slice(0, 10),
-        accountName: e.creditAccount,
-        particulars: e.narration || `By ${e.creditAccount}`,
-        voucherNo: e.voucherNo,
-        voucherType: "JVou",
-        debit: e.debitAmount,
-        credit: 0,
-      });
-    }
+    if (fyStart && fyEnd) jEntriesQuery.date = { $gte: fyStart, $lte: fyEnd };
+    const journalEntries = await JournalEntry.find(jEntriesQuery).sort({ date: 1, createdAt: 1 });
+    
+    for (const e of journalEntries) {
+      const items = e.items && e.items.length > 0 ? e.items : [
+        { type: "Db", accountName: e.debitAccount, groupName: e.debitGroup, amount: e.debitAmount },
+        { type: "Cr", accountName: e.creditAccount, groupName: e.creditGroup, amount: e.creditAmount }
+      ];
 
-    // 4. Journal entries – credit side
-    const jCreditQuery: any = {
-      creditAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") },
-      companyId
-    };
-    if (fyStart && fyEnd) jCreditQuery.date = { $gte: fyStart, $lte: fyEnd };
-    const jCreditEntries = await JournalEntry.find(jCreditQuery).sort({ date: 1, createdAt: 1 });
-    for (const e of jCreditEntries) {
-      lines.push({
-        date: e.date.slice(0, 10),
-        accountName: e.debitAccount,
-        particulars: e.narration || `To ${e.debitAccount}`,
-        voucherNo: e.voucherNo,
-        voucherType: "JVou",
-        debit: 0,
-        credit: e.creditAmount,
-      });
+      const matchedLegs = items.filter(
+        (it: any) => it.accountName && it.accountName.toLowerCase() === ledgerName.toLowerCase()
+      );
+
+      for (const leg of matchedLegs) {
+        if (leg.type === "Db") {
+          const contras = items
+            .filter((it: any) => it.type === "Cr")
+            .map((it: any) => it.accountName);
+          const contraStr = contras.length > 0 ? contras.join(", ") : "";
+          lines.push({
+            date: e.date.slice(0, 10),
+            accountName: contraStr,
+            particulars: e.narration || `By ${contraStr}`,
+            voucherNo: e.voucherNo,
+            voucherType: "JVou",
+            debit: Number(leg.amount || 0),
+            credit: 0,
+          });
+        } else {
+          const contras = items
+            .filter((it: any) => it.type === "Db")
+            .map((it: any) => it.accountName);
+          const contraStr = contras.length > 0 ? contras.join(", ") : "";
+          lines.push({
+            date: e.date.slice(0, 10),
+            accountName: contraStr,
+            particulars: e.narration || `To ${contraStr}`,
+            voucherNo: e.voucherNo,
+            voucherType: "JVou",
+            debit: 0,
+            credit: Number(leg.amount || 0),
+          });
+        }
+      }
     }
 
     // ── Sort by date, then voucherNo ─────────────────────────────────────────

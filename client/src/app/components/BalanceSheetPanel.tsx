@@ -373,11 +373,23 @@ function computePartnerCapital(
   });
 
   journalEntries.forEach((e) => {
-    if (e.debitAccount === name) {
-      debits.push({ particulars: e.narration || "WITHDRAWAL", amount: e.debitAmount });
-    }
-    if (e.creditAccount === name) {
-      credits.push({ particulars: e.narration || "CREDIT", amount: e.creditAmount });
+    if (e.items && e.items.length > 0) {
+      e.items.forEach((item: any) => {
+        if (item.accountName === name) {
+          if (item.type === "Db") {
+            debits.push({ particulars: e.narration || "WITHDRAWAL", amount: item.amount });
+          } else {
+            credits.push({ particulars: e.narration || "CREDIT", amount: item.amount });
+          }
+        }
+      });
+    } else {
+      if (e.debitAccount === name) {
+        debits.push({ particulars: e.narration || "WITHDRAWAL", amount: e.debitAmount });
+      }
+      if (e.creditAccount === name) {
+        credits.push({ particulars: e.narration || "CREDIT", amount: e.creditAmount });
+      }
     }
   });
 

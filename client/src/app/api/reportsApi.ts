@@ -113,8 +113,17 @@ export async function getLedgerReport(
   // Transactions before dateFrom from journal entries
   for (const e of journalEntries) {
     if (e.date >= dateFrom) continue;
-    if (e.debitAccount  === ledgerName) openingBalance += e.debitAmount;
-    if (e.creditAccount === ledgerName) openingBalance -= e.creditAmount;
+    if (e.items && e.items.length > 0) {
+      for (const item of e.items) {
+        if (item.accountName === ledgerName) {
+          if (item.type === "Db") openingBalance += item.amount;
+          else openingBalance -= item.amount;
+        }
+      }
+    } else {
+      if (e.debitAccount  === ledgerName) openingBalance += e.debitAmount;
+      if (e.creditAccount === ledgerName) openingBalance -= e.creditAmount;
+    }
   }
 
   // Now build ledger rows within date range
@@ -130,10 +139,47 @@ export async function getLedgerReport(
   }
   for (const e of journalEntries) {
     if (e.date < dateFrom || e.date > dateTo) continue;
-    if (e.debitAccount === ledgerName) {
-      rawRows.push({ date: e.date, createdAt: e.createdAt, source: "Journal", ref: e.voucherNo, particulars: `${e.narration} (${e.creditAccount})`, debit: e.debitAmount, credit: 0 });
-    } else if (e.creditAccount === ledgerName) {
-      rawRows.push({ date: e.date, createdAt: e.createdAt, source: "Journal", ref: e.voucherNo, particulars: `${e.narration} (${e.debitAccount})`, debit: 0, credit: e.creditAmount });
+    if (e.items && e.items.length > 0) {
+      const matchedLegs = e.items.filter(
+        (it) => it.accountName && it.accountName.toLowerCase() === ledgerName.toLowerCase()
+      );
+      for (const leg of matchedLegs) {
+        if (leg.type === "Db") {
+          const contras = e.items
+            .filter((it) => it.type === "Cr")
+            .map((it) => it.accountName);
+          const contraStr = contras.length > 0 ? contras.join(", ") : "";
+          rawRows.push({
+            date: e.date,
+            createdAt: e.createdAt,
+            source: "Journal",
+            ref: e.voucherNo,
+            particulars: e.narration ? `${e.narration} (${contraStr})` : `By ${contraStr}`,
+            debit: leg.amount,
+            credit: 0
+          });
+        } else {
+          const contras = e.items
+            .filter((it) => it.type === "Db")
+            .map((it) => it.accountName);
+          const contraStr = contras.length > 0 ? contras.join(", ") : "";
+          rawRows.push({
+            date: e.date,
+            createdAt: e.createdAt,
+            source: "Journal",
+            ref: e.voucherNo,
+            particulars: e.narration ? `${e.narration} (${contraStr})` : `To ${contraStr}`,
+            debit: 0,
+            credit: leg.amount
+          });
+        }
+      }
+    } else {
+      if (e.debitAccount === ledgerName) {
+        rawRows.push({ date: e.date, createdAt: e.createdAt, source: "Journal", ref: e.voucherNo, particulars: `${e.narration} (${e.creditAccount})`, debit: e.debitAmount, credit: 0 });
+      } else if (e.creditAccount === ledgerName) {
+        rawRows.push({ date: e.date, createdAt: e.createdAt, source: "Journal", ref: e.voucherNo, particulars: `${e.narration} (${e.debitAccount})`, debit: 0, credit: e.creditAmount });
+      }
     }
   }
 
@@ -192,8 +238,32 @@ export async function getDayBook(
 
   for (const e of journalEntries) {
     if (e.date < dateFrom || e.date > dateTo) continue;
-    if (groupFilter && groupFilter !== "All" && e.debitGroup !== groupFilter && e.creditGroup !== groupFilter) continue;
-    raw.push({ date: e.date, createdAt: e.createdAt, source: "Journal", ref: e.voucherNo, particulars: e.narration, drAccount: e.debitAccount, drGroup: e.debitGroup, crAccount: e.creditAccount, crGroup: e.creditGroup, amount: e.debitAmount });
+    if (e.items && e.items.length > 0) {
+      const matchFilter = !groupFilter || groupFilter === "All" || e.items.some((it) => it.groupName === groupFilter);
+      if (!matchFilter) continue;
+      
+      const drAccounts = e.items.filter((it) => it.type === "Db").map((it) => it.accountName).join(", ");
+      const drGroups = e.items.filter((it) => it.type === "Db").map((it) => it.groupName).join(", ");
+      const crAccounts = e.items.filter((it) => it.type === "Cr").map((it) => it.accountName).join(", ");
+      const crGroups = e.items.filter((it) => it.type === "Cr").map((it) => it.groupName).join(", ");
+      const amount = e.items.filter((it) => it.type === "Db").reduce((sum, it) => sum + it.amount, 0);
+      
+      raw.push({
+        date: e.date,
+        createdAt: e.createdAt,
+        source: "Journal",
+        ref: e.voucherNo,
+        particulars: e.narration,
+        drAccount: drAccounts,
+        drGroup: drGroups,
+        crAccount: crAccounts,
+        crGroup: crGroups,
+        amount
+      });
+    } else {
+      if (groupFilter && groupFilter !== "All" && e.debitGroup !== groupFilter && e.creditGroup !== groupFilter) continue;
+      raw.push({ date: e.date, createdAt: e.createdAt, source: "Journal", ref: e.voucherNo, particulars: e.narration, drAccount: e.debitAccount, drGroup: e.debitGroup, crAccount: e.creditAccount, crGroup: e.creditGroup, amount: e.debitAmount });
+    }
   }
 
   raw.sort((a, b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.createdAt.localeCompare(b.createdAt));
@@ -209,7 +279,16 @@ export async function getAllLedgerNames(): Promise<string[]> {
   ]);
   const names = new Set<string>();
   for (const e of bankEntries) { names.add(e.accountName); names.add(e.contraAccountName); }
-  for (const e of journalEntries) { names.add(e.debitAccount); names.add(e.creditAccount); }
+  for (const e of journalEntries) {
+    if (e.items && e.items.length > 0) {
+      for (const item of e.items) {
+        if (item.accountName) names.add(item.accountName);
+      }
+    } else {
+      if (e.debitAccount) names.add(e.debitAccount);
+      if (e.creditAccount) names.add(e.creditAccount);
+    }
+  }
   return [...names].sort();
 }
 

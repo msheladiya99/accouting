@@ -311,10 +311,19 @@ function buildJournalSheet(
   const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
 
   for (const e of sorted) {
+    const isMultiLeg = e.items && e.items.length > 0;
+    const debitAccount = isMultiLeg ? e.items!.filter(it => it.type === "Db").map(it => it.accountName).join(", ") : e.debitAccount;
+    const debitGroup = isMultiLeg ? e.items!.filter(it => it.type === "Db").map(it => it.groupName).join(", ") : e.debitGroup;
+    const debitAmount = isMultiLeg ? e.items!.filter(it => it.type === "Db").reduce((sum, it) => sum + it.amount, 0) : e.debitAmount;
+    
+    const creditAccount = isMultiLeg ? e.items!.filter(it => it.type === "Cr").map(it => it.accountName).join(", ") : e.creditAccount;
+    const creditGroup = isMultiLeg ? e.items!.filter(it => it.type === "Cr").map(it => it.groupName).join(", ") : e.creditGroup;
+    const creditAmount = isMultiLeg ? e.items!.filter(it => it.type === "Cr").reduce((sum, it) => sum + it.amount, 0) : e.creditAmount;
+
     const dRow = sheet.addRow([
       sr++, e.voucherNo, e.date, e.narration,
-      e.debitAccount, e.debitGroup, e.debitAmount,
-      e.creditAccount, e.creditGroup, e.creditAmount,
+      debitAccount, debitGroup, debitAmount,
+      creditAccount, creditGroup, creditAmount,
       e.status,
     ]);
     applyDataRow(dRow, rowIdx++);
@@ -330,8 +339,8 @@ function buildJournalSheet(
   }
 
   // Totals
-  const totDr = entries.reduce((s, e) => s + e.debitAmount,  0);
-  const totCr = entries.reduce((s, e) => s + e.creditAmount, 0);
+  const totDr = entries.reduce((s, e) => s + (e.items && e.items.length > 0 ? e.items.filter(it => it.type === "Db").reduce((sum, it) => sum + it.amount, 0) : e.debitAmount),  0);
+  const totCr = entries.reduce((s, e) => s + (e.items && e.items.length > 0 ? e.items.filter(it => it.type === "Cr").reduce((sum, it) => sum + it.amount, 0) : e.creditAmount), 0);
   const tRow  = sheet.addRow(["", "TOTALS", "", "", "", "", totDr, "", "", totCr, ""]);
   applyTotalRow(tRow);
 

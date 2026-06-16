@@ -528,17 +528,22 @@ export default function LedgerMaster() {
     if (!window.confirm(`Delete the ${selectedIds.length} selected ledger(s)? This cannot be undone.`)) return;
     setLoading(true);
     try {
-      await bulkDeleteLedgers(selectedIds);
-      setRows((p) => p.filter((r) => !selectedIds.includes(r._id)));
-      toast.success(`${selectedIds.length} ledger(s) deleted`);
+      const result = await bulkDeleteLedgers(selectedIds);
+      if (result.blocked && result.blocked.length > 0) {
+        // Partial delete — some ledgers were blocked because they have entries
+        toast.success(result.message, { duration: 6000 });
+      } else {
+        toast.success(result.message || `${result.count} ledger(s) deleted`);
+      }
       setSelectedIds([]);
+      await load();
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Failed to delete selected ledgers");
+      toast.error(e.response?.data?.message || e.message || "Failed to delete selected ledgers", { duration: 6000 });
     } finally {
       setLoading(false);
     }
-  }, [selectedIds]);
+  }, [selectedIds, load]);
 
   const handleMerge = useCallback(async (sourceIds: string[], targetId: string) => {
     setMergeSaving(true);

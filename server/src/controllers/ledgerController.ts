@@ -334,20 +334,63 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
       return;
     }
 
+    const { Types: MongoTypes } = require("mongoose");
+    let companyIdFilter: any;
+    try {
+      companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+    } catch {
+      companyIdFilter = req.companyId;
+    }
+
+    // ── Guard: block deletion if the ledger has any journal or bank/cash entries ──
+    const ledgerNamePattern = new RegExp(`^${ledger.ledgerName.trim()}$`, "i");
+
+    const journalEntryCount = await JournalEntry.countDocuments({
+      companyId: companyIdFilter,
+      $or: [
+        { debitAccount:  { $regex: ledgerNamePattern } },
+        { creditAccount: { $regex: ledgerNamePattern } },
+        { "items.accountName": { $regex: ledgerNamePattern } }
+      ]
+    });
+
+    if (journalEntryCount > 0) {
+      res.status(400).json({
+        message: `Cannot delete "${ledger.ledgerName}" — it has ${journalEntryCount} journal entr${journalEntryCount === 1 ? "y" : "ies"}. Remove all entries before deleting.`
+      });
+      return;
+    }
+
+    const bankCashEntryCount = await BankCashEntry.countDocuments({
+      companyId: companyIdFilter,
+      $or: [
+        { contraAccountName: { $regex: ledgerNamePattern } }
+      ]
+    });
+
+    if (bankCashEntryCount > 0) {
+      res.status(400).json({
+        message: `Cannot delete "${ledger.ledgerName}" — it has ${bankCashEntryCount} bank/cash entr${bankCashEntryCount === 1 ? "y" : "ies"}. Remove all entries before deleting.`
+      });
+      return;
+    }
+
     const account = await BankCashAccount.findOne({
-      name: { $regex: new RegExp(`^${ledger.ledgerName.trim()}$`, "i") },
+      name: { $regex: ledgerNamePattern },
       companyId: req.companyId
     });
 
     if (account) {
-      const { Types: MongoTypes } = require("mongoose");
-      let companyIdFilter: any;
-      try {
-        companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
-      } catch {
-        companyIdFilter = req.companyId;
+      const accountEntryCount = await BankCashEntry.countDocuments({
+        accountId: account._id.toString(),
+        companyId: companyIdFilter
+      });
+      if (accountEntryCount > 0) {
+        res.status(400).json({
+          message: `Cannot delete "${ledger.ledgerName}" — it has ${accountEntryCount} bank/cash entr${accountEntryCount === 1 ? "y" : "ies"}. Remove all entries before deleting.`
+        });
+        return;
       }
-      await BankCashEntry.deleteMany({ accountId: account._id.toString(), companyId: companyIdFilter });
       await BankCashAccount.deleteOne({ _id: account._id });
     }
 
@@ -367,28 +410,92 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
     }
 
     const ledgers = await Ledger.find({ _id: { $in: ids }, companyId: req.companyId });
-    const ledgerNames = ledgers.map(l => l.ledgerName.trim());
 
+    const { Types: MongoTypes } = require("mongoose");
+    let companyIdFilter: any;
+    try {
+      companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+    } catch {
+      companyIdFilter = req.companyId;
+    }
+
+    // ── Guard: skip ledgers that have any journal or bank/cash entries ────────
+    const blockedLedgers: string[] = [];
+    const deletableLedgers: typeof ledgers = [];
+
+    for (const ledger of ledgers) {
+      const namePattern = new RegExp(`^${ledger.ledgerName.trim()}$`, "i");
+
+      const jCount = await JournalEntry.countDocuments({
+        companyId: companyIdFilter,
+        $or: [
+          { debitAccount:  { $regex: namePattern } },
+          { creditAccount: { $regex: namePattern } },
+          { "items.accountName": { $regex: namePattern } }
+        ]
+      });
+
+      if (jCount > 0) {
+        blockedLedgers.push(ledger.ledgerName);
+        continue;
+      }
+
+      const contraCount = await BankCashEntry.countDocuments({
+        companyId: companyIdFilter,
+        contraAccountName: { $regex: namePattern }
+      });
+
+      if (contraCount > 0) {
+        blockedLedgers.push(ledger.ledgerName);
+        continue;
+      }
+
+      // Check if it is a bank/cash account and has account-side entries
+      const account = await BankCashAccount.findOne({
+        name: { $regex: namePattern },
+        companyId: req.companyId
+      });
+      if (account) {
+        const accCount = await BankCashEntry.countDocuments({
+          accountId: account._id.toString(),
+          companyId: companyIdFilter
+        });
+        if (accCount > 0) {
+          blockedLedgers.push(ledger.ledgerName);
+          continue;
+        }
+      }
+
+      deletableLedgers.push(ledger);
+    }
+
+    if (deletableLedgers.length === 0 && blockedLedgers.length > 0) {
+      res.status(400).json({
+        message: `Cannot delete the selected ledger(s) — they all have existing entries: ${blockedLedgers.slice(0, 5).join(", ")}${blockedLedgers.length > 5 ? " and more" : ""}.`,
+        blocked: blockedLedgers
+      });
+      return;
+    }
+
+    const deletableIds = deletableLedgers.map(l => (l._id as any).toString());
+    const deletableNames = deletableLedgers.map(l => l.ledgerName.trim());
+
+    // Clean up associated BankCashAccounts for deletable ledgers only
     const accounts = await BankCashAccount.find({
-      name: { $in: ledgerNames.map(name => new RegExp(`^${name}$`, "i")) },
+      name: { $in: deletableNames.map(name => new RegExp(`^${name}$`, "i")) },
       companyId: req.companyId
     });
-    const accountIds = accounts.map(a => a._id.toString());
-
-    if (accountIds.length > 0) {
-      const { Types: MongoTypes } = require("mongoose");
-      let companyIdFilter: any;
-      try {
-        companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
-      } catch {
-        companyIdFilter = req.companyId;
-      }
-      await BankCashEntry.deleteMany({ accountId: { $in: accountIds }, companyId: companyIdFilter });
+    if (accounts.length > 0) {
       await BankCashAccount.deleteMany({ _id: { $in: accounts.map(a => a._id) } });
     }
 
-    const result = await Ledger.deleteMany({ _id: { $in: ids }, companyId: req.companyId });
-    res.json({ message: `${result.deletedCount} ledgers deleted successfully`, count: result.deletedCount });
+    const result = await Ledger.deleteMany({ _id: { $in: deletableIds }, companyId: req.companyId });
+
+    const msg = blockedLedgers.length > 0
+      ? `${result.deletedCount} ledger(s) deleted. ${blockedLedgers.length} ledger(s) skipped (have existing entries): ${blockedLedgers.slice(0, 5).join(", ")}${blockedLedgers.length > 5 ? " and more" : ""}.`
+      : `${result.deletedCount} ledger(s) deleted successfully`;
+
+    res.json({ message: msg, count: result.deletedCount, blocked: blockedLedgers });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to bulk delete ledgers" });
   }

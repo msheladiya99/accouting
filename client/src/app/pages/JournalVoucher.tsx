@@ -49,12 +49,13 @@ function GroupBadge({ group }: { group: string }) {
 }
 
 // ── LedgerCombobox ────────────────────────────────────────────────────────────
-function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError }: {
+function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compact }: {
   ledgers: Ledger[];
   value: string;
   onChange: (name: string, group: string) => void;
   placeholder?: string;
   hasError?: boolean;
+  compact?: boolean;
 }) {
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState("");
@@ -86,12 +87,16 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError }: {
 
   return (
     <div ref={ref} className="relative">
-      <div className={`flex items-center gap-2 border rounded-lg px-3 py-2.5 transition-all ${
+      <div className={compact ? `flex items-center gap-1.5 border border-slate-400 rounded-none px-2 py-0.5 transition-all ${
+        open ? "bg-white" :
+        hasError ? "border-red-400 bg-red-50" :
+        "bg-white"
+      }` : `flex items-center gap-2 border rounded-lg px-3 py-2.5 transition-all ${
         open ? "border-indigo-400 ring-2 ring-indigo-100 bg-white" :
         hasError ? "border-red-300 bg-red-50" :
         "border-slate-200 bg-slate-50"
       }`}>
-        <Search size={13} className="text-slate-400 flex-shrink-0" />
+        <Search size={compact ? 11 : 13} className="text-slate-400 flex-shrink-0" />
         <input
           value={open ? query : (selected?.ledgerName ?? "")}
           onFocus={() => { setOpen(true); setQuery(""); }}
@@ -106,15 +111,15 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError }: {
             }
           }}
           placeholder={open ? "Search ledger…" : (placeholder ?? "Select ledger")}
-          className="bg-transparent text-sm outline-none text-slate-800 placeholder-slate-400 w-full"
+          className={`bg-transparent outline-none text-slate-800 placeholder-slate-400 w-full ${compact ? "text-xs font-sans" : "text-sm"}`}
         />
         {value && !open && (
           <button onMouseDown={(e) => { e.preventDefault(); onChange("", ""); }} className="text-slate-300 hover:text-slate-500">
-            <X size={12} />
+            <X size={compact ? 10 : 12} />
           </button>
         )}
       </div>
-      {selected && !open && <div className="mt-1"><GroupBadge group={selected.groupName} /></div>}
+      {selected && !open && !compact && <div className="mt-1"><GroupBadge group={selected.groupName} /></div>}
       {open && (
         <div className="absolute z-50 w-full bg-white border border-slate-200 rounded-xl shadow-xl mt-1 max-h-56 overflow-y-auto">
           {filtered.length === 0 ? (
@@ -220,155 +225,335 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
+  const getDayName = (dateStr: string) => {
+    if (!dateStr) return "";
+    try {
+      const parts = dateStr.split("-");
+      if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        if (!isNaN(d.getTime())) {
+          return d.toLocaleDateString("en-US", { weekday: "short" });
+        }
+      }
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString("en-US", { weekday: "short" });
+      }
+    } catch {}
+    return "";
+  };
+
+  const selectedDebit = ledgers.find((l) => l.ledgerName === debitAccount);
+  const selectedCredit = ledgers.find((l) => l.ledgerName === creditAccount);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[92vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center">
-              <FileText size={16} className="text-indigo-600" />
-            </div>
-            <div>
-              <h2 className="text-slate-900 text-base">{entry ? "Edit Journal Entry" : "New Journal Entry"}</h2>
-              {entry && <p className="text-xs font-mono text-slate-500 mt-0.5">{entry.voucherNo}</p>}
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500"><X size={18} /></button>
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-xs" onClick={onClose} />
+      
+      {/* Modal Dialog */}
+      <div className="relative bg-[#eaf2f9] border border-slate-400 w-full max-w-5xl overflow-hidden max-h-[96vh] flex flex-col font-sans text-xs select-none shadow-2xl">
+        
+        {/* Header Bar */}
+        <div className="bg-[#b0d2ec] px-4 py-1.5 border-b border-slate-400 flex items-center justify-between">
+          <span className="font-bold text-slate-800 text-[11px] tracking-wide">
+            Transaction -{">"} Journal Entry -{">"} Add Journal
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="bg-[#f08c5a] text-white hover:bg-red-600 px-2 py-0.5 border border-red-700 text-[10px] font-bold cursor-pointer rounded-xs flex items-center justify-center transition-colors"
+            title="Close (ESC)"
+          >
+            X
+          </button>
         </div>
 
-        <form onSubmit={handleSubmit(handleFormSubmit)} className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Date <span className="text-red-500">*</span></label>
-              <Controller
-                name="date"
-                control={control}
-                rules={{
-                  required: "Date is required",
-                  validate: (v) => {
-                    const { error } = parseSmartDate(v, selectedFY);
-                    return error ?? true;
-                  },
-                }}
-                render={({ field }) => (
-                  <SmartDateInput
-                    value={field.value ?? ""}
-                    onChange={field.onChange}
-                    selectedFY={selectedFY}
-                    hasError={!!errors.date}
-                  />
-                )}
-              />
-              {errors.date && <p className="mt-1 text-xs text-red-600">{errors.date.message}</p>}
+        <form onSubmit={handleSubmit(handleFormSubmit)} className="flex-grow flex flex-col overflow-hidden">
+          
+          {/* Validation Fields (Hidden) */}
+          <input type="hidden" {...register("debitAccount", {
+            required: "Debit account is required",
+            validate: (v) => v.trim().toLowerCase() !== (creditAccount || "").trim().toLowerCase() || "Debit and Credit accounts must be different"
+          })} />
+          <input type="hidden" {...register("debitGroup")} />
+          <input type="hidden" {...register("creditAccount", {
+            required: "Credit account is required",
+            validate: (v) => v.trim().toLowerCase() !== (debitAccount || "").trim().toLowerCase() || "Debit and Credit accounts must be different"
+          })} />
+          <input type="hidden" {...register("creditGroup")} />
+
+          {/* Metadata Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-1.5 p-4 border-b border-slate-300 bg-[#eaf2f9] text-[11px]">
+            {/* Left Side */}
+            <div className="space-y-1.5 max-w-sm">
+              <div className="flex items-center">
+                <span className="w-20 text-slate-700 font-semibold">Vou. Type</span>
+                <input
+                  type="text"
+                  value="Journal"
+                  disabled
+                  className="w-44 bg-[#e1edf7] border border-slate-400 px-2 py-0.5 text-slate-700 outline-none text-xs"
+                />
+              </div>
+              <div className="flex items-center">
+                <span className="w-20 text-slate-700 font-semibold">Tax Type</span>
+                <select
+                  disabled
+                  className="w-44 bg-white border border-slate-400 px-1 py-0.5 text-slate-800 outline-none text-xs cursor-not-allowed"
+                >
+                  <option>None</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Status</label>
-              <div className="flex gap-2">
-                {(["Draft", "Posted"] as const).map((s) => {
-                  const isSel = watch("status") === s;
-                  return (
-                    <label key={s} className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg border cursor-pointer text-xs font-medium transition-all ${
-                      isSel ? (s === "Posted" ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-amber-50 border-amber-300 text-amber-700")
-                             : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100"
-                    }`}>
-                      <input type="radio" value={s} className="sr-only" {...register("status")} />
-                      {s === "Posted" ? <CheckCircle2 size={12} /> : <FileText size={12} />}
-                      {s}
-                    </label>
-                  );
-                })}
+
+            {/* Right Side */}
+            <div className="space-y-1.5 max-w-sm ml-auto w-full">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-700 font-semibold">Vou Date</span>
+                <div className="flex items-center gap-2 w-44">
+                  <div className="flex-grow">
+                    <Controller
+                      name="date"
+                      control={control}
+                      rules={{
+                        required: "Date is required",
+                        validate: (v) => {
+                          const { error } = parseSmartDate(v, selectedFY);
+                          return error ?? true;
+                        },
+                      }}
+                      render={({ field }) => (
+                        <SmartDateInput
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          selectedFY={selectedFY}
+                          hasError={!!errors.date}
+                          className="!py-0.5 !px-1.5 !text-xs !border-slate-400 !rounded-none !bg-white !w-full"
+                        />
+                      )}
+                    />
+                  </div>
+                  <span className="text-slate-600 font-semibold w-10 shrink-0 text-left">
+                    {getDayName(watch("date"))}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-700 font-semibold">Vou No</span>
+                <input
+                  type="text"
+                  disabled
+                  value={entry?.voucherNo ?? "(Auto)"}
+                  className="w-44 bg-[#e1edf7] border border-slate-400 px-2 py-0.5 text-slate-600 outline-none text-xs"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-700 font-semibold">Doc. No.</span>
+                <input
+                  type="text"
+                  disabled
+                  placeholder="None"
+                  className="w-44 bg-[#e1edf7] border border-slate-400 px-2 py-0.5 text-slate-400 outline-none text-xs placeholder:text-slate-400"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-700 font-semibold">Doc Date</span>
+                <input
+                  type="text"
+                  disabled
+                  placeholder="/ /"
+                  className="w-44 bg-[#e1edf7] border border-slate-400 px-2 py-0.5 text-slate-400 outline-none text-xs text-center"
+                />
               </div>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Narration</label>
-            <input
-              {...narrationRegister}
-              ref={(e) => {
-                narrationRegisterRef(e);
-                narrationRef.current = e;
-              }}
-              placeholder="Brief description of the journal entry…"
-              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400" />
+          {/* Grid Table Section */}
+          <div className="flex-grow bg-white border-b border-slate-400 overflow-y-auto px-4 py-3">
+            <table className="w-full border-collapse border border-slate-400 text-xs">
+              <thead>
+                <tr className="bg-[#cfe3f5] font-bold border-b border-slate-400 text-slate-800">
+                  <th className="border border-slate-400 px-3 py-1.5 text-center w-16">Cr/Db</th>
+                  <th className="border border-slate-400 px-3 py-1.5 text-left">Account Name</th>
+                  <th className="border border-slate-400 px-3 py-1.5 text-right w-36">Debit</th>
+                  <th className="border border-slate-400 px-3 py-1.5 text-right w-36">Credit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Row 1: Debit Leg */}
+                <tr className="hover:bg-slate-50 border-b border-slate-300">
+                  <td className="border border-slate-400 text-center font-bold text-indigo-700 select-none">
+                    Db
+                  </td>
+                  <td className="border border-slate-400 p-0.5">
+                    <div className="w-full">
+                      <LedgerCombobox
+                        ledgers={debitLedgers}
+                        value={debitAccount}
+                        onChange={(name, group) => {
+                          setValue("debitAccount", name);
+                          setValue("debitGroup", group);
+                        }}
+                        placeholder="Select Debit Ledger"
+                        hasError={!!errors.debitAccount}
+                        compact
+                      />
+                    </div>
+                  </td>
+                  <td className="border border-slate-400 p-0.5">
+                    <input
+                      type="number"
+                      min={0.01}
+                      step="0.01"
+                      {...register("debitAmount", {
+                        required: "Debit amount is required",
+                        min: { value: 0.01, message: "Must be > 0" },
+                      })}
+                      placeholder="0.00"
+                      className={`w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-red-700 bg-white ${
+                        errors.debitAmount ? "bg-red-50 text-red-900" : ""
+                      }`}
+                    />
+                  </td>
+                  <td className="border border-slate-400 px-3 py-1.5 text-right font-medium text-slate-400 bg-slate-50 select-none">
+                    NIL
+                  </td>
+                </tr>
+
+                {/* Row 2: Credit Leg */}
+                <tr className="hover:bg-slate-50 border-b border-slate-300">
+                  <td className="border border-slate-400 text-center font-bold text-emerald-700 select-none">
+                    Cr
+                  </td>
+                  <td className="border border-slate-400 p-0.5">
+                    <div className="w-full">
+                      <LedgerCombobox
+                        ledgers={creditLedgers}
+                        value={creditAccount}
+                        onChange={(name, group) => {
+                          setValue("creditAccount", name);
+                          setValue("creditGroup", group);
+                        }}
+                        placeholder="Select Credit Ledger"
+                        hasError={!!errors.creditAccount}
+                        compact
+                      />
+                    </div>
+                  </td>
+                  <td className="border border-slate-400 px-3 py-1.5 text-right font-medium text-slate-400 bg-slate-50 select-none">
+                    NIL
+                  </td>
+                  <td className="border border-slate-400 p-0.5">
+                    <input
+                      type="number"
+                      min={0.01}
+                      step="0.01"
+                      {...register("creditAmount", {
+                        required: "Credit amount is required",
+                        min: { value: 0.01, message: "Must be > 0" },
+                      })}
+                      placeholder="0.00"
+                      className={`w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-emerald-700 bg-white ${
+                        errors.creditAmount ? "bg-red-50 text-emerald-900" : ""
+                      }`}
+                    />
+                  </td>
+                </tr>
+
+                {/* Empty Filler Rows */}
+                {Array.from({ length: 10 }).map((_, idx) => (
+                  <tr key={idx} className="border-b border-slate-300 h-7 select-none">
+                    <td className="border border-slate-400 bg-slate-50"></td>
+                    <td className="border border-slate-400"></td>
+                    <td className="border border-slate-400"></td>
+                    <td className="border border-slate-400"></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
-          {/* Debit */}
-          <div className="bg-red-50 border border-red-100 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-red-700 flex items-center gap-1.5 uppercase tracking-wide">
-              <TrendingDown size={13} /> Debit (Dr)
-            </p>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Debit Account <span className="text-red-500">*</span></label>
-              <LedgerCombobox ledgers={debitLedgers} value={debitAccount}
-                onChange={(name, group) => { setValue("debitAccount", name); setValue("debitGroup", group); }}
-                placeholder="Select debit ledger" hasError={!!errors.debitAccount} />
-              <input type="hidden" {...register("debitAccount", {
-                required: "Debit account is required",
-                validate: (v) => v.trim().toLowerCase() !== (creditAccount || "").trim().toLowerCase() || "Debit and Credit accounts must be different"
-              })} />
-              <input type="hidden" {...register("debitGroup")} />
-              {errors.debitAccount && <p className="mt-1 text-xs text-red-600">{errors.debitAccount.message}</p>}
+          {/* Table Totals Row */}
+          <div className="bg-[#eaf2f9] border-b border-slate-400 flex items-center py-2 px-4 select-none">
+            <span className="font-bold text-slate-700 text-right flex-1 pr-6 uppercase tracking-wider">
+              Total
+            </span>
+            <div className="w-36 text-right pr-6 font-mono font-bold text-red-700">
+              {debitAmount > 0 ? debitAmount.toFixed(2) : "0.00"}
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Debit Amount <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₹</span>
-                <input type="number" min={0.01} step="0.01"
-                  {...register("debitAmount", { required: "Amount is required", min: { value: 0.01, message: "Must be > 0" } })}
-                  placeholder="0.00"
-                  className={`w-full pl-7 pr-3 py-2.5 rounded-lg text-sm outline-none border font-semibold text-red-700 transition-all ${errors.debitAmount ? "border-red-300 bg-red-100" : "border-slate-200 bg-white focus:ring-2 focus:ring-red-100 focus:border-red-400"}`} />
-              </div>
-              {errors.debitAmount && <p className="mt-1 text-xs text-red-600">{errors.debitAmount.message}</p>}
+            <div className="w-36 text-right pr-6 font-mono font-bold text-emerald-700">
+              {creditAmount > 0 ? creditAmount.toFixed(2) : "0.00"}
             </div>
           </div>
 
-          {/* Credit */}
-          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-emerald-700 flex items-center gap-1.5 uppercase tracking-wide">
-              <TrendingUp size={13} /> Credit (Cr)
-            </p>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Credit Account <span className="text-red-500">*</span></label>
-              <LedgerCombobox ledgers={creditLedgers} value={creditAccount}
-                onChange={(name, group) => { setValue("creditAccount", name); setValue("creditGroup", group); }}
-                placeholder="Select credit ledger" hasError={!!errors.creditAccount} />
-              <input type="hidden" {...register("creditAccount", {
-                required: "Credit account is required",
-                validate: (v) => v.trim().toLowerCase() !== (debitAccount || "").trim().toLowerCase() || "Debit and Credit accounts must be different"
-              })} />
-              <input type="hidden" {...register("creditGroup")} />
-              {errors.creditAccount && <p className="mt-1 text-xs text-red-600">{errors.creditAccount.message}</p>}
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Credit Amount <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">₹</span>
-                <input type="number" min={0.01} step="0.01"
-                  {...register("creditAmount", { required: "Amount is required", min: { value: 0.01, message: "Must be > 0" } })}
-                  placeholder="0.00"
-                  className={`w-full pl-7 pr-3 py-2.5 rounded-lg text-sm outline-none border font-semibold text-emerald-700 transition-all ${errors.creditAmount ? "border-red-300 bg-red-50" : "border-slate-200 bg-white focus:ring-2 focus:ring-emerald-100 focus:border-emerald-400"}`} />
-              </div>
-              {errors.creditAmount && <p className="mt-1 text-xs text-red-600">{errors.creditAmount.message}</p>}
-            </div>
-          </div>
-
-          {(debitAmount > 0 || creditAmount > 0) && (
-            <div className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-sm font-medium ${isBalanced ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-700"}`}>
-              {isBalanced
-                ? <><CheckCircle2 size={15} /> Entry is balanced — Debit = Credit = {fmtAmt(debitAmount)}</>
-                : <><AlertTriangle size={15} /> Difference: {fmtAmt(diff)} — Debit and Credit must be equal</>}
-            </div>
-          )}
-
-          <div className="flex justify-end gap-3 pt-1 border-t border-slate-100">
-            <button type="button" onClick={onClose} className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors">Cancel</button>
-            <button type="submit" disabled={loading}
-              className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors disabled:opacity-50">
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              {entry ? "Save Changes" : "Create Entry"}
+          {/* Delete Row Section */}
+          <div className="bg-[#eaf2f9] border-b border-slate-350 flex items-center justify-center py-2 select-none shadow-inner">
+            <button
+              type="button"
+              disabled
+              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-400 px-6 py-0.5 text-xs shadow-xs cursor-not-allowed opacity-50"
+            >
+              Delete
             </button>
+          </div>
+
+          {/* Lower Detail Bar */}
+          <div className="bg-[#eaf2f9] p-4 flex flex-col md:flex-row items-stretch justify-between gap-4">
+            {/* Balance & Narration */}
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap gap-4 text-[10px] text-slate-600 font-semibold select-none uppercase tracking-wide">
+                <div>
+                  Db Balance:{" "}
+                  <span className="text-slate-800 font-mono">
+                    {selectedDebit ? `${debitAmount.toFixed(2)} DB` : "—"}
+                  </span>
+                </div>
+                <div>
+                  Cr Balance:{" "}
+                  <span className="text-slate-800 font-mono">
+                    {selectedCredit ? `${creditAmount.toFixed(2)} CR` : "—"}
+                  </span>
+                </div>
+                {!isBalanced && (
+                  <div className="text-amber-700 font-bold">
+                    Difference: {diff.toFixed(2)}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col">
+                <span className="text-slate-700 font-semibold mb-1 text-[11px]">
+                  Narration
+                </span>
+                <textarea
+                  {...narrationRegister}
+                  ref={(e) => {
+                    narrationRegisterRef(e);
+                    if (e) narrationRef.current = e as any;
+                  }}
+                  placeholder="Brief description of the journal entry..."
+                  className="bg-white border border-slate-400 text-slate-800 text-xs px-2 py-1 outline-none w-[380px] h-14 resize-none"
+                />
+              </div>
+            </div>
+
+            {/* OK & Print Buttons */}
+            <div className="flex items-end justify-end gap-2.5">
+              <button
+                type="submit"
+                disabled={loading}
+                className="bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-800 border border-slate-400 px-8 py-1 text-xs font-semibold shadow-xs cursor-pointer min-w-[80px]"
+              >
+                {loading ? "Saving..." : "OK"}
+              </button>
+              <button
+                type="button"
+                disabled
+                className="bg-white disabled:opacity-50 text-slate-400 border border-slate-300 px-8 py-1 text-xs font-semibold cursor-not-allowed min-w-[80px]"
+              >
+                Print
+              </button>
+            </div>
           </div>
         </form>
       </div>

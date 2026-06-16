@@ -82,9 +82,11 @@ function parseDate(val: unknown): string {
   // Use UTC getters to avoid any local-timezone shift.
   if (val instanceof Date) {
     if (isNaN(val.getTime())) return "";
-    const yyyy = val.getUTCFullYear();
-    const mm   = String(val.getUTCMonth() + 1).padStart(2, "0");
-    const dd   = String(val.getUTCDate()).padStart(2, "0");
+    // Adjust by adding 12 hours to handle timezone/historical offset discrepancies (e.g. 23:59:50 vs 00:00:00).
+    const adj = new Date(val.getTime() + 12 * 60 * 60 * 1000);
+    const yyyy = adj.getFullYear();
+    const mm   = String(adj.getMonth() + 1).padStart(2, "0");
+    const dd   = String(adj.getDate()).padStart(2, "0");
     return `${yyyy}-${mm}-${dd}`;
   }
 

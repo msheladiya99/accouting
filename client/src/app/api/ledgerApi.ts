@@ -94,8 +94,13 @@ export async function deleteLedger(id: string): Promise<void> {
   await axiosClient.delete(`/ledger/${id}`);
 }
 
-export async function bulkDeleteLedgers(ids: string[]): Promise<{ message: string; count: number }> {
-  const res = await axiosClient.post<{ message: string; count: number }>("/ledger/bulk-delete", { ids });
+export async function bulkDeleteLedgers(ids: string[]): Promise<{ message: string; count: number; blocked?: string[] }> {
+  const res = await axiosClient.post<{ message: string; count: number; blocked?: string[] }>("/ledger/bulk-delete", { ids });
+  return res.data;
+}
+
+export async function mergeLedgers(sourceIds: string[], targetId: string): Promise<{ message: string; targetLedger: Ledger }> {
+  const res = await axiosClient.post<{ message: string; targetLedger: Ledger }>("/ledger/merge", { sourceIds, targetId });
   return res.data;
 }
 

@@ -150,6 +150,14 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
 }
 
 // ── Journal Modal ─────────────────────────────────────────────────────────────
+interface RowState {
+  type: "Db" | "Cr" | "";
+  accountName: string;
+  groupName: string;
+  debit: string;
+  credit: string;
+}
+
 function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }: {
   entry?: JournalEntry;
   ledgers: Ledger[];
@@ -162,53 +170,127 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
     defaultValues: {
       date:          entry?.date          ?? selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
       narration:     entry?.narration     ?? "",
-      debitAccount:  entry?.debitAccount  ?? "",
-      debitGroup:    entry?.debitGroup    ?? "",
-      debitAmount:   entry?.debitAmount   ?? 0,
-      creditAccount: entry?.creditAccount ?? "",
-      creditGroup:   entry?.creditGroup   ?? "",
-      creditAmount:  entry?.creditAmount  ?? 0,
       status:        entry?.status        ?? "Posted",
     },
   });
 
-  const narrationRef = useRef<HTMLInputElement | null>(null);
+  const narrationRef = useRef<HTMLTextAreaElement | null>(null);
   const { ref: narrationRegisterRef, ...narrationRegister } = register("narration");
 
-  const debitAccount  = watch("debitAccount");
-  const creditAccount = watch("creditAccount");
+  const getDefaultRows = useCallback((): RowState[] => {
+    const defaultRows: RowState[] = Array.from({ length: 12 }, () => ({
+      type: "",
+      accountName: "",
+      groupName: "",
+      debit: "",
+      credit: ""
+    }));
+    defaultRows[0] = { type: "Db", accountName: "", groupName: "", debit: "", credit: "" };
+    defaultRows[1] = { type: "Cr", accountName: "", groupName: "", debit: "", credit: "" };
+    return defaultRows;
+  }, []);
 
-  const debitLedgers = useMemo(() => {
-    return ledgers.filter(
-      (l) => l.ledgerName.trim().toLowerCase() !== (creditAccount || "").trim().toLowerCase()
+  const initialRows = useMemo(() => {
+    const defaultRows = getDefaultRows();
+
+    if (entry) {
+      const entryItems = entry.items && entry.items.length > 0 ? entry.items : [
+        { type: "Db", accountName: entry.debitAccount, groupName: entry.debitGroup, amount: entry.debitAmount },
+        { type: "Cr", accountName: entry.creditAccount, groupName: entry.creditGroup, amount: entry.creditAmount }
+      ];
+
+      entryItems.forEach((item, idx) => {
+        if (idx < 12) {
+          defaultRows[idx] = {
+            type: item.type,
+            accountName: item.accountName,
+            groupName: item.groupName,
+            debit: item.type === "Db" ? String(item.amount) : "",
+            credit: item.type === "Cr" ? String(item.amount) : ""
+          };
+        }
+      });
+    }
+    return defaultRows;
+  }, [entry, getDefaultRows]);
+
+  const [gridRows, setGridRows] = useState<RowState[]>(initialRows);
+
+  useEffect(() => {
+    setGridRows(initialRows);
+  }, [initialRows]);
+
+  const updateRow = (idx: number, patch: Partial<RowState>) => {
+    setGridRows((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
+      if (patch.type === "") {
+        next[idx].accountName = "";
+        next[idx].groupName = "";
+        next[idx].debit = "";
+        next[idx].credit = "";
+      }
+      return next;
+    });
+  };
+
+  const totals = useMemo(() => {
+    let debitSum = 0;
+    let creditSum = 0;
+    gridRows.forEach((r) => {
+      if (r.type === "Db") debitSum += Number(r.debit) || 0;
+      if (r.type === "Cr") creditSum += Number(r.credit) || 0;
+    });
+    const diff = Math.abs(debitSum - creditSum);
+    const isBalanced = debitSum > 0 && creditSum > 0 && diff < 0.001;
+    return { debitSum, creditSum, diff, isBalanced };
+  }, [gridRows]);
+
+  const handleFormSubmit = async (formData: JournalPayload) => {
+    const activeItems = gridRows
+      .filter((r) => r.type && r.accountName)
+      .map((r) => ({
+        type: r.type as "Db" | "Cr",
+        accountName: r.accountName,
+        groupName: r.groupName,
+        amount: r.type === "Db" ? Number(r.debit || 0) : Number(r.credit || 0)
+      }));
+
+    const hasDb = activeItems.some((it) => it.type === "Db" && it.amount > 0);
+    const hasCr = activeItems.some((it) => it.type === "Cr" && it.amount > 0);
+    if (!hasDb || !hasCr) {
+      toast.error("Please add at least one Debit and one Credit transaction leg");
+      return;
+    }
+
+    if (Math.abs(totals.debitSum - totals.creditSum) > 0.001) {
+      toast.error(`Unbalanced: Total Debit (${totals.debitSum.toFixed(2)}) must equal Total Credit (${totals.creditSum.toFixed(2)})`);
+      return;
+    }
+
+    const incompleteRow = gridRows.find(
+      (r) => r.type && (!r.accountName || (r.type === "Db" && !Number(r.debit)) || (r.type === "Cr" && !Number(r.credit)))
     );
-  }, [ledgers, creditAccount]);
+    if (incompleteRow) {
+      toast.error("Please complete all details (Account Name and Amount) for active rows");
+      return;
+    }
 
-  const creditLedgers = useMemo(() => {
-    return ledgers.filter(
-      (l) => l.ledgerName.trim().toLowerCase() !== (debitAccount || "").trim().toLowerCase()
-    );
-  }, [ledgers, debitAccount]);
+    const payload: JournalPayload = {
+      date: formData.date,
+      narration: formData.narration || "",
+      items: activeItems,
+      status: formData.status || "Draft"
+    };
 
-  const debitAmount   = Number(watch("debitAmount")  ?? 0);
-  const creditAmount  = Number(watch("creditAmount") ?? 0);
-  const diff          = Math.abs(debitAmount - creditAmount);
-  const isBalanced    = debitAmount > 0 && creditAmount > 0 && diff < 0.001;
-
-  const handleFormSubmit = async (data: JournalPayload) => {
-    const success = await onSubmit(data);
+    const success = await onSubmit(payload);
     if (success && !entry) {
       reset({
         date: watch("date") ?? selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
         narration: "",
-        debitAccount: "",
-        debitGroup: "",
-        debitAmount: 0,
-        creditAccount: "",
-        creditGroup: "",
-        creditAmount: 0,
-        status: watch("status") ?? "Posted",
+        status: watch("status") || "Draft",
       });
+      setGridRows(getDefaultRows());
       setTimeout(() => {
         narrationRef.current?.focus();
       }, 0);
@@ -243,18 +325,14 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
     return "";
   };
 
-  const selectedDebit = ledgers.find((l) => l.ledgerName === debitAccount);
-  const selectedCredit = ledgers.find((l) => l.ledgerName === creditAccount);
+  const dbBalanceText = totals.debitSum > 0 ? `${totals.debitSum.toFixed(2)} DB` : "—";
+  const crBalanceText = totals.creditSum > 0 ? `${totals.creditSum.toFixed(2)} CR` : "—";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/45 backdrop-blur-xs" onClick={onClose} />
       
-      {/* Modal Dialog */}
       <div className="relative bg-[#eaf2f9] border border-slate-400 w-full max-w-5xl overflow-hidden max-h-[96vh] flex flex-col font-sans text-xs select-none shadow-2xl">
-        
-        {/* Header Bar */}
         <div className="bg-[#b0d2ec] px-4 py-1.5 border-b border-slate-400 flex items-center justify-between">
           <span className="font-bold text-slate-800 text-[11px] tracking-wide">
             Transaction -{">"} Journal Entry -{">"} Add Journal
@@ -270,22 +348,7 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
         </div>
 
         <form onSubmit={handleSubmit(handleFormSubmit)} className="flex-grow flex flex-col overflow-hidden">
-          
-          {/* Validation Fields (Hidden) */}
-          <input type="hidden" {...register("debitAccount", {
-            required: "Debit account is required",
-            validate: (v) => v.trim().toLowerCase() !== (creditAccount || "").trim().toLowerCase() || "Debit and Credit accounts must be different"
-          })} />
-          <input type="hidden" {...register("debitGroup")} />
-          <input type="hidden" {...register("creditAccount", {
-            required: "Credit account is required",
-            validate: (v) => v.trim().toLowerCase() !== (debitAccount || "").trim().toLowerCase() || "Debit and Credit accounts must be different"
-          })} />
-          <input type="hidden" {...register("creditGroup")} />
-
-          {/* Metadata Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-1.5 p-4 border-b border-slate-300 bg-[#eaf2f9] text-[11px]">
-            {/* Left Side */}
             <div className="space-y-1.5 max-w-sm">
               <div className="flex items-center">
                 <span className="w-20 text-slate-700 font-semibold">Vou. Type</span>
@@ -307,7 +370,6 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
               </div>
             </div>
 
-            {/* Right Side */}
             <div className="space-y-1.5 max-w-sm ml-auto w-full">
               <div className="flex items-center justify-between">
                 <span className="text-slate-700 font-semibold">Vou Date</span>
@@ -348,28 +410,9 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
                   className="w-44 bg-[#e1edf7] border border-slate-400 px-2 py-0.5 text-slate-600 outline-none text-xs"
                 />
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-700 font-semibold">Doc. No.</span>
-                <input
-                  type="text"
-                  disabled
-                  placeholder="None"
-                  className="w-44 bg-[#e1edf7] border border-slate-400 px-2 py-0.5 text-slate-400 outline-none text-xs placeholder:text-slate-400"
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-700 font-semibold">Doc Date</span>
-                <input
-                  type="text"
-                  disabled
-                  placeholder="/ /"
-                  className="w-44 bg-[#e1edf7] border border-slate-400 px-2 py-0.5 text-slate-400 outline-none text-xs text-center"
-                />
-              </div>
             </div>
           </div>
 
-          {/* Grid Table Section */}
           <div className="flex-grow bg-white border-b border-slate-400 overflow-y-auto px-4 py-3">
             <table className="w-full border-collapse border border-slate-400 text-xs">
               <thead>
@@ -381,177 +424,114 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
                 </tr>
               </thead>
               <tbody>
-                {/* Row 1: Debit Leg */}
-                <tr className="hover:bg-slate-50 border-b border-slate-300">
-                  <td className="border border-slate-400 text-center font-bold text-indigo-700 select-none">
-                    Db
-                  </td>
-                  <td className="border border-slate-400 p-0.5">
-                    <div className="w-full">
-                      <LedgerCombobox
-                        ledgers={debitLedgers}
-                        value={debitAccount}
-                        onChange={(name, group) => {
-                          setValue("debitAccount", name);
-                          setValue("debitGroup", group);
-                        }}
-                        placeholder="Select Debit Ledger"
-                        hasError={!!errors.debitAccount}
-                        compact
-                      />
-                    </div>
-                  </td>
-                  <td className="border border-slate-400 p-0.5">
-                    <input
-                      type="number"
-                      min={0.01}
-                      step="0.01"
-                      {...register("debitAmount", {
-                        required: "Debit amount is required",
-                        min: { value: 0.01, message: "Must be > 0" },
-                      })}
-                      placeholder="0.00"
-                      className={`w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-red-700 bg-white ${
-                        errors.debitAmount ? "bg-red-50 text-red-900" : ""
-                      }`}
-                    />
-                  </td>
-                  <td className="border border-slate-400 px-3 py-1.5 text-right font-medium text-slate-400 bg-slate-50 select-none">
-                    NIL
-                  </td>
-                </tr>
+                {gridRows.map((row, idx) => {
+                  const isDb = row.type === "Db";
+                  const isCr = row.type === "Cr";
+                  
+                  const availableLedgers = ledgers.filter((l) => {
+                    const otherSelected = gridRows
+                      .filter((_, rIdx) => rIdx !== idx)
+                      .map((r) => r.accountName.toLowerCase());
+                    return !otherSelected.includes(l.ledgerName.toLowerCase());
+                  });
 
-                {/* Row 2: Credit Leg */}
-                <tr className="hover:bg-slate-50 border-b border-slate-300">
-                  <td className="border border-slate-400 text-center font-bold text-emerald-700 select-none">
-                    Cr
-                  </td>
-                  <td className="border border-slate-400 p-0.5">
-                    <div className="w-full">
-                      <LedgerCombobox
-                        ledgers={creditLedgers}
-                        value={creditAccount}
-                        onChange={(name, group) => {
-                          setValue("creditAccount", name);
-                          setValue("creditGroup", group);
-                        }}
-                        placeholder="Select Credit Ledger"
-                        hasError={!!errors.creditAccount}
-                        compact
-                      />
-                    </div>
-                  </td>
-                  <td className="border border-slate-400 px-3 py-1.5 text-right font-medium text-slate-400 bg-slate-50 select-none">
-                    NIL
-                  </td>
-                  <td className="border border-slate-400 p-0.5">
-                    <input
-                      type="number"
-                      min={0.01}
-                      step="0.01"
-                      {...register("creditAmount", {
-                        required: "Credit amount is required",
-                        min: { value: 0.01, message: "Must be > 0" },
-                      })}
-                      placeholder="0.00"
-                      className={`w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-emerald-700 bg-white ${
-                        errors.creditAmount ? "bg-red-50 text-emerald-900" : ""
-                      }`}
-                    />
-                  </td>
-                </tr>
-
-                {/* Empty Filler Rows */}
-                {Array.from({ length: 10 }).map((_, idx) => (
-                  <tr key={idx} className="border-b border-slate-300 h-7 select-none">
-                    <td className="border border-slate-400 bg-slate-50"></td>
-                    <td className="border border-slate-400"></td>
-                    <td className="border border-slate-400"></td>
-                    <td className="border border-slate-400"></td>
-                  </tr>
-                ))}
+                  return (
+                    <tr key={idx} className="hover:bg-slate-50 border-b border-slate-300 h-8">
+                      <td className="border border-slate-400 p-0.5 text-center w-16">
+                        <select
+                          value={row.type}
+                          onChange={(e) => {
+                            const newType = e.target.value as "Db" | "Cr" | "";
+                            updateRow(idx, { type: newType, debit: "", credit: "" });
+                          }}
+                          className={`w-full bg-transparent border-0 outline-none text-center font-bold text-xs cursor-pointer ${
+                            isDb ? "text-indigo-700" : isCr ? "text-emerald-700" : "text-slate-400"
+                          }`}
+                        >
+                          <option value="">—</option>
+                          <option value="Db">Db</option>
+                          <option value="Cr">Cr</option>
+                        </select>
+                      </td>
+                      <td className="border border-slate-400 p-0.5">
+                        {row.type ? (
+                          <LedgerCombobox
+                            ledgers={availableLedgers}
+                            value={row.accountName}
+                            onChange={(name, group) => {
+                              updateRow(idx, { accountName: name, groupName: group });
+                            }}
+                            placeholder={isDb ? "Select Debit Ledger" : "Select Credit Ledger"}
+                            compact
+                          />
+                        ) : (
+                          <div className="h-full w-full bg-slate-50 select-none" />
+                        )}
+                      </td>
+                      <td className="border border-slate-400 p-0.5 w-36">
+                        {isDb ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={row.debit}
+                            onChange={(e) => updateRow(idx, { debit: e.target.value })}
+                            placeholder="0.00"
+                            className="w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-red-700 bg-white"
+                          />
+                        ) : (
+                          <span className="block w-full text-right px-3 py-1 text-slate-400 bg-slate-50 select-none">NIL</span>
+                        )}
+                      </td>
+                      <td className="border border-slate-400 p-0.5 w-36">
+                        {isCr ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={row.credit}
+                            onChange={(e) => updateRow(idx, { credit: e.target.value })}
+                            placeholder="0.00"
+                            className="w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-emerald-700 bg-white"
+                          />
+                        ) : (
+                          <span className="block w-full text-right px-3 py-1 text-slate-400 bg-slate-50 select-none">NIL</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
-          {/* Table Totals Row */}
           <div className="bg-[#eaf2f9] border-b border-slate-400 flex items-center py-2 px-4 select-none">
-            <span className="font-bold text-slate-700 text-right flex-1 pr-6 uppercase tracking-wider">
-              Total
-            </span>
-            <div className="w-36 text-right pr-6 font-mono font-bold text-red-700">
-              {debitAmount > 0 ? debitAmount.toFixed(2) : "0.00"}
-            </div>
-            <div className="w-36 text-right pr-6 font-mono font-bold text-emerald-700">
-              {creditAmount > 0 ? creditAmount.toFixed(2) : "0.00"}
-            </div>
+            <span className="font-bold text-slate-700 text-right flex-1 pr-6 uppercase tracking-wider">Total</span>
+            <div className="w-36 text-right pr-6 font-mono font-bold text-red-700">{totals.debitSum > 0 ? totals.debitSum.toFixed(2) : "0.00"}</div>
+            <div className="w-36 text-right pr-6 font-mono font-bold text-emerald-700">{totals.creditSum > 0 ? totals.creditSum.toFixed(2) : "0.00"}</div>
           </div>
 
-          {/* Delete Row Section */}
-          <div className="bg-[#eaf2f9] border-b border-slate-350 flex items-center justify-center py-2 select-none shadow-inner">
-            <button
-              type="button"
-              disabled
-              className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-400 px-6 py-0.5 text-xs shadow-xs cursor-not-allowed opacity-50"
-            >
-              Delete
-            </button>
-          </div>
-
-          {/* Lower Detail Bar */}
           <div className="bg-[#eaf2f9] p-4 flex flex-col md:flex-row items-stretch justify-between gap-4">
-            {/* Balance & Narration */}
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap gap-4 text-[10px] text-slate-600 font-semibold select-none uppercase tracking-wide">
-                <div>
-                  Db Balance:{" "}
-                  <span className="text-slate-800 font-mono">
-                    {selectedDebit ? `${debitAmount.toFixed(2)} DB` : "—"}
-                  </span>
-                </div>
-                <div>
-                  Cr Balance:{" "}
-                  <span className="text-slate-800 font-mono">
-                    {selectedCredit ? `${creditAmount.toFixed(2)} CR` : "—"}
-                  </span>
-                </div>
-                {!isBalanced && (
-                  <div className="text-amber-700 font-bold">
-                    Difference: {diff.toFixed(2)}
-                  </div>
-                )}
+                <div>Db Balance: <span className="text-slate-800 font-mono">{dbBalanceText}</span></div>
+                <div>Cr Balance: <span className="text-slate-800 font-mono">{crBalanceText}</span></div>
               </div>
               <div className="flex flex-col">
-                <span className="text-slate-700 font-semibold mb-1 text-[11px]">
-                  Narration
-                </span>
+                <span className="text-slate-700 font-semibold mb-1 text-[11px]">Narration</span>
                 <textarea
                   {...narrationRegister}
                   ref={(e) => {
                     narrationRegisterRef(e);
                     if (e) narrationRef.current = e as any;
                   }}
-                  placeholder="Brief description of the journal entry..."
                   className="bg-white border border-slate-400 text-slate-800 text-xs px-2 py-1 outline-none w-[380px] h-14 resize-none"
                 />
               </div>
             </div>
-
-            {/* OK & Print Buttons */}
             <div className="flex items-end justify-end gap-2.5">
-              <button
-                type="submit"
-                disabled={loading}
-                className="bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-800 border border-slate-400 px-8 py-1 text-xs font-semibold shadow-xs cursor-pointer min-w-[80px]"
-              >
+              <button type="submit" disabled={loading} className="bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-800 border border-slate-400 px-8 py-1 text-xs font-semibold shadow-xs cursor-pointer min-w-[80px]">
                 {loading ? "Saving..." : "OK"}
-              </button>
-              <button
-                type="button"
-                disabled
-                className="bg-white disabled:opacity-50 text-slate-400 border border-slate-300 px-8 py-1 text-xs font-semibold cursor-not-allowed min-w-[80px]"
-              >
-                Print
               </button>
             </div>
           </div>
@@ -566,6 +546,19 @@ const COL_HEADER = "border border-slate-300 bg-[#d0d7e3] text-slate-700 text-[11
 const COL_CELL   = "border border-slate-300 px-2.5 py-1.5 text-[12px] text-slate-700 whitespace-nowrap";
 const COL_NUM    = "border border-slate-300 px-2 py-1.5 text-[11px] text-slate-400 text-center select-none whitespace-nowrap bg-[#f0f3f8]";
 const CELL_INPUT = "w-full border-2 border-indigo-500 outline-none px-1.5 py-0.5 bg-[#fffde7] text-[12px] rounded-sm font-[inherit]";
+
+const getRowSums = (row: JournalEntry) => {
+  if (row.items && row.items.length > 0) {
+    let dr = 0;
+    let cr = 0;
+    row.items.forEach((it) => {
+      if (it.type === "Db") dr += it.amount;
+      else if (it.type === "Cr") cr += it.amount;
+    });
+    return { dr, cr };
+  }
+  return { dr: row.debitAmount || 0, cr: row.creditAmount || 0 };
+};
 
 type EditCell = { id: string; field: string; value: string };
 
@@ -582,8 +575,8 @@ function JournalExcelTable({
   const [editCell, setEditCell] = useState<EditCell | null>(null);
   const [saving,   setSaving]   = useState(false);
 
-  const totalDr = rows.reduce((s, r) => s + r.debitAmount,  0);
-  const totalCr = rows.reduce((s, r) => s + r.creditAmount, 0);
+  const totalDr = rows.reduce((s, r) => s + getRowSums(r).dr,  0);
+  const totalCr = rows.reduce((s, r) => s + getRowSums(r).cr, 0);
   const balanced = Math.abs(totalDr - totalCr) < 0.001;
 
   function startEdit(id: string, field: string, value: string | number) {
@@ -723,10 +716,29 @@ function JournalExcelTable({
         </thead>
         <tbody>
           {rows.map((row, idx) => {
-            const isBalancedRow = Math.abs(row.debitAmount - row.creditAmount) < 0.001;
+            const { dr: debitAmt, cr: creditAmt } = getRowSums(row);
+            const isBalancedRow = Math.abs(debitAmt - creditAmt) < 0.001;
             const isOdd = idx % 2 === 0;
             const rowBg = isOdd ? "bg-white" : "bg-[#f7f8fc]";
             const isRowEditing = editCell?.id === row._id;
+
+            const isMultiLeg = row.items && row.items.length > 2;
+
+            const debitAccounts = isMultiLeg 
+              ? row.items!.filter((it) => it.type === "Db").map((it) => it.accountName).join(", ")
+              : row.debitAccount;
+            
+            const creditAccounts = isMultiLeg 
+              ? row.items!.filter((it) => it.type === "Cr").map((it) => it.accountName).join(", ")
+              : row.creditAccount;
+
+            const debitGroups = isMultiLeg
+              ? Array.from(new Set(row.items!.filter((it) => it.type === "Db" && it.groupName).map((it) => it.groupName)))
+              : [row.debitGroup].filter(Boolean);
+
+            const creditGroups = isMultiLeg
+              ? Array.from(new Set(row.items!.filter((it) => it.type === "Cr" && it.groupName).map((it) => it.groupName)))
+              : [row.creditGroup].filter(Boolean);
 
             return (
               <tr key={row._id} className={`${isRowEditing ? "bg-[#fffde7]" : rowBg} hover:bg-[#eef2ff] group transition-colors`}>
@@ -763,31 +775,59 @@ function JournalExcelTable({
 
                 {/* Debit Account — click to open modal (complex combobox) */}
                 <td className={`${COL_CELL} cursor-pointer hover:bg-red-50 transition-colors`}
-                  title="Click to change debit account" onClick={() => onOpenModal(row)}>
+                  title={isMultiLeg ? "Multi-leg: Click to edit full entry" : "Click to change debit account"} 
+                  onClick={() => onOpenModal(row)}>
                   <div className="flex flex-col gap-1">
-                    <span className="text-[11px] font-medium text-slate-800 truncate max-w-[150px] block">{row.debitAccount}</span>
-                    {row.debitGroup && <GroupBadge group={row.debitGroup} />}
+                    <span className="text-[11px] font-medium text-slate-800 truncate max-w-[150px] block" title={debitAccounts}>
+                      {debitAccounts}
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {debitGroups.map((dg) => (
+                        <GroupBadge key={dg} group={dg} />
+                      ))}
+                    </div>
                   </div>
                 </td>
 
-                {/* Debit Amount — inline */}
-                <EditableCell row={row} field="debitAmount" value={row.debitAmount} inputType="number" align="right" mono>
-                  <span className="text-red-600 font-semibold font-mono text-right block cursor-cell">{fmtAmt(row.debitAmount)}</span>
-                </EditableCell>
+                {/* Debit Amount */}
+                {isMultiLeg ? (
+                  <td className={`${COL_CELL} text-right font-mono font-semibold text-red-600 cursor-pointer hover:bg-red-50`}
+                    title="Multi-leg entry: Click to edit in modal" onClick={() => onOpenModal(row)}>
+                    {fmtAmt(debitAmt)}
+                  </td>
+                ) : (
+                  <EditableCell row={row} field="debitAmount" value={debitAmt} inputType="number" align="right" mono>
+                    <span className="text-red-600 font-semibold font-mono text-right block cursor-cell">{fmtAmt(debitAmt)}</span>
+                  </EditableCell>
+                )}
 
                 {/* Credit Account — click to open modal */}
                 <td className={`${COL_CELL} cursor-pointer hover:bg-emerald-50 transition-colors`}
-                  title="Click to change credit account" onClick={() => onOpenModal(row)}>
+                  title={isMultiLeg ? "Multi-leg: Click to edit full entry" : "Click to change credit account"} 
+                  onClick={() => onOpenModal(row)}>
                   <div className="flex flex-col gap-1">
-                    <span className="text-[11px] font-medium text-slate-800 truncate max-w-[150px] block">{row.creditAccount}</span>
-                    {row.creditGroup && <GroupBadge group={row.creditGroup} />}
+                    <span className="text-[11px] font-medium text-slate-800 truncate max-w-[150px] block" title={creditAccounts}>
+                      {creditAccounts}
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {creditGroups.map((cg) => (
+                        <GroupBadge key={cg} group={cg} />
+                      ))}
+                    </div>
                   </div>
                 </td>
 
-                {/* Credit Amount — inline */}
-                <EditableCell row={row} field="creditAmount" value={row.creditAmount} inputType="number" align="right" mono>
-                  <span className="text-emerald-600 font-semibold font-mono text-right block cursor-cell">{fmtAmt(row.creditAmount)}</span>
-                </EditableCell>
+                {/* Credit Amount */}
+                {isMultiLeg ? (
+                  <td className={`${COL_CELL} text-right font-mono font-semibold text-emerald-600 cursor-pointer hover:bg-emerald-50`}
+                    title="Multi-leg entry: Click to edit in modal" onClick={() => onOpenModal(row)}>
+                    {fmtAmt(creditAmt)}
+                  </td>
+                ) : (
+                  <EditableCell row={row} field="creditAmount" value={creditAmt} inputType="number" align="right" mono>
+                    <span className="text-emerald-600 font-semibold font-mono text-right block cursor-cell">{fmtAmt(creditAmt)}</span>
+                  </EditableCell>
+                )}
 
                 {/* Delete */}
                 <td className={`${COL_CELL} text-center`}>
@@ -852,12 +892,25 @@ export default function JournalVoucher() {
   useEffect(() => { load(); }, [load]);
 
   const handleSubmit = useCallback(async (data: JournalPayload): Promise<boolean> => {
-    const dr = Number(data.debitAmount);
-    const cr = Number(data.creditAmount);
-    if (Math.abs(dr - cr) > 0.001) { toast.error("Debit amount must equal credit amount"); return false; }
-    if (data.debitAccount.trim().toLowerCase() === data.creditAccount.trim().toLowerCase()) {
-      toast.error("Debit and Credit accounts must be different");
-      return false;
+    if (data.items && data.items.length > 0) {
+      let dr = 0;
+      let cr = 0;
+      data.items.forEach((it) => {
+        if (it.type === "Db") dr += it.amount;
+        else if (it.type === "Cr") cr += it.amount;
+      });
+      if (Math.abs(dr - cr) > 0.001) {
+        toast.error(`Unbalanced: Total Debit (${dr.toFixed(2)}) must equal Total Credit (${cr.toFixed(2)})`);
+        return false;
+      }
+    } else {
+      const dr = Number(data.debitAmount);
+      const cr = Number(data.creditAmount);
+      if (Math.abs(dr - cr) > 0.001) { toast.error("Debit amount must equal credit amount"); return false; }
+      if (data.debitAccount && data.creditAccount && data.debitAccount.trim().toLowerCase() === data.creditAccount.trim().toLowerCase()) {
+        toast.error("Debit and Credit accounts must be different");
+        return false;
+      }
     }
     setSaving(true);
     try {
@@ -908,15 +961,31 @@ export default function JournalVoucher() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return entries.filter((e) => {
-      const matchSearch = !q || [e.voucherNo, e.narration, e.debitAccount, e.creditAccount].some((f) => f.toLowerCase().includes(q));
+      const matchSearch = !q || [
+        e.voucherNo,
+        e.narration,
+        e.debitAccount,
+        e.creditAccount,
+        ...(e.items ? e.items.map((it) => it.accountName) : [])
+      ].some((f) => f && f.toLowerCase().includes(q));
       const matchStatus = statusFilter === "All" || e.status === statusFilter;
       return matchSearch && matchStatus;
     });
   }, [entries, search, statusFilter]);
 
   const totals = useMemo(() => {
-    const totalDr = filtered.reduce((s, e) => s + e.debitAmount,  0);
-    const totalCr = filtered.reduce((s, e) => s + e.creditAmount, 0);
+    const totalDr = filtered.reduce((s, e) => {
+      if (e.items && e.items.length > 0) {
+        return s + e.items.filter((it) => it.type === "Db").reduce((sum, it) => sum + it.amount, 0);
+      }
+      return s + (e.debitAmount || 0);
+    }, 0);
+    const totalCr = filtered.reduce((s, e) => {
+      if (e.items && e.items.length > 0) {
+        return s + e.items.filter((it) => it.type === "Cr").reduce((sum, it) => sum + it.amount, 0);
+      }
+      return s + (e.creditAmount || 0);
+    }, 0);
     return { totalDr, totalCr, diff: Math.abs(totalDr - totalCr), balanced: Math.abs(totalDr - totalCr) < 0.001 };
   }, [filtered]);
 

@@ -12,12 +12,12 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 import { useForm } from "react-hook-form";
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, X,
-  Save, BookMarked, Layers, Filter, CheckCircle2, Loader2,
+  Save, BookMarked, Layers, Filter, CheckCircle2, Loader2, GitMerge,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
   type Ledger, type LedgerPayload,
-  getAllLedgers, createLedger, updateLedger, deleteLedger, bulkDeleteLedgers,
+  getAllLedgers, createLedger, updateLedger, deleteLedger, bulkDeleteLedgers, mergeLedgers,
 } from "../api/ledgerApi";
 import {
   getAllGroups, createGroup, SUPER_GROUPS, type AccountGroup
@@ -314,6 +314,127 @@ function GroupModal({ loading, onClose, onSubmit }: {
   );
 }
 
+// ── Merge Modal ──────────────────────────────────────────────────────────────
+function MergeModal({
+  selected,
+  loading,
+  onClose,
+  onMerge,
+}: {
+  selected: Ledger[];
+  loading: boolean;
+  onClose: () => void;
+  onMerge: (sourceIds: string[], targetId: string) => void;
+}) {
+  const [targetId, setTargetId] = useState<string>(selected[0]?._id ?? "");
+  const target = selected.find((l) => l._id === targetId);
+  const sources = selected.filter((l) => l._id !== targetId);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-violet-50 to-indigo-50">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-violet-100">
+              <GitMerge size={16} className="text-violet-600" />
+            </div>
+            <div>
+              <h2 className="text-slate-900 text-base font-semibold">Merge Ledgers</h2>
+              <p className="text-xs text-slate-500 mt-0.5">{selected.length} ledgers selected</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/70 text-slate-500 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5">
+          {/* Info banner */}
+          <div className="flex gap-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+            <span className="text-amber-500 mt-0.5 flex-shrink-0">⚠️</span>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              All journal entries, bank/cash transactions, and opening balances from the
+              <strong> source ledgers</strong> will be transferred to the <strong>target ledger</strong>.
+              Source ledgers will be <strong>permanently deleted</strong>. This cannot be undone.
+            </p>
+          </div>
+
+          {/* Pick target ledger */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Keep this ledger <span className="text-violet-600">(target)</span>
+            </label>
+            <div className="space-y-2">
+              {selected.map((l) => (
+                <label
+                  key={l._id}
+                  className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                    targetId === l._id
+                      ? "border-violet-400 bg-violet-50"
+                      : "border-slate-200 hover:border-slate-300 bg-white"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="mergeTarget"
+                    value={l._id}
+                    checked={targetId === l._id}
+                    onChange={() => setTargetId(l._id)}
+                    className="accent-violet-600"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">{l.ledgerName}</p>
+                    <p className="text-xs text-slate-500 truncate">{l.groupName}</p>
+                  </div>
+                  {targetId === l._id && (
+                    <span className="text-xs bg-violet-600 text-white px-2 py-0.5 rounded-full font-medium flex-shrink-0">
+                      Target ✓
+                    </span>
+                  )}
+                  {targetId !== l._id && (
+                    <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
+                      Will be deleted
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Summary */}
+          {target && sources.length > 0 && (
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1">
+              <p className="font-medium text-slate-700">Merge summary:</p>
+              <p>• <strong>{sources.map((s) => s.ledgerName).join(", ")}</strong> → <strong>{target.ledgerName}</strong></p>
+              <p>• {sources.length} ledger(s) will be permanently deleted</p>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onMerge(sources.map((s) => s._id), targetId)}
+              disabled={loading || sources.length === 0}
+              className="flex items-center gap-2 px-5 py-2 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700 transition-colors disabled:opacity-50"
+            >
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <GitMerge size={14} />}
+              Merge Ledgers
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function LedgerMaster() {
   const [rows, setRows]         = useState<Ledger[]>([]);
@@ -325,6 +446,8 @@ export default function LedgerMaster() {
   const [groupFilter, setGroupFilter] = useState<string>("All");
   const [modal, setModal]       = useState<{ mode: "add" | "edit"; ledger?: Ledger } | null>(null);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [mergeSaving, setMergeSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const gridRef                 = useRef<AgGridReact<Ledger>>(null);
 
@@ -405,17 +528,38 @@ export default function LedgerMaster() {
     if (!window.confirm(`Delete the ${selectedIds.length} selected ledger(s)? This cannot be undone.`)) return;
     setLoading(true);
     try {
-      await bulkDeleteLedgers(selectedIds);
-      setRows((p) => p.filter((r) => !selectedIds.includes(r._id)));
-      toast.success(`${selectedIds.length} ledger(s) deleted`);
+      const result = await bulkDeleteLedgers(selectedIds);
+      if (result.blocked && result.blocked.length > 0) {
+        // Partial delete — some ledgers were blocked because they have entries
+        toast.success(result.message, { duration: 6000 });
+      } else {
+        toast.success(result.message || `${result.count} ledger(s) deleted`);
+      }
       setSelectedIds([]);
+      await load();
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Failed to delete selected ledgers");
+      toast.error(e.response?.data?.message || e.message || "Failed to delete selected ledgers", { duration: 6000 });
     } finally {
       setLoading(false);
     }
-  }, [selectedIds]);
+  }, [selectedIds, load]);
+
+  const handleMerge = useCallback(async (sourceIds: string[], targetId: string) => {
+    setMergeSaving(true);
+    try {
+      const result = await mergeLedgers(sourceIds, targetId);
+      toast.success(result.message);
+      setMergeModalOpen(false);
+      setSelectedIds([]);
+      await load();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || e.message || "Merge failed");
+    } finally {
+      setMergeSaving(false);
+    }
+  }, [load]);
 
   const onSelectionChanged = useCallback(() => {
     const selectedNodes = gridRef.current?.api.getSelectedNodes() || [];
@@ -593,6 +737,14 @@ export default function LedgerMaster() {
           >
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
+          {selectedIds.length >= 2 && (
+            <button
+              onClick={() => setMergeModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700 transition-colors shadow-sm animate-in fade-in slide-in-from-right-2 duration-200"
+            >
+              <GitMerge size={15} /> Merge ({selectedIds.length})
+            </button>
+          )}
           {selectedIds.length > 0 && (
             <button
               onClick={handleBulkDelete}
@@ -739,6 +891,16 @@ export default function LedgerMaster() {
           loading={groupSaving}
           onClose={() => setGroupModalOpen(false)}
           onSubmit={handleCreateGroup}
+        />
+      )}
+
+      {/* Merge Modal */}
+      {mergeModalOpen && selectedIds.length >= 2 && (
+        <MergeModal
+          selected={rows.filter((r) => selectedIds.includes(r._id))}
+          loading={mergeSaving}
+          onClose={() => setMergeModalOpen(false)}
+          onMerge={handleMerge}
         />
       )}
     </div>

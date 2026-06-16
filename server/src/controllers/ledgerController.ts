@@ -81,13 +81,20 @@ async function getCalculatedLedgerBalances(
     ledgerMap[l.ledgerName] = { dr: 0, cr: 0 };
   });
 
-  priorJournalEntries.forEach((e) => {
-    if (ledgerMap[e.debitAccount]) {
-      ledgerMap[e.debitAccount].dr += e.debitAmount;
-    }
-    if (ledgerMap[e.creditAccount]) {
-      ledgerMap[e.creditAccount].cr += e.creditAmount;
-    }
+  priorJournalEntries.forEach((e: any) => {
+    const items = e.items && e.items.length > 0 ? e.items : [
+      { type: "Db", accountName: e.debitAccount, groupName: e.debitGroup, amount: e.debitAmount },
+      { type: "Cr", accountName: e.creditAccount, groupName: e.creditGroup, amount: e.creditAmount }
+    ];
+    items.forEach((item: any) => {
+      if (ledgerMap[item.accountName]) {
+        if (item.type === "Db") {
+          ledgerMap[item.accountName].dr += Number(item.amount || 0);
+        } else {
+          ledgerMap[item.accountName].cr += Number(item.amount || 0);
+        }
+      }
+    });
   });
 
   priorBankCashEntries.forEach((e) => {
@@ -327,20 +334,63 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
       return;
     }
 
+    const { Types: MongoTypes } = require("mongoose");
+    let companyIdFilter: any;
+    try {
+      companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+    } catch {
+      companyIdFilter = req.companyId;
+    }
+
+    // ── Guard: block deletion if the ledger has any journal or bank/cash entries ──
+    const ledgerNamePattern = new RegExp(`^${ledger.ledgerName.trim()}$`, "i");
+
+    const journalEntryCount = await JournalEntry.countDocuments({
+      companyId: companyIdFilter,
+      $or: [
+        { debitAccount:  { $regex: ledgerNamePattern } },
+        { creditAccount: { $regex: ledgerNamePattern } },
+        { "items.accountName": { $regex: ledgerNamePattern } }
+      ]
+    });
+
+    if (journalEntryCount > 0) {
+      res.status(400).json({
+        message: `Cannot delete "${ledger.ledgerName}" — it has ${journalEntryCount} journal entr${journalEntryCount === 1 ? "y" : "ies"}. Remove all entries before deleting.`
+      });
+      return;
+    }
+
+    const bankCashEntryCount = await BankCashEntry.countDocuments({
+      companyId: companyIdFilter,
+      $or: [
+        { contraAccountName: { $regex: ledgerNamePattern } }
+      ]
+    });
+
+    if (bankCashEntryCount > 0) {
+      res.status(400).json({
+        message: `Cannot delete "${ledger.ledgerName}" — it has ${bankCashEntryCount} bank/cash entr${bankCashEntryCount === 1 ? "y" : "ies"}. Remove all entries before deleting.`
+      });
+      return;
+    }
+
     const account = await BankCashAccount.findOne({
-      name: { $regex: new RegExp(`^${ledger.ledgerName.trim()}$`, "i") },
+      name: { $regex: ledgerNamePattern },
       companyId: req.companyId
     });
 
     if (account) {
-      const { Types: MongoTypes } = require("mongoose");
-      let companyIdFilter: any;
-      try {
-        companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
-      } catch {
-        companyIdFilter = req.companyId;
+      const accountEntryCount = await BankCashEntry.countDocuments({
+        accountId: account._id.toString(),
+        companyId: companyIdFilter
+      });
+      if (accountEntryCount > 0) {
+        res.status(400).json({
+          message: `Cannot delete "${ledger.ledgerName}" — it has ${accountEntryCount} bank/cash entr${accountEntryCount === 1 ? "y" : "ies"}. Remove all entries before deleting.`
+        });
+        return;
       }
-      await BankCashEntry.deleteMany({ accountId: account._id.toString(), companyId: companyIdFilter });
       await BankCashAccount.deleteOne({ _id: account._id });
     }
 
@@ -360,30 +410,214 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
     }
 
     const ledgers = await Ledger.find({ _id: { $in: ids }, companyId: req.companyId });
-    const ledgerNames = ledgers.map(l => l.ledgerName.trim());
 
+    const { Types: MongoTypes } = require("mongoose");
+    let companyIdFilter: any;
+    try {
+      companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+    } catch {
+      companyIdFilter = req.companyId;
+    }
+
+    // ── Guard: skip ledgers that have any journal or bank/cash entries ────────
+    const blockedLedgers: string[] = [];
+    const deletableLedgers: typeof ledgers = [];
+
+    for (const ledger of ledgers) {
+      const namePattern = new RegExp(`^${ledger.ledgerName.trim()}$`, "i");
+
+      const jCount = await JournalEntry.countDocuments({
+        companyId: companyIdFilter,
+        $or: [
+          { debitAccount:  { $regex: namePattern } },
+          { creditAccount: { $regex: namePattern } },
+          { "items.accountName": { $regex: namePattern } }
+        ]
+      });
+
+      if (jCount > 0) {
+        blockedLedgers.push(ledger.ledgerName);
+        continue;
+      }
+
+      const contraCount = await BankCashEntry.countDocuments({
+        companyId: companyIdFilter,
+        contraAccountName: { $regex: namePattern }
+      });
+
+      if (contraCount > 0) {
+        blockedLedgers.push(ledger.ledgerName);
+        continue;
+      }
+
+      // Check if it is a bank/cash account and has account-side entries
+      const account = await BankCashAccount.findOne({
+        name: { $regex: namePattern },
+        companyId: req.companyId
+      });
+      if (account) {
+        const accCount = await BankCashEntry.countDocuments({
+          accountId: account._id.toString(),
+          companyId: companyIdFilter
+        });
+        if (accCount > 0) {
+          blockedLedgers.push(ledger.ledgerName);
+          continue;
+        }
+      }
+
+      deletableLedgers.push(ledger);
+    }
+
+    if (deletableLedgers.length === 0 && blockedLedgers.length > 0) {
+      res.status(400).json({
+        message: `Cannot delete the selected ledger(s) — they all have existing entries: ${blockedLedgers.slice(0, 5).join(", ")}${blockedLedgers.length > 5 ? " and more" : ""}.`,
+        blocked: blockedLedgers
+      });
+      return;
+    }
+
+    const deletableIds = deletableLedgers.map(l => (l._id as any).toString());
+    const deletableNames = deletableLedgers.map(l => l.ledgerName.trim());
+
+    // Clean up associated BankCashAccounts for deletable ledgers only
     const accounts = await BankCashAccount.find({
-      name: { $in: ledgerNames.map(name => new RegExp(`^${name}$`, "i")) },
+      name: { $in: deletableNames.map(name => new RegExp(`^${name}$`, "i")) },
       companyId: req.companyId
     });
-    const accountIds = accounts.map(a => a._id.toString());
-
-    if (accountIds.length > 0) {
-      const { Types: MongoTypes } = require("mongoose");
-      let companyIdFilter: any;
-      try {
-        companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
-      } catch {
-        companyIdFilter = req.companyId;
-      }
-      await BankCashEntry.deleteMany({ accountId: { $in: accountIds }, companyId: companyIdFilter });
+    if (accounts.length > 0) {
       await BankCashAccount.deleteMany({ _id: { $in: accounts.map(a => a._id) } });
     }
 
-    const result = await Ledger.deleteMany({ _id: { $in: ids }, companyId: req.companyId });
-    res.json({ message: `${result.deletedCount} ledgers deleted successfully`, count: result.deletedCount });
+    const result = await Ledger.deleteMany({ _id: { $in: deletableIds }, companyId: req.companyId });
+
+    const msg = blockedLedgers.length > 0
+      ? `${result.deletedCount} ledger(s) deleted. ${blockedLedgers.length} ledger(s) skipped (have existing entries): ${blockedLedgers.slice(0, 5).join(", ")}${blockedLedgers.length > 5 ? " and more" : ""}.`
+      : `${result.deletedCount} ledger(s) deleted successfully`;
+
+    res.json({ message: msg, count: result.deletedCount, blocked: blockedLedgers });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to bulk delete ledgers" });
+  }
+}
+
+// ── Merge Ledgers ───────────────────────────────────────────────────────────────
+// POST /ledger/merge  { sourceIds: string[], targetId: string }
+// All transactions referencing source ledgers get repointed to the target ledger.
+// Source ledger records (and their bank/cash accounts) are then deleted.
+export async function mergeLedgers(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { sourceIds, targetId } = req.body;
+  try {
+    if (!Array.isArray(sourceIds) || sourceIds.length === 0 || !targetId) {
+      res.status(400).json({ message: "Provide sourceIds[] and targetId" });
+      return;
+    }
+
+    // Load target ledger
+    const targetLedger = await Ledger.findOne({ _id: targetId, companyId: req.companyId });
+    if (!targetLedger) {
+      res.status(404).json({ message: "Target ledger not found" });
+      return;
+    }
+    const targetName = targetLedger.ledgerName;
+    const targetGroup = targetLedger.groupName;
+
+    // Load source ledgers
+    const sourceLedgers = await Ledger.find({ _id: { $in: sourceIds }, companyId: req.companyId });
+    if (sourceLedgers.length === 0) {
+      res.status(404).json({ message: "No source ledgers found" });
+      return;
+    }
+    const sourceNames = sourceLedgers.map((l) => l.ledgerName);
+
+    const { Types: MongoTypes } = require("mongoose");
+    let companyIdFilter: any;
+    try {
+      companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+    } catch {
+      companyIdFilter = req.companyId;
+    }
+
+    // ── 1. Rewrite JournalEntry references ────────────────────────────────────
+    // Legacy single-leg fields
+    await JournalEntry.updateMany(
+      { companyId: companyIdFilter, debitAccount: { $in: sourceNames } },
+      { $set: { debitAccount: targetName, debitGroup: targetGroup } }
+    );
+    await JournalEntry.updateMany(
+      { companyId: companyIdFilter, creditAccount: { $in: sourceNames } },
+      { $set: { creditAccount: targetName, creditGroup: targetGroup } }
+    );
+
+    // Multi-leg items array – use arrayFilters
+    for (const srcName of sourceNames) {
+      await JournalEntry.updateMany(
+        { companyId: companyIdFilter, "items.accountName": srcName },
+        {
+          $set: {
+            "items.$[elem].accountName": targetName,
+            "items.$[elem].groupName": targetGroup,
+          },
+        },
+        { arrayFilters: [{ "elem.accountName": srcName }] } as any
+      );
+    }
+
+    // ── 2. Rewrite BankCashEntry references ───────────────────────────────────
+    for (const srcName of sourceNames) {
+      await BankCashEntry.updateMany(
+        { companyId: companyIdFilter, contraLedger: srcName },
+        { $set: { contraLedger: targetName } }
+      );
+      await BankCashEntry.updateMany(
+        { companyId: companyIdFilter, ledgerName: srcName },
+        { $set: { ledgerName: targetName } }
+      );
+    }
+
+    // ── 3. Rewrite ImportedTransaction references ─────────────────────────────
+    try {
+      for (const srcName of sourceNames) {
+        await ImportedTransaction.updateMany(
+          { companyId: companyIdFilter, ledgerName: srcName },
+          { $set: { ledgerName: targetName } }
+        );
+      }
+    } catch {
+      // ImportedTransaction may not have a ledgerName field – ignore safely
+    }
+
+    // ── 4. Transfer opening balances (sum up) ─────────────────────────────────
+    let totalOpeningDr = targetLedger.openingDr || 0;
+    let totalOpeningCr = targetLedger.openingCr || 0;
+    for (const src of sourceLedgers) {
+      totalOpeningDr += src.openingDr || 0;
+      totalOpeningCr += src.openingCr || 0;
+    }
+    targetLedger.openingDr = totalOpeningDr;
+    targetLedger.openingCr = totalOpeningCr;
+    await targetLedger.save();
+
+    // ── 5. Delete source bank/cash accounts ───────────────────────────────────
+    const sourceAccounts = await BankCashAccount.find({
+      name: { $in: sourceNames.map((n) => new RegExp(`^${n}$`, "i")) },
+      companyId: req.companyId,
+    });
+    if (sourceAccounts.length > 0) {
+      const sourceAccountIds = sourceAccounts.map((a) => a._id.toString());
+      await BankCashEntry.deleteMany({ accountId: { $in: sourceAccountIds }, companyId: companyIdFilter });
+      await BankCashAccount.deleteMany({ _id: { $in: sourceAccounts.map((a) => a._id) } });
+    }
+
+    // ── 6. Delete source ledgers ──────────────────────────────────────────────
+    await Ledger.deleteMany({ _id: { $in: sourceIds }, companyId: req.companyId });
+
+    res.json({
+      message: `${sourceLedgers.length} ledger(s) merged into "${targetName}" successfully`,
+      targetLedger,
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to merge ledgers" });
   }
 }
 
@@ -561,42 +795,59 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
       }
     }
 
-    // 3. Journal entries – debit side
-    const jDebitQuery: any = {
-      debitAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") },
-      companyId
+    // 3. Journal entries
+    const jEntriesQuery: any = {
+      companyId,
+      $or: [
+        { debitAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") } },
+        { creditAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") } },
+        { "items.accountName": { $regex: new RegExp(`^${ledgerName}$`, "i") } }
+      ]
     };
-    if (fyStart && fyEnd) jDebitQuery.date = { $gte: fyStart, $lte: fyEnd };
-    const jDebitEntries = await JournalEntry.find(jDebitQuery).sort({ date: 1, createdAt: 1 });
-    for (const e of jDebitEntries) {
-      lines.push({
-        date: e.date.slice(0, 10),
-        accountName: e.creditAccount,
-        particulars: e.narration || `By ${e.creditAccount}`,
-        voucherNo: e.voucherNo,
-        voucherType: "JVou",
-        debit: e.debitAmount,
-        credit: 0,
-      });
-    }
+    if (fyStart && fyEnd) jEntriesQuery.date = { $gte: fyStart, $lte: fyEnd };
+    const journalEntries = await JournalEntry.find(jEntriesQuery).sort({ date: 1, createdAt: 1 });
+    
+    for (const e of journalEntries) {
+      const items = e.items && e.items.length > 0 ? e.items : [
+        { type: "Db", accountName: e.debitAccount, groupName: e.debitGroup, amount: e.debitAmount },
+        { type: "Cr", accountName: e.creditAccount, groupName: e.creditGroup, amount: e.creditAmount }
+      ];
 
-    // 4. Journal entries – credit side
-    const jCreditQuery: any = {
-      creditAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") },
-      companyId
-    };
-    if (fyStart && fyEnd) jCreditQuery.date = { $gte: fyStart, $lte: fyEnd };
-    const jCreditEntries = await JournalEntry.find(jCreditQuery).sort({ date: 1, createdAt: 1 });
-    for (const e of jCreditEntries) {
-      lines.push({
-        date: e.date.slice(0, 10),
-        accountName: e.debitAccount,
-        particulars: e.narration || `To ${e.debitAccount}`,
-        voucherNo: e.voucherNo,
-        voucherType: "JVou",
-        debit: 0,
-        credit: e.creditAmount,
-      });
+      const matchedLegs = items.filter(
+        (it: any) => it.accountName && it.accountName.toLowerCase() === ledgerName.toLowerCase()
+      );
+
+      for (const leg of matchedLegs) {
+        if (leg.type === "Db") {
+          const contras = items
+            .filter((it: any) => it.type === "Cr")
+            .map((it: any) => it.accountName);
+          const contraStr = contras.length > 0 ? contras.join(", ") : "";
+          lines.push({
+            date: e.date.slice(0, 10),
+            accountName: contraStr,
+            particulars: e.narration || `By ${contraStr}`,
+            voucherNo: e.voucherNo,
+            voucherType: "JVou",
+            debit: Number(leg.amount || 0),
+            credit: 0,
+          });
+        } else {
+          const contras = items
+            .filter((it: any) => it.type === "Db")
+            .map((it: any) => it.accountName);
+          const contraStr = contras.length > 0 ? contras.join(", ") : "";
+          lines.push({
+            date: e.date.slice(0, 10),
+            accountName: contraStr,
+            particulars: e.narration || `To ${contraStr}`,
+            voucherNo: e.voucherNo,
+            voucherType: "JVou",
+            debit: 0,
+            credit: Number(leg.amount || 0),
+          });
+        }
+      }
     }
 
     // ── Sort by date, then voucherNo ─────────────────────────────────────────

@@ -98,20 +98,54 @@ export async function computePL(dateFrom: string, dateTo: string): Promise<PLDat
     if (e.date < dateFrom || e.date > dateTo) continue;
     let counted = false;
 
-    // Credit = revenue
-    if (SALES_GROUPS.has(e.creditGroup))        { add(salesMap,  e.creditAccount, e.creditAmount); counted = true; }
-    else if (OTHER_INCOME_GROUPS.has(e.creditGroup)) { add(incomeMap, e.creditAccount, e.creditAmount); counted = true; }
+    if (e.items && e.items.length > 0) {
+      for (const item of e.items) {
+        if (item.type === "Cr") {
+          if (SALES_GROUPS.has(item.groupName)) {
+            add(salesMap, item.accountName, item.amount);
+            counted = true;
+          } else if (OTHER_INCOME_GROUPS.has(item.groupName)) {
+            add(incomeMap, item.accountName, item.amount);
+            counted = true;
+          } else if (DIRECT_EXP_GROUPS.has(item.groupName)) {
+            add(directExpMap, item.accountName, -item.amount);
+            counted = true;
+          } else if (INDIRECT_EXP_GROUPS.has(item.groupName)) {
+            add(indirectExpMap, item.accountName, -item.amount);
+            counted = true;
+          }
+        } else if (item.type === "Db") {
+          if (DIRECT_EXP_GROUPS.has(item.groupName)) {
+            add(directExpMap, item.accountName, item.amount);
+            counted = true;
+          } else if (INDIRECT_EXP_GROUPS.has(item.groupName)) {
+            add(indirectExpMap, item.accountName, item.amount);
+            counted = true;
+          } else if (SALES_GROUPS.has(item.groupName)) {
+            add(salesMap, item.accountName, -item.amount);
+            counted = true;
+          } else if (OTHER_INCOME_GROUPS.has(item.groupName)) {
+            add(incomeMap, item.accountName, -item.amount);
+            counted = true;
+          }
+        }
+      }
+    } else {
+      // Credit = revenue
+      if (SALES_GROUPS.has(e.creditGroup))        { add(salesMap,  e.creditAccount, e.creditAmount); counted = true; }
+      else if (OTHER_INCOME_GROUPS.has(e.creditGroup)) { add(incomeMap, e.creditAccount, e.creditAmount); counted = true; }
 
-    // Debit = expense
-    if (DIRECT_EXP_GROUPS.has(e.debitGroup))       { add(directExpMap,   e.debitAccount, e.debitAmount); counted = true; }
-    else if (INDIRECT_EXP_GROUPS.has(e.debitGroup)) { add(indirectExpMap, e.debitAccount, e.debitAmount); counted = true; }
+      // Debit = expense
+      if (DIRECT_EXP_GROUPS.has(e.debitGroup))       { add(directExpMap,   e.debitAccount, e.debitAmount); counted = true; }
+      else if (INDIRECT_EXP_GROUPS.has(e.debitGroup)) { add(indirectExpMap, e.debitAccount, e.debitAmount); counted = true; }
 
-    // Contra / write-back: expense on credit side reduces it
-    if (INDIRECT_EXP_GROUPS.has(e.creditGroup)) { add(indirectExpMap, e.creditAccount, -e.creditAmount); counted = true; }
-    if (DIRECT_EXP_GROUPS.has(e.creditGroup))   { add(directExpMap,   e.creditAccount, -e.creditAmount); counted = true; }
-    // Income on debit side reduces it (refund)
-    if (SALES_GROUPS.has(e.debitGroup))          { add(salesMap,  e.debitAccount, -e.debitAmount); counted = true; }
-    if (OTHER_INCOME_GROUPS.has(e.debitGroup))   { add(incomeMap, e.debitAccount, -e.debitAmount); counted = true; }
+      // Contra / write-back: expense on credit side reduces it
+      if (INDIRECT_EXP_GROUPS.has(e.creditGroup)) { add(indirectExpMap, e.creditAccount, -e.creditAmount); counted = true; }
+      if (DIRECT_EXP_GROUPS.has(e.creditGroup))   { add(directExpMap,   e.creditAccount, -e.creditAmount); counted = true; }
+      // Income on debit side reduces it (refund)
+      if (SALES_GROUPS.has(e.debitGroup))          { add(salesMap,  e.debitAccount, -e.debitAmount); counted = true; }
+      if (OTHER_INCOME_GROUPS.has(e.debitGroup))   { add(incomeMap, e.debitAccount, -e.debitAmount); counted = true; }
+    }
 
     if (counted) journalTxns++;
   }

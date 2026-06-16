@@ -133,8 +133,18 @@ export async function computeTrialBalance(cache?: {
   // 3. Journal Entries
   const journalEntries = cache?.journalEntries ?? await getAllJournalEntries();
   for (const e of journalEntries) {
-    addTxnDr(e.debitAccount,  e.debitGroup,  e.debitAmount);
-    addTxnCr(e.creditAccount, e.creditGroup, e.creditAmount);
+    if (e.items && e.items.length > 0) {
+      for (const item of e.items) {
+        if (item.type === "Db") {
+          addTxnDr(item.accountName, item.groupName, item.amount);
+        } else {
+          addTxnCr(item.accountName, item.groupName, item.amount);
+        }
+      }
+    } else {
+      addTxnDr(e.debitAccount,  e.debitGroup,  e.debitAmount);
+      addTxnCr(e.creditAccount, e.creditGroup, e.creditAmount);
+    }
   }
 
   // 4. Compute closing (net) balances

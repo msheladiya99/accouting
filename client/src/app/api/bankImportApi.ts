@@ -169,6 +169,38 @@ function toNum(val: unknown): number {
   return isNaN(n) ? 0 : Math.abs(n);
 }
 
+function findDateCol(headers: string[]): number {
+  const normalized = headers.map(h => typeof h === "string" ? h.trim().toLowerCase() : "");
+
+  // Priority 1: Exact matches of transaction/booking date columns
+  const exactTxnKeywords = ["date", "txn date", "transaction date", "txn. date", "tx date", "booking date", "posting date"];
+  for (const kw of exactTxnKeywords) {
+    const idx = normalized.indexOf(kw);
+    if (idx >= 0) return idx;
+  }
+
+  // Priority 2: Partial matches of transaction date columns
+  const partialTxnKeywords = ["txn date", "transaction date", "txn. date", "tx date", "booking date", "posting date", "txn_date"];
+  for (const kw of partialTxnKeywords) {
+    const idx = normalized.findIndex(h => h.includes(kw));
+    if (idx >= 0) return idx;
+  }
+
+  // Priority 3: Contains "date" but NOT "value" (prefer transaction date over value date)
+  const idxDateNoValue = normalized.findIndex(h => h.includes("date") && !h.includes("value"));
+  if (idxDateNoValue >= 0) return idxDateNoValue;
+
+  // Priority 4: Contains "posting" or "booking"
+  const idxPosting = normalized.findIndex(h => h.includes("posting") || h.includes("booking"));
+  if (idxPosting >= 0) return idxPosting;
+
+  // Priority 5: Contains "value date" or "value"
+  const idxValueDate = normalized.findIndex(h => h.includes("value date") || h.includes("value"));
+  if (idxValueDate >= 0) return idxValueDate;
+
+  return -1;
+}
+
 function parseSheetRows(rows: unknown[][]): RawTransaction[] {
   if (rows.length < 2) return [];
 
@@ -183,7 +215,7 @@ function parseSheetRows(rows: unknown[][]): RawTransaction[] {
   }
 
   const headers = (rows[headerIdx] as string[]).map((h) => String(h ?? ""));
-  const dateCol = colIdx(headers, ["date", "txn date", "value date", "transaction date", "posting"]);
+  const dateCol = findDateCol(headers);
   const narrCol = colIdx(headers, ["narration", "description", "particulars", "particular", "remarks", "details", "cheque", "chq", "transaction narration", "narration/description"]);
   const drCol   = colIdx(headers, ["debit", "withdrawal", "dr amount", "withdrawl", "dr", "debit amount", "withdrawal amount", "paid out"]);
   const crCol   = colIdx(headers, ["credit", "deposit", "cr amount", "cr", "credit amount", "deposit amount", "paid in"]);

@@ -222,9 +222,9 @@ export async function updateJournalEntry(req: AuthenticatedRequest, res: Respons
         }
       } else {
         entry.items = [
-          { type: "Db", accountName: entry.debitAccount, groupName: entry.debitGroup, amount: entry.debitAmount },
-          { type: "Cr", accountName: entry.creditAccount, groupName: entry.creditGroup, amount: entry.creditAmount }
-        ];
+          { type: "Db", accountName: entry.debitAccount || "", groupName: entry.debitGroup || "", amount: entry.debitAmount || 0 },
+          { type: "Cr", accountName: entry.creditAccount || "", groupName: entry.creditGroup || "", amount: entry.creditAmount || 0 }
+        ] as any;
       }
     }
 

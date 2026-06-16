@@ -394,6 +394,126 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
   }
 }
 
+// ── Merge Ledgers ───────────────────────────────────────────────────────────────
+// POST /ledger/merge  { sourceIds: string[], targetId: string }
+// All transactions referencing source ledgers get repointed to the target ledger.
+// Source ledger records (and their bank/cash accounts) are then deleted.
+export async function mergeLedgers(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { sourceIds, targetId } = req.body;
+  try {
+    if (!Array.isArray(sourceIds) || sourceIds.length === 0 || !targetId) {
+      res.status(400).json({ message: "Provide sourceIds[] and targetId" });
+      return;
+    }
+
+    // Load target ledger
+    const targetLedger = await Ledger.findOne({ _id: targetId, companyId: req.companyId });
+    if (!targetLedger) {
+      res.status(404).json({ message: "Target ledger not found" });
+      return;
+    }
+    const targetName = targetLedger.ledgerName;
+    const targetGroup = targetLedger.groupName;
+
+    // Load source ledgers
+    const sourceLedgers = await Ledger.find({ _id: { $in: sourceIds }, companyId: req.companyId });
+    if (sourceLedgers.length === 0) {
+      res.status(404).json({ message: "No source ledgers found" });
+      return;
+    }
+    const sourceNames = sourceLedgers.map((l) => l.ledgerName);
+
+    const { Types: MongoTypes } = require("mongoose");
+    let companyIdFilter: any;
+    try {
+      companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+    } catch {
+      companyIdFilter = req.companyId;
+    }
+
+    // ── 1. Rewrite JournalEntry references ────────────────────────────────────
+    // Legacy single-leg fields
+    await JournalEntry.updateMany(
+      { companyId: companyIdFilter, debitAccount: { $in: sourceNames } },
+      { $set: { debitAccount: targetName, debitGroup: targetGroup } }
+    );
+    await JournalEntry.updateMany(
+      { companyId: companyIdFilter, creditAccount: { $in: sourceNames } },
+      { $set: { creditAccount: targetName, creditGroup: targetGroup } }
+    );
+
+    // Multi-leg items array – use arrayFilters
+    for (const srcName of sourceNames) {
+      await JournalEntry.updateMany(
+        { companyId: companyIdFilter, "items.accountName": srcName },
+        {
+          $set: {
+            "items.$[elem].accountName": targetName,
+            "items.$[elem].groupName": targetGroup,
+          },
+        },
+        { arrayFilters: [{ "elem.accountName": srcName }] } as any
+      );
+    }
+
+    // ── 2. Rewrite BankCashEntry references ───────────────────────────────────
+    for (const srcName of sourceNames) {
+      await BankCashEntry.updateMany(
+        { companyId: companyIdFilter, contraLedger: srcName },
+        { $set: { contraLedger: targetName } }
+      );
+      await BankCashEntry.updateMany(
+        { companyId: companyIdFilter, ledgerName: srcName },
+        { $set: { ledgerName: targetName } }
+      );
+    }
+
+    // ── 3. Rewrite ImportedTransaction references ─────────────────────────────
+    try {
+      for (const srcName of sourceNames) {
+        await ImportedTransaction.updateMany(
+          { companyId: companyIdFilter, ledgerName: srcName },
+          { $set: { ledgerName: targetName } }
+        );
+      }
+    } catch {
+      // ImportedTransaction may not have a ledgerName field – ignore safely
+    }
+
+    // ── 4. Transfer opening balances (sum up) ─────────────────────────────────
+    let totalOpeningDr = targetLedger.openingDr || 0;
+    let totalOpeningCr = targetLedger.openingCr || 0;
+    for (const src of sourceLedgers) {
+      totalOpeningDr += src.openingDr || 0;
+      totalOpeningCr += src.openingCr || 0;
+    }
+    targetLedger.openingDr = totalOpeningDr;
+    targetLedger.openingCr = totalOpeningCr;
+    await targetLedger.save();
+
+    // ── 5. Delete source bank/cash accounts ───────────────────────────────────
+    const sourceAccounts = await BankCashAccount.find({
+      name: { $in: sourceNames.map((n) => new RegExp(`^${n}$`, "i")) },
+      companyId: req.companyId,
+    });
+    if (sourceAccounts.length > 0) {
+      const sourceAccountIds = sourceAccounts.map((a) => a._id.toString());
+      await BankCashEntry.deleteMany({ accountId: { $in: sourceAccountIds }, companyId: companyIdFilter });
+      await BankCashAccount.deleteMany({ _id: { $in: sourceAccounts.map((a) => a._id) } });
+    }
+
+    // ── 6. Delete source ledgers ──────────────────────────────────────────────
+    await Ledger.deleteMany({ _id: { $in: sourceIds }, companyId: req.companyId });
+
+    res.json({
+      message: `${sourceLedgers.length} ledger(s) merged into "${targetName}" successfully`,
+      targetLedger,
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to merge ledgers" });
+  }
+}
+
 export async function updateBulkOpeningBalances(req: AuthenticatedRequest, res: Response): Promise<void> {
   const balances = req.body; // Array of { ledgerName, groupName, openingDr, openingCr }
   try {

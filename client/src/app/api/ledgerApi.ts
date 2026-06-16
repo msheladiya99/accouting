@@ -99,6 +99,11 @@ export async function bulkDeleteLedgers(ids: string[]): Promise<{ message: strin
   return res.data;
 }
 
+export async function mergeLedgers(sourceIds: string[], targetId: string): Promise<{ message: string; targetLedger: Ledger }> {
+  const res = await axiosClient.post<{ message: string; targetLedger: Ledger }>("/ledger/merge", { sourceIds, targetId });
+  return res.data;
+}
+
 export async function saveBulkOpeningBalances(
   payload: Array<{ ledgerName: string; groupName: string; openingDr: number; openingCr: number }>
 ): Promise<{ message: string; count: number }> {

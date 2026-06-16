@@ -149,6 +149,195 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
   );
 }
 
+// ── Inline Voucher Entry ────────────────────────────────────────────────────────
+function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY }: {
+  ledgers: Ledger[];
+  loading: boolean;
+  onSubmit: (data: JournalPayload) => Promise<boolean> | boolean | void;
+  selectedFY: FinancialYear | null;
+}) {
+  const { register, handleSubmit, watch, control, reset, formState: { errors } } = useForm<JournalPayload>({
+    defaultValues: {
+      date:          selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
+      narration:     "",
+      status:        "Posted",
+    },
+  });
+
+  const getDefaultRows = useCallback((): RowState[] => {
+    const defaultRows: RowState[] = Array.from({ length: 6 }, () => ({
+      type: "", accountName: "", groupName: "", debit: "", credit: ""
+    }));
+    defaultRows[0] = { type: "Db", accountName: "", groupName: "", debit: "", credit: "" };
+    defaultRows[1] = { type: "Cr", accountName: "", groupName: "", debit: "", credit: "" };
+    return defaultRows;
+  }, []);
+
+  const [gridRows, setGridRows] = useState<RowState[]>(getDefaultRows());
+
+  const resetForm = () => {
+    reset({
+      date: selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
+      narration: "",
+      status: "Posted",
+    });
+    setGridRows(getDefaultRows());
+  };
+
+  const updateRow = (idx: number, patch: Partial<RowState>) => {
+    setGridRows((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
+      if (patch.type === "") {
+        next[idx].accountName = ""; next[idx].groupName = ""; next[idx].debit = ""; next[idx].credit = "";
+      }
+      return next;
+    });
+  };
+
+  const totals = useMemo(() => {
+    let debitSum = 0; let creditSum = 0;
+    gridRows.forEach((r) => {
+      if (r.type === "Db") debitSum += Number(r.debit) || 0;
+      if (r.type === "Cr") creditSum += Number(r.credit) || 0;
+    });
+    const diff = Math.abs(debitSum - creditSum);
+    const isBalanced = debitSum > 0 && creditSum > 0 && diff < 0.001;
+    return { debitSum, creditSum, diff, isBalanced };
+  }, [gridRows]);
+
+  const handleFormSubmit = async (formData: JournalPayload) => {
+    const activeItems = gridRows
+      .filter((r) => r.type && r.accountName)
+      .map((r) => ({
+        type: r.type as "Db" | "Cr",
+        accountName: r.accountName, groupName: r.groupName,
+        amount: r.type === "Db" ? Number(r.debit || 0) : Number(r.credit || 0)
+      }));
+
+    const hasDb = activeItems.some((it) => it.type === "Db" && it.amount > 0);
+    const hasCr = activeItems.some((it) => it.type === "Cr" && it.amount > 0);
+    if (!hasDb || !hasCr) { toast.error("Please add at least one Debit and one Credit leg"); return; }
+    if (!totals.isBalanced) { toast.error(`Unbalanced: Total Debit (${totals.debitSum}) must equal Total Credit (${totals.creditSum})`); return; }
+
+    const incompleteRow = gridRows.find((r) => r.type && (!r.accountName || (r.type === "Db" && !Number(r.debit)) || (r.type === "Cr" && !Number(r.credit))));
+    if (incompleteRow) { toast.error("Please complete all details for active rows"); return; }
+
+    const payload: JournalPayload = {
+      date: formData.date, narration: formData.narration || "", items: activeItems, status: formData.status || "Draft"
+    };
+
+    const ok = await onSubmit(payload);
+    if (ok !== false) resetForm();
+  };
+
+  const getDayOfWeek = (dateStr: string) => {
+    try { const d = new Date(dateStr); if (!isNaN(d.getTime())) return d.toLocaleDateString("en-US", { weekday: "short" }); } catch {}
+    return "";
+  };
+
+  return (
+    <div className="bg-white border border-slate-300 shadow-sm rounded-xl overflow-hidden flex flex-col font-sans text-xs mb-6">
+      <div className="bg-indigo-50 px-4 py-2 border-b border-indigo-100 flex items-center justify-between">
+        <span className="font-bold text-indigo-900 text-[12px] tracking-wide flex items-center gap-2">
+          <Plus size={14} className="text-indigo-600" />
+          VOUCHER ENTRY
+        </span>
+        <button type="button" onClick={resetForm} className="text-indigo-600 hover:text-indigo-800 text-[11px] font-semibold underline">
+          Clear Form
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit(handleFormSubmit)} className="flex flex-col">
+        <div className="flex items-center gap-6 p-4 border-b border-slate-200 bg-[#f8fafc]">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-600 font-semibold w-12">Date</span>
+            <div className="w-36">
+              <Controller
+                name="date" control={control}
+                rules={{ validate: (v) => parseSmartDate(v, selectedFY).error ?? true }}
+                render={({ field }) => (
+                  <SmartDateInput value={field.value ?? ""} onChange={field.onChange} selectedFY={selectedFY} hasError={!!errors.date} className="!py-1 !px-2 !text-xs !w-full" />
+                )}
+              />
+            </div>
+            <span className="text-slate-500 font-semibold w-8">{getDayOfWeek(watch("date"))}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-600 font-semibold w-12">Status</span>
+            <select {...register("status")} className="w-28 bg-white border border-slate-300 px-2 py-1 outline-none text-xs rounded-md focus:border-indigo-500">
+              <option value="Draft">Draft</option>
+              <option value="Posted">Posted</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2 flex-grow">
+            <span className="text-slate-600 font-semibold">Narration</span>
+            <input {...register("narration")} type="text" placeholder="Voucher narration..." className="flex-grow bg-white border border-slate-300 px-2 py-1 outline-none text-xs rounded-md focus:border-indigo-500" />
+          </div>
+        </div>
+
+        <div className="bg-white">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-100 font-bold border-b border-slate-200 text-slate-700">
+                <th className="px-3 py-2 text-center w-20">Cr/Db</th>
+                <th className="px-3 py-2 text-left">Account Name</th>
+                <th className="px-3 py-2 text-right w-40">Debit</th>
+                <th className="px-3 py-2 text-right w-40">Credit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gridRows.map((row, idx) => {
+                const isDb = row.type === "Db"; const isCr = row.type === "Cr";
+                return (
+                  <tr key={idx} className="hover:bg-slate-50 border-b border-slate-100 transition-colors">
+                    <td className="px-2 py-1 text-center border-r border-slate-100">
+                      <select value={row.type} onChange={(e) => updateRow(idx, { type: e.target.value as any, debit: "", credit: "" })} className={`w-full bg-transparent border-0 outline-none text-center font-bold text-xs cursor-pointer ${isDb ? "text-indigo-700" : isCr ? "text-emerald-700" : "text-slate-400"}`}>
+                        <option value="">—</option><option value="Db">Db</option><option value="Cr">Cr</option>
+                      </select>
+                    </td>
+                    <td className="px-2 py-1 border-r border-slate-100">
+                      {row.type ? (
+                        <LedgerCombobox ledgers={ledgers} value={row.accountName} onChange={(name, group) => updateRow(idx, { accountName: name, groupName: group })} placeholder={isDb ? "Select Debit Ledger" : "Select Credit Ledger"} compact />
+                      ) : <div className="h-6 w-full" />}
+                    </td>
+                    <td className="px-2 py-1 border-r border-slate-100">
+                      {isDb ? <input type="number" min={0} step="0.01" value={row.debit} onChange={(e) => updateRow(idx, { debit: e.target.value })} placeholder="0.00" className="w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-red-700 bg-transparent" /> : <div className="h-6 w-full" />}
+                    </td>
+                    <td className="px-2 py-1">
+                      {isCr ? <input type="number" min={0} step="0.01" value={row.credit} onChange={(e) => updateRow(idx, { credit: e.target.value })} placeholder="0.00" className="w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-emerald-700 bg-transparent" /> : <div className="h-6 w-full" />}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="bg-slate-50 border-t border-slate-200 flex items-center justify-between p-3">
+          <div className="flex items-center gap-6 font-mono text-[13px]">
+            <div className="flex items-center gap-2 text-red-800">
+              <span className="text-slate-500 font-sans text-xs font-semibold uppercase">Total Db:</span>
+              <strong>{totals.debitSum.toFixed(2)}</strong>
+            </div>
+            <div className="flex items-center gap-2 text-emerald-800">
+              <span className="text-slate-500 font-sans text-xs font-semibold uppercase">Total Cr:</span>
+              <strong>{totals.creditSum.toFixed(2)}</strong>
+            </div>
+            {!totals.isBalanced && totals.debitSum > 0 && totals.creditSum > 0 && (
+              <span className="text-amber-600 font-sans text-[11px] font-bold bg-amber-100 px-2 py-0.5 rounded">Diff: {totals.diff.toFixed(2)}</span>
+            )}
+          </div>
+          <button type="submit" disabled={loading} className="bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 px-6 py-1.5 rounded-md text-xs font-bold shadow-sm transition-colors flex items-center gap-2">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            SAVE VOUCHER
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ── Journal Modal ─────────────────────────────────────────────────────────────
 interface RowState {
   type: "Db" | "Cr" | "";
@@ -994,22 +1183,20 @@ export default function JournalVoucher() {
       <FYBanner />
 
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
         <div>
           <h1 className="text-slate-900">Journal Voucher</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{financialYear} · Click any cell to edit inline</p>
+          <p className="text-sm text-slate-500 mt-0.5">{financialYear} · Click any cell to edit inline or use the form below</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} title="Refresh"
             className="p-2 border border-slate-200 bg-white rounded-lg text-slate-500 hover:bg-slate-50 transition-colors">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
-          <button onClick={() => setModal({})}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors">
-            <Plus size={15} /> Add Entry
-          </button>
         </div>
       </div>
+
+      <InlineVoucherEntry ledgers={ledgers} loading={saving} onSubmit={handleSubmit} selectedFY={selectedFY} />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

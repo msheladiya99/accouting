@@ -1211,33 +1211,41 @@ export default function BalanceSheet() {
                     <div className="flex-grow py-3 relative z-10 space-y-1 pb-6">
                       {leftRows.map((row, idx) => {
                         const indentClass = row.depth === 0 ? "pl-4" : row.depth === 1 ? "pl-8" : "pl-12";
-                        const fontClass = 
-                          row.type === 'header' 
-                            ? "font-bold text-slate-900 text-xs mt-3 first:mt-0" 
-                            : row.type === 'subheader' 
-                              ? "font-bold text-slate-700 text-[11px] mt-2" 
+                        const fontClass =
+                          row.type === 'header'
+                            ? "font-bold text-slate-900 text-xs mt-3 first:mt-0"
+                            : row.type === 'subheader'
+                              ? "font-bold text-slate-700 text-[11px] mt-2"
                               : "font-normal text-slate-600 text-xs";
+                        const isClickable = !!row.ledgerName;
 
                         return (
-                          <div key={idx} className={`flex py-0.5 items-center ${fontClass}`}>
+                          <div
+                            key={idx}
+                            onClick={() => isClickable && setSelectedLedger(row.ledgerName!)}
+                            onKeyDown={(e) => {
+                              if (isClickable && (e.key === "Enter" || e.key === " ")) {
+                                e.preventDefault();
+                                setSelectedLedger(row.ledgerName!);
+                              }
+                            }}
+                            tabIndex={isClickable ? 0 : undefined}
+                            role={isClickable ? "button" : undefined}
+                            aria-label={isClickable ? `Open ledger statement: ${row.label}` : undefined}
+                            className={`flex py-0.5 items-center ${fontClass} rounded-sm outline-none group ${
+                              isClickable
+                                ? 'cursor-pointer focus:bg-indigo-500 focus:text-white focus:ring-0 hover:bg-indigo-50 transition-colors'
+                                : ''
+                            }`}
+                          >
                             <div
-                              onClick={() => row.ledgerName && setSelectedLedger(row.ledgerName)}
-                              onKeyDown={(e) => {
-                                if (row.ledgerName && (e.key === "Enter" || e.key === " ")) {
-                                  e.preventDefault();
-                                  setSelectedLedger(row.ledgerName);
-                                }
-                              }}
-                              tabIndex={row.ledgerName ? 0 : undefined}
                               className={`flex-1 pr-2 uppercase ${indentClass} ${
                                 row.type === 'header' || row.type === 'subheader' ? 'underline decoration-slate-300 underline-offset-2' : ''
-                              } ${
-                                row.ledgerName ? 'cursor-pointer hover:text-indigo-600 hover:underline transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:bg-indigo-50/50 rounded-sm' : ''
-                              }`}
+                              } group-focus:text-white`}
                             >
                               {row.label}
                             </div>
-                            <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
+                            <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900 group-focus:text-white">
                               {row.amount !== undefined ? fmtReport(row.amount) : ""}
                             </div>
                           </div>
@@ -1264,33 +1272,41 @@ export default function BalanceSheet() {
                     <div className="flex-grow py-3 relative z-10 space-y-1 pb-6">
                       {rightRows.map((row, idx) => {
                         const indentClass = row.depth === 0 ? "pl-4" : row.depth === 1 ? "pl-8" : "pl-12";
-                        const fontClass = 
-                          row.type === 'header' 
-                            ? "font-bold text-slate-900 text-xs mt-3 first:mt-0" 
-                            : row.type === 'subheader' 
-                              ? "font-bold text-slate-700 text-[11px] mt-2" 
+                        const fontClass =
+                          row.type === 'header'
+                            ? "font-bold text-slate-900 text-xs mt-3 first:mt-0"
+                            : row.type === 'subheader'
+                              ? "font-bold text-slate-700 text-[11px] mt-2"
                               : "font-normal text-slate-600 text-xs";
+                        const isClickable = !!row.ledgerName;
 
                         return (
-                          <div key={idx} className={`flex py-0.5 items-center ${fontClass}`}>
+                          <div
+                            key={idx}
+                            onClick={() => isClickable && setSelectedLedger(row.ledgerName!)}
+                            onKeyDown={(e) => {
+                              if (isClickable && (e.key === "Enter" || e.key === " ")) {
+                                e.preventDefault();
+                                setSelectedLedger(row.ledgerName!);
+                              }
+                            }}
+                            tabIndex={isClickable ? 0 : undefined}
+                            role={isClickable ? "button" : undefined}
+                            aria-label={isClickable ? `Open ledger statement: ${row.label}` : undefined}
+                            className={`flex py-0.5 items-center ${fontClass} rounded-sm outline-none group ${
+                              isClickable
+                                ? 'cursor-pointer focus:bg-indigo-500 focus:text-white focus:ring-0 hover:bg-indigo-50 transition-colors'
+                                : ''
+                            }`}
+                          >
                             <div
-                              onClick={() => row.ledgerName && setSelectedLedger(row.ledgerName)}
-                              onKeyDown={(e) => {
-                                if (row.ledgerName && (e.key === "Enter" || e.key === " ")) {
-                                  e.preventDefault();
-                                  setSelectedLedger(row.ledgerName);
-                                }
-                              }}
-                              tabIndex={row.ledgerName ? 0 : undefined}
                               className={`flex-1 pr-2 uppercase ${indentClass} ${
                                 row.type === 'header' || row.type === 'subheader' ? 'underline decoration-slate-300 underline-offset-2' : ''
-                              } ${
-                                row.ledgerName ? 'cursor-pointer hover:text-indigo-600 hover:underline transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:bg-indigo-50/50 rounded-sm' : ''
-                              }`}
+                              } group-focus:text-white`}
                             >
                               {row.label}
                             </div>
-                            <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
+                            <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900 group-focus:text-white">
                               {row.amount !== undefined ? fmtReport(row.amount) : ""}
                             </div>
                           </div>

@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useForm, Controller } from "react-hook-form";
 import { AgGridReact } from "ag-grid-react";
 import { ModuleRegistry, AllCommunityModule, type ColDef, type ColGroupDef } from "ag-grid-community";
 import "ag-grid-community/styles/ag-grid.css";
@@ -6,12 +7,16 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 import {
   Download, Printer, Search, CheckCircle2, AlertTriangle,
   BookOpen, ArrowLeftRight, FileText, Layers, X, ExternalLink,
-  TrendingUp, TrendingDown, Minus, ChevronRight,
+  TrendingUp, TrendingDown, Minus, ChevronRight, Plus, Loader2, Save,
 } from "lucide-react";
+import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeTrialBalance, TrialRow, TrialSummary } from "../api/trialBalanceApi";
-import { getLedgerStatement, LedgerStatement, LedgerStatementRow } from "../api/ledgerApi";
+import { getLedgerStatement, getAllLedgers, LedgerStatement, LedgerStatementRow, Ledger } from "../api/ledgerApi";
+import { createJournalEntry, type JournalPayload } from "../api/journalVoucherApi";
+import { SmartDateInput } from "../components/ui/SmartDateInput";
+import { parseSmartDate } from "../utils/dateUtils";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -89,6 +94,259 @@ const VoucherBadge = ({ type }: { type: string }) => {
 let cachedSummary: TrialSummary | null = null;
 let cachedFYId: string | null = null;
 
+// ── Mini JV Entry Form ─────────────────────────────────────────────────────────
+interface MiniJVRow {
+  type: "Db" | "Cr" | "";
+  accountName: string;
+  groupName: string;
+  amount: string;
+}
+
+function MiniJVForm({
+  ledgerName,
+  ledgerGroup,
+  selectedFY,
+  allLedgers,
+  onSaved,
+}: {
+  ledgerName: string;
+  ledgerGroup: string;
+  selectedFY: any;
+  allLedgers: Ledger[];
+  onSaved: () => void;
+}) {
+  const { register, handleSubmit, watch, control, reset, formState: { errors } } = useForm<JournalPayload>({
+    defaultValues: {
+      date: selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
+      narration: "",
+      status: "Posted",
+    },
+  });
+
+  const getDefaultRows = (): MiniJVRow[] => [
+    { type: "Db", accountName: ledgerName, groupName: ledgerGroup, amount: "" },
+    { type: "Cr", accountName: "", groupName: "", amount: "" },
+    { type: "", accountName: "", groupName: "", amount: "" },
+    { type: "", accountName: "", groupName: "", amount: "" },
+  ];
+
+  const [rows, setRows] = useState<MiniJVRow[]>(getDefaultRows);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState<string[]>(["" ,"","",""]);
+  const [dropOpen, setDropOpen] = useState<number | null>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropRef.current && !dropRef.current.contains(e.target as Node)) setDropOpen(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const updateRow = (idx: number, patch: Partial<MiniJVRow>) => {
+    setRows((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
+      if (patch.type === "") next[idx] = { type: "", accountName: "", groupName: "", amount: "" };
+      return next;
+    });
+  };
+
+  const totals = useMemo(() => {
+    let db = 0; let cr = 0;
+    rows.forEach((r) => {
+      if (r.type === "Db") db += Number(r.amount) || 0;
+      if (r.type === "Cr") cr += Number(r.amount) || 0;
+    });
+    return { db, cr, diff: Math.abs(db - cr), balanced: db > 0 && cr > 0 && Math.abs(db - cr) < 0.001 };
+  }, [rows]);
+
+  const onSubmit = async (formData: JournalPayload) => {
+    const items = rows
+      .filter((r) => r.type && r.accountName && Number(r.amount) > 0)
+      .map((r) => ({ type: r.type as "Db" | "Cr", accountName: r.accountName, groupName: r.groupName, amount: Number(r.amount) }));
+
+    if (!items.some((it) => it.type === "Db")) { toast.error("At least one Debit leg required"); return; }
+    if (!items.some((it) => it.type === "Cr")) { toast.error("At least one Credit leg required"); return; }
+    if (!totals.balanced) { toast.error(`Unbalanced: Dr ₹${totals.db.toFixed(2)} ≠ Cr ₹${totals.cr.toFixed(2)}`); return; }
+
+    setSaving(true);
+    try {
+      await createJournalEntry({ date: formData.date, narration: formData.narration || "", items, status: formData.status || "Posted" });
+      toast.success("Journal entry saved!");
+      reset({ date: formData.date, narration: "", status: "Posted" });
+      setRows(getDefaultRows());
+      onSaved();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const getDayOfWeek = (d: string) => {
+    try { const dt = new Date(d); if (!isNaN(dt.getTime())) return dt.toLocaleDateString("en-US", { weekday: "short" }); } catch {}
+    return "";
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="bg-[#f0f6ff] border border-indigo-200 rounded-xl mx-6 mb-4 overflow-hidden shadow-sm">
+      <div className="bg-indigo-600 px-4 py-2 flex items-center justify-between">
+        <span className="text-white font-bold text-xs tracking-wide flex items-center gap-1.5">
+          <Plus size={13} /> NEW JOURNAL ENTRY
+        </span>
+        <div className="flex items-center gap-2 text-indigo-200 text-[11px]">
+          <span>Pre-filled: <strong className="text-white">{ledgerName}</strong></span>
+        </div>
+      </div>
+
+      <div className="p-3 space-y-3">
+        {/* Top row: Date / Status / Narration */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-600 font-semibold text-xs w-8">Date</span>
+            <div className="w-32">
+              <Controller
+                name="date" control={control}
+                rules={{ validate: (v) => parseSmartDate(v, selectedFY).error ?? true }}
+                render={({ field }) => (
+                  <SmartDateInput value={field.value ?? ""} onChange={field.onChange} selectedFY={selectedFY} hasError={!!errors.date} className="!py-1 !px-2 !text-xs !w-full" />
+                )}
+              />
+            </div>
+            <span className="text-indigo-600 font-semibold text-xs">{getDayOfWeek(watch("date"))}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-600 font-semibold text-xs">Status</span>
+            <select {...register("status")} className="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none bg-white">
+              <option value="Posted">Posted</option>
+              <option value="Draft">Draft</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2 flex-1 min-w-[180px]">
+            <span className="text-slate-600 font-semibold text-xs">Narration</span>
+            <input {...register("narration")} type="text" placeholder="Entry narration..." className="flex-1 border border-slate-300 rounded-md px-2 py-1 text-xs outline-none bg-white focus:border-indigo-400" />
+          </div>
+        </div>
+
+        {/* Entry rows */}
+        <div ref={dropRef} className="relative">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-100 text-slate-600 font-bold">
+                <th className="border border-slate-200 px-2 py-1.5 text-center w-16">Cr/Db</th>
+                <th className="border border-slate-200 px-2 py-1.5 text-left">Account Name</th>
+                <th className="border border-slate-200 px-2 py-1.5 text-right w-32">Amount (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => {
+                const isDb = row.type === "Db"; const isCr = row.type === "Cr";
+                const filteredLedgers = allLedgers.filter((l) =>
+                  (!search[idx] || l.ledgerName.toLowerCase().includes(search[idx].toLowerCase())) &&
+                  !rows.filter((_, ri) => ri !== idx).some((r) => r.accountName.toLowerCase() === l.ledgerName.toLowerCase())
+                );
+                return (
+                  <tr key={idx} className={`border-b border-slate-200 ${row.type ? "" : "opacity-60"}`}>
+                    <td className="border border-slate-200 px-1 py-1 text-center">
+                      <select
+                        value={row.type}
+                        onChange={(e) => updateRow(idx, { type: e.target.value as any })}
+                        className={`w-full bg-transparent border-0 outline-none text-center font-bold cursor-pointer ${
+                          isDb ? "text-indigo-700" : isCr ? "text-emerald-700" : "text-slate-400"
+                        }`}
+                      >
+                        <option value="">—</option>
+                        <option value="Db">Db</option>
+                        <option value="Cr">Cr</option>
+                      </select>
+                    </td>
+                    <td className="border border-slate-200 px-1 py-1 relative">
+                      {row.type ? (
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={dropOpen === idx ? search[idx] : row.accountName}
+                            onFocus={() => { setDropOpen(idx); setSearch((s) => { const n=[...s]; n[idx]=row.accountName; return n; }); }}
+                            onChange={(e) => setSearch((s) => { const n=[...s]; n[idx]=e.target.value; return n; })}
+                            onBlur={() => setTimeout(() => setDropOpen(null), 150)}
+                            placeholder={isDb ? "Select Debit Account" : "Select Credit Account"}
+                            className="w-full border border-slate-300 rounded px-2 py-0.5 text-xs outline-none bg-white focus:border-indigo-400"
+                          />
+                          {dropOpen === idx && filteredLedgers.length > 0 && (
+                            <div className="absolute left-0 top-full z-50 bg-white border border-slate-200 rounded-lg shadow-xl max-h-40 overflow-y-auto w-full min-w-[200px]">
+                              {filteredLedgers.slice(0, 20).map((l) => (
+                                <button
+                                  key={l._id}
+                                  type="button"
+                                  onMouseDown={() => {
+                                    updateRow(idx, { accountName: l.ledgerName, groupName: l.groupName });
+                                    setSearch((s) => { const n=[...s]; n[idx]=l.ledgerName; return n; });
+                                    setDropOpen(null);
+                                  }}
+                                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-indigo-50 text-slate-700"
+                                >
+                                  <span className="font-medium">{l.ledgerName}</span>
+                                  <span className="ml-2 text-slate-400 text-[10px]">{l.groupName}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : <div className="h-5 px-2 text-slate-300 text-[11px] italic">Select Cr/Db first</div>}
+                    </td>
+                    <td className="border border-slate-200 px-1 py-1">
+                      {row.type ? (
+                        <input
+                          type="number" min={0} step="0.01"
+                          value={row.amount}
+                          onChange={(e) => updateRow(idx, { amount: e.target.value })}
+                          placeholder="0.00"
+                          className={`w-full border-0 outline-none text-right px-2 py-0.5 font-mono font-semibold bg-transparent ${
+                            isDb ? "text-indigo-700" : isCr ? "text-emerald-700" : ""
+                          }`}
+                        />
+                      ) : <div className="h-5" />}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Totals + Save */}
+        <div className="flex items-center justify-between pt-1">
+          <div className="flex items-center gap-4 font-mono text-xs">
+            <span className="text-indigo-800">Dr: <strong>₹{totals.db.toFixed(2)}</strong></span>
+            <span className="text-emerald-800">Cr: <strong>₹{totals.cr.toFixed(2)}</strong></span>
+            {!totals.balanced && totals.db > 0 && totals.cr > 0 && (
+              <span className="text-amber-600 font-sans bg-amber-100 px-2 py-0.5 rounded text-[11px] font-bold">
+                Diff: ₹{totals.diff.toFixed(2)}
+              </span>
+            )}
+            {totals.balanced && (
+              <span className="text-emerald-600 font-sans bg-emerald-100 px-2 py-0.5 rounded text-[11px] font-bold">
+                ✓ Balanced
+              </span>
+            )}
+          </div>
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors"
+          >
+            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+            SAVE JV
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
 // ── Ledger Statement Modal ─────────────────────────────────────────────────────
 export function LedgerStatementModal({
   ledgerName,
@@ -102,16 +360,22 @@ export function LedgerStatementModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [showJVForm, setShowJVForm] = useState(false);
+  const [allLedgers, setAllLedgers] = useState<Ledger[]>([]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadStatement = useCallback(() => {
     setLoading(true);
     setError(null);
     getLedgerStatement(ledgerName)
-      .then((s) => { if (!cancelled) { setStatement(s); setLoading(false); } })
-      .catch((e: any) => { if (!cancelled) { setError(e?.response?.data?.message || e?.message || "Failed to load"); setLoading(false); } });
-    return () => { cancelled = true; };
+      .then((s) => { setStatement(s); setLoading(false); })
+      .catch((e: any) => { setError(e?.response?.data?.message || e?.message || "Failed to load"); setLoading(false); });
   }, [ledgerName]);
+
+  useEffect(() => { loadStatement(); }, [loadStatement]);
+
+  useEffect(() => {
+    getAllLedgers().then(setAllLedgers).catch(() => {});
+  }, []);
 
   // Close on Escape
   useEffect(() => {
@@ -180,9 +444,19 @@ export function LedgerStatementModal({
               <div>
                 From <span className="text-slate-800">{selectedFY ? fmtMiracleDate(selectedFY.startDate) : "—"}</span> To <span className="text-slate-800">{selectedFY ? fmtMiracleDate(selectedFY.endDate) : "—"}</span>
               </div>
-              <div className="mt-1.5 flex items-center gap-1 justify-end">
-                <input type="checkbox" id="audit-chk" disabled className="rounded border-slate-300" />
-                <label htmlFor="audit-chk" className="cursor-not-allowed select-none">Account Audit</label>
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowJVForm((v) => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    showJVForm
+                      ? "bg-indigo-600 text-white"
+                      : "bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                  }`}
+                >
+                  <Plus size={12} />
+                  {showJVForm ? "Hide JV Form" : "Add JV Entry"}
+                </button>
               </div>
             </div>
           </div>
@@ -200,6 +474,17 @@ export function LedgerStatementModal({
             />
           </div>
         </div>
+
+        {/* ── JV Entry Form ── */}
+        {showJVForm && (
+          <MiniJVForm
+            ledgerName={ledgerName}
+            ledgerGroup={statement?.groupName ?? ""}
+            selectedFY={selectedFY}
+            allLedgers={allLedgers}
+            onSaved={() => { loadStatement(); }}
+          />
+        )}
 
         {/* ── Table Container ── */}
         <div className="flex-1 overflow-auto py-2">

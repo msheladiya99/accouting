@@ -150,30 +150,48 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
 }
 
 // ── Inline Voucher Entry ────────────────────────────────────────────────────────
+interface MiniJVRow {
+  type: "Db" | "Cr" | "";
+  accountName: string;
+  groupName: string;
+  amount: string;
+}
+
 function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY }: {
   ledgers: Ledger[];
   loading: boolean;
   onSubmit: (data: JournalPayload) => Promise<boolean> | boolean | void;
-  selectedFY: FinancialYear | null;
+  selectedFY: any;
 }) {
   const { register, handleSubmit, watch, control, reset, formState: { errors } } = useForm<JournalPayload>({
     defaultValues: {
-      date:          selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
-      narration:     "",
-      status:        "Posted",
+      date: selectedFY?.endDate ?? new Date().toISOString().slice(0, 10),
+      narration: "",
+      status: "Posted",
     },
   });
 
-  const getDefaultRows = useCallback((): RowState[] => {
-    const defaultRows: RowState[] = Array.from({ length: 6 }, () => ({
-      type: "", accountName: "", groupName: "", debit: "", credit: ""
-    }));
-    defaultRows[0] = { type: "Db", accountName: "", groupName: "", debit: "", credit: "" };
-    defaultRows[1] = { type: "Cr", accountName: "", groupName: "", debit: "", credit: "" };
-    return defaultRows;
-  }, []);
+  const getDefaultRows = (): MiniJVRow[] => [
+    { type: "Db", accountName: "", groupName: "", amount: "" },
+    { type: "Cr", accountName: "", groupName: "", amount: "" },
+    { type: "", accountName: "", groupName: "", amount: "" },
+    { type: "", accountName: "", groupName: "", amount: "" },
+  ];
 
-  const [gridRows, setGridRows] = useState<RowState[]>(getDefaultRows());
+  const [rows, setRows] = useState<MiniJVRow[]>(getDefaultRows);
+  const [localSaving, setLocalSaving] = useState(false);
+  const [search, setSearch] = useState<string[]>(["", "", "", ""]);
+  const [dropOpen, setDropOpen] = useState<number | null>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropRef.current && !dropRef.current.contains(e.target as Node)) setDropOpen(null);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const resetForm = () => {
     reset({
@@ -181,77 +199,86 @@ function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY }: {
       narration: "",
       status: "Posted",
     });
-    setGridRows(getDefaultRows());
+    setRows(getDefaultRows());
+    setSearch(["", "", "", ""]);
   };
 
-  const updateRow = (idx: number, patch: Partial<RowState>) => {
-    setGridRows((prev) => {
+  const updateRow = (idx: number, patch: Partial<MiniJVRow>) => {
+    setRows((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], ...patch };
-      if (patch.type === "") {
-        next[idx].accountName = ""; next[idx].groupName = ""; next[idx].debit = ""; next[idx].credit = "";
-      }
+      if (patch.type === "") next[idx] = { type: "", accountName: "", groupName: "", amount: "" };
       return next;
     });
   };
 
   const totals = useMemo(() => {
-    let debitSum = 0; let creditSum = 0;
-    gridRows.forEach((r) => {
-      if (r.type === "Db") debitSum += Number(r.debit) || 0;
-      if (r.type === "Cr") creditSum += Number(r.credit) || 0;
+    let db = 0; let cr = 0;
+    rows.forEach((r) => {
+      if (r.type === "Db") db += Number(r.amount) || 0;
+      if (r.type === "Cr") cr += Number(r.amount) || 0;
     });
-    const diff = Math.abs(debitSum - creditSum);
-    const isBalanced = debitSum > 0 && creditSum > 0 && diff < 0.001;
-    return { debitSum, creditSum, diff, isBalanced };
-  }, [gridRows]);
+    return { db, cr, diff: Math.abs(db - cr), balanced: db > 0 && cr > 0 && Math.abs(db - cr) < 0.001 };
+  }, [rows]);
 
   const handleFormSubmit = async (formData: JournalPayload) => {
-    const activeItems = gridRows
-      .filter((r) => r.type && r.accountName)
+    const items = rows
+      .filter((r) => r.type && r.accountName && Number(r.amount) > 0)
       .map((r) => ({
         type: r.type as "Db" | "Cr",
-        accountName: r.accountName, groupName: r.groupName,
-        amount: r.type === "Db" ? Number(r.debit || 0) : Number(r.credit || 0)
+        accountName: r.accountName,
+        groupName: r.groupName,
+        amount: Number(r.amount)
       }));
 
-    const hasDb = activeItems.some((it) => it.type === "Db" && it.amount > 0);
-    const hasCr = activeItems.some((it) => it.type === "Cr" && it.amount > 0);
-    if (!hasDb || !hasCr) { toast.error("Please add at least one Debit and one Credit leg"); return; }
-    if (!totals.isBalanced) { toast.error(`Unbalanced: Total Debit (${totals.debitSum}) must equal Total Credit (${totals.creditSum})`); return; }
+    if (!items.some((it) => it.type === "Db")) { toast.error("At least one Debit leg required"); return; }
+    if (!items.some((it) => it.type === "Cr")) { toast.error("At least one Credit leg required"); return; }
+    if (!totals.balanced) { toast.error(`Unbalanced: Dr ₹${totals.db.toFixed(2)} ≠ Cr ₹${totals.cr.toFixed(2)}`); return; }
 
-    const incompleteRow = gridRows.find((r) => r.type && (!r.accountName || (r.type === "Db" && !Number(r.debit)) || (r.type === "Cr" && !Number(r.credit))));
+    const incompleteRow = rows.find((r) => r.type && (!r.accountName || !Number(r.amount)));
     if (incompleteRow) { toast.error("Please complete all details for active rows"); return; }
 
-    const payload: JournalPayload = {
-      date: formData.date, narration: formData.narration || "", items: activeItems, status: formData.status || "Draft"
-    };
-
-    const ok = await onSubmit(payload);
-    if (ok !== false) resetForm();
+    setLocalSaving(true);
+    try {
+      const ok = await onSubmit({
+        date: formData.date,
+        narration: formData.narration || "",
+        items,
+        status: formData.status || "Posted"
+      });
+      if (ok !== false) {
+        resetForm();
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to save");
+    } finally {
+      setLocalSaving(false);
+    }
   };
 
-  const getDayOfWeek = (dateStr: string) => {
-    try { const d = new Date(dateStr); if (!isNaN(d.getTime())) return d.toLocaleDateString("en-US", { weekday: "short" }); } catch {}
+  const getDayOfWeek = (d: string) => {
+    try { const dt = new Date(d); if (!isNaN(dt.getTime())) return dt.toLocaleDateString("en-US", { weekday: "short" }); } catch {}
     return "";
   };
 
+  const isSaving = loading || localSaving;
+
   return (
-    <div className="bg-white border border-slate-300 shadow-sm rounded-xl overflow-hidden flex flex-col font-sans text-xs mb-6">
-      <div className="bg-indigo-50 px-4 py-2 border-b border-indigo-100 flex items-center justify-between">
-        <span className="font-bold text-indigo-900 text-[12px] tracking-wide flex items-center gap-2">
-          <Plus size={14} className="text-indigo-600" />
-          VOUCHER ENTRY
+    <form onSubmit={handleSubmit(handleFormSubmit)} className="bg-[#f0f6ff] border border-indigo-200 rounded-xl mb-6 overflow-hidden shadow-sm font-sans text-xs">
+      <div className="bg-indigo-600 px-4 py-2 flex items-center justify-between">
+        <span className="text-white font-bold text-xs tracking-wide flex items-center gap-1.5">
+          <Plus size={13} /> NEW JOURNAL ENTRY
         </span>
-        <button type="button" onClick={resetForm} className="text-indigo-600 hover:text-indigo-800 text-[11px] font-semibold underline">
+        <button type="button" onClick={resetForm} className="text-indigo-200 hover:text-white text-[11px] font-semibold underline">
           Clear Form
         </button>
       </div>
 
-      <form onSubmit={handleSubmit(handleFormSubmit)} className="flex flex-col">
-        <div className="flex items-center gap-6 p-4 border-b border-slate-200 bg-[#f8fafc]">
+      <div className="p-4 space-y-4">
+        {/* Top row: Date / Status / Narration */}
+        <div className="flex flex-wrap items-center gap-4 bg-[#f8fafc] p-3 rounded-lg border border-slate-200">
           <div className="flex items-center gap-2">
-            <span className="text-slate-600 font-semibold w-12">Date</span>
+            <span className="text-slate-600 font-semibold w-8">Date</span>
             <div className="w-36">
               <Controller
                 name="date" control={control}
@@ -261,51 +288,99 @@ function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY }: {
                 )}
               />
             </div>
-            <span className="text-slate-500 font-semibold w-8">{getDayOfWeek(watch("date"))}</span>
+            <span className="text-indigo-600 font-semibold w-8">{getDayOfWeek(watch("date"))}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-slate-600 font-semibold w-12">Status</span>
-            <select {...register("status")} className="w-28 bg-white border border-slate-300 px-2 py-1 outline-none text-xs rounded-md focus:border-indigo-500">
-              <option value="Draft">Draft</option>
+            <span className="text-slate-600 font-semibold">Status</span>
+            <select {...register("status")} className="border border-slate-300 rounded-md px-2 py-1 text-xs outline-none bg-white">
               <option value="Posted">Posted</option>
+              <option value="Draft">Draft</option>
             </select>
           </div>
-          <div className="flex items-center gap-2 flex-grow">
+          <div className="flex items-center gap-2 flex-grow min-w-[200px]">
             <span className="text-slate-600 font-semibold">Narration</span>
-            <input {...register("narration")} type="text" placeholder="Voucher narration..." className="flex-grow bg-white border border-slate-300 px-2 py-1 outline-none text-xs rounded-md focus:border-indigo-500" />
+            <input {...register("narration")} type="text" placeholder="Entry narration..." className="flex-grow border border-slate-300 rounded-md px-2 py-1 text-xs outline-none bg-white focus:border-indigo-400" />
           </div>
         </div>
 
-        <div className="bg-white">
-          <table className="w-full border-collapse text-xs">
+        {/* Entry rows */}
+        <div ref={dropRef} className="relative">
+          <table className="w-full text-xs border-collapse border border-slate-200">
             <thead>
-              <tr className="bg-slate-100 font-bold border-b border-slate-200 text-slate-700">
-                <th className="px-3 py-2 text-center w-20">Cr/Db</th>
-                <th className="px-3 py-2 text-left">Account Name</th>
-                <th className="px-3 py-2 text-right w-40">Debit</th>
-                <th className="px-3 py-2 text-right w-40">Credit</th>
+              <tr className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                <th className="border border-slate-200 px-3 py-2 text-center w-20">Cr/Db</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">Account Name</th>
+                <th className="border border-slate-200 px-3 py-2 text-right w-40">Amount (₹)</th>
               </tr>
             </thead>
             <tbody>
-              {gridRows.map((row, idx) => {
+              {rows.map((row, idx) => {
                 const isDb = row.type === "Db"; const isCr = row.type === "Cr";
+                const filteredLedgers = ledgers.filter((l) =>
+                  (!search[idx] || l.ledgerName.toLowerCase().includes(search[idx].toLowerCase())) &&
+                  !rows.filter((_, ri) => ri !== idx).some((r) => r.accountName.toLowerCase() === l.ledgerName.toLowerCase())
+                );
                 return (
-                  <tr key={idx} className="hover:bg-slate-50 border-b border-slate-100 transition-colors">
-                    <td className="px-2 py-1 text-center border-r border-slate-100">
-                      <select value={row.type} onChange={(e) => updateRow(idx, { type: e.target.value as any, debit: "", credit: "" })} className={`w-full bg-transparent border-0 outline-none text-center font-bold text-xs cursor-pointer ${isDb ? "text-indigo-700" : isCr ? "text-emerald-700" : "text-slate-400"}`}>
-                        <option value="">—</option><option value="Db">Db</option><option value="Cr">Cr</option>
+                  <tr key={idx} className={`border-b border-slate-200 ${row.type ? "" : "opacity-60"}`}>
+                    <td className="border border-slate-200 px-1 py-1 text-center">
+                      <select
+                        value={row.type}
+                        onChange={(e) => updateRow(idx, { type: e.target.value as any })}
+                        className={`w-full bg-transparent border-0 outline-none text-center font-bold cursor-pointer ${
+                          isDb ? "text-indigo-700" : isCr ? "text-emerald-700" : "text-slate-400"
+                        }`}
+                      >
+                        <option value="">—</option>
+                        <option value="Db">Db</option>
+                        <option value="Cr">Cr</option>
                       </select>
                     </td>
-                    <td className="px-2 py-1 border-r border-slate-100">
+                    <td className="border border-slate-200 px-1 py-1 relative">
                       {row.type ? (
-                        <LedgerCombobox ledgers={ledgers} value={row.accountName} onChange={(name, group) => updateRow(idx, { accountName: name, groupName: group })} placeholder={isDb ? "Select Debit Ledger" : "Select Credit Ledger"} compact />
-                      ) : <div className="h-6 w-full" />}
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={dropOpen === idx ? search[idx] : row.accountName}
+                            onFocus={() => { setDropOpen(idx); setSearch((s) => { const n=[...s]; n[idx]=row.accountName; return n; }); }}
+                            onChange={(e) => setSearch((s) => { const n=[...s]; n[idx]=e.target.value; return n; })}
+                            onBlur={() => setTimeout(() => setDropOpen(null), 150)}
+                            placeholder={isDb ? "Select Debit Account" : "Select Credit Account"}
+                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs outline-none bg-white focus:border-indigo-400"
+                          />
+                          {dropOpen === idx && filteredLedgers.length > 0 && (
+                            <div className="absolute left-0 top-full z-50 bg-white border border-slate-200 rounded-lg shadow-xl max-h-40 overflow-y-auto w-full min-w-[200px]">
+                              {filteredLedgers.slice(0, 20).map((l) => (
+                                <button
+                                  key={l._id}
+                                  type="button"
+                                  onMouseDown={() => {
+                                    updateRow(idx, { accountName: l.ledgerName, groupName: l.groupName });
+                                    setSearch((s) => { const n=[...s]; n[idx]=l.ledgerName; return n; });
+                                    setDropOpen(null);
+                                  }}
+                                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-indigo-50 text-slate-700"
+                                >
+                                  <span className="font-medium">{l.ledgerName}</span>
+                                  <span className="ml-2 text-slate-400 text-[10px]">{l.groupName}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : <div className="h-6 px-2 text-slate-300 text-[11px] italic flex items-center">Select Cr/Db first</div>}
                     </td>
-                    <td className="px-2 py-1 border-r border-slate-100">
-                      {isDb ? <input type="number" min={0} step="0.01" value={row.debit} onChange={(e) => updateRow(idx, { debit: e.target.value })} placeholder="0.00" className="w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-red-700 bg-transparent" /> : <div className="h-6 w-full" />}
-                    </td>
-                    <td className="px-2 py-1">
-                      {isCr ? <input type="number" min={0} step="0.01" value={row.credit} onChange={(e) => updateRow(idx, { credit: e.target.value })} placeholder="0.00" className="w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-emerald-700 bg-transparent" /> : <div className="h-6 w-full" />}
+                    <td className="border border-slate-200 px-1 py-1">
+                      {row.type ? (
+                        <input
+                          type="number" min={0} step="0.01"
+                          value={row.amount}
+                          onChange={(e) => updateRow(idx, { amount: e.target.value })}
+                          placeholder="0.00"
+                          className={`w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold bg-transparent ${
+                            isDb ? "text-indigo-700" : isCr ? "text-emerald-700" : ""
+                          }`}
+                        />
+                      ) : <div className="h-6" />}
                     </td>
                   </tr>
                 );
@@ -314,27 +389,33 @@ function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY }: {
           </table>
         </div>
 
-        <div className="bg-slate-50 border-t border-slate-200 flex items-center justify-between p-3">
-          <div className="flex items-center gap-6 font-mono text-[13px]">
-            <div className="flex items-center gap-2 text-red-800">
-              <span className="text-slate-500 font-sans text-xs font-semibold uppercase">Total Db:</span>
-              <strong>{totals.debitSum.toFixed(2)}</strong>
-            </div>
-            <div className="flex items-center gap-2 text-emerald-800">
-              <span className="text-slate-500 font-sans text-xs font-semibold uppercase">Total Cr:</span>
-              <strong>{totals.creditSum.toFixed(2)}</strong>
-            </div>
-            {!totals.isBalanced && totals.debitSum > 0 && totals.creditSum > 0 && (
-              <span className="text-amber-600 font-sans text-[11px] font-bold bg-amber-100 px-2 py-0.5 rounded">Diff: {totals.diff.toFixed(2)}</span>
+        {/* Totals + Save */}
+        <div className="flex items-center justify-between pt-1">
+          <div className="flex items-center gap-4 font-mono text-xs">
+            <span className="text-indigo-800">Dr: <strong>₹{totals.db.toFixed(2)}</strong></span>
+            <span className="text-emerald-800">Cr: <strong>₹{totals.cr.toFixed(2)}</strong></span>
+            {!totals.balanced && totals.db > 0 && totals.cr > 0 && (
+              <span className="text-amber-600 font-sans bg-amber-100 px-2 py-0.5 rounded text-[11px] font-bold">
+                Diff: ₹{totals.diff.toFixed(2)}
+              </span>
+            )}
+            {totals.balanced && (
+              <span className="text-emerald-600 font-sans bg-emerald-100 px-2 py-0.5 rounded text-[11px] font-bold">
+                ✓ Balanced
+              </span>
             )}
           </div>
-          <button type="submit" disabled={loading} className="bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 px-6 py-1.5 rounded-md text-xs font-bold shadow-sm transition-colors flex items-center gap-2">
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-5 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors cursor-pointer"
+          >
+            {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
             SAVE VOUCHER
           </button>
         </div>
-      </form>
-    </div>
+      </div>
+    </form>
   );
 }
 
@@ -391,7 +472,7 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
       entryItems.forEach((item, idx) => {
         if (idx < 12) {
           defaultRows[idx] = {
-            type: item.type,
+            type: item.type as "Db" | "Cr" | "",
             accountName: item.accountName,
             groupName: item.groupName,
             debit: item.type === "Db" ? String(item.amount) : "",
@@ -1196,8 +1277,6 @@ export default function JournalVoucher() {
         </div>
       </div>
 
-      <InlineVoucherEntry ledgers={ledgers} loading={saving} onSubmit={handleSubmit} selectedFY={selectedFY} />
-
       {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-start gap-3">
@@ -1298,6 +1377,8 @@ export default function JournalVoucher() {
           />
         )}
       </div>
+
+      <InlineVoucherEntry ledgers={ledgers} loading={saving} onSubmit={handleSubmit} selectedFY={selectedFY} />
 
       {modal !== null && (
         <JournalModal

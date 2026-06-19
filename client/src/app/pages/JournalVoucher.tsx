@@ -391,7 +391,7 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
       entryItems.forEach((item, idx) => {
         if (idx < 12) {
           defaultRows[idx] = {
-            type: item.type,
+            type: item.type as "Db" | "Cr" | "",
             accountName: item.accountName,
             groupName: item.groupName,
             debit: item.type === "Db" ? String(item.amount) : "",
@@ -1196,8 +1196,6 @@ export default function JournalVoucher() {
         </div>
       </div>
 
-      <InlineVoucherEntry ledgers={ledgers} loading={saving} onSubmit={handleSubmit} selectedFY={selectedFY} />
-
       {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-start gap-3">
@@ -1298,6 +1296,8 @@ export default function JournalVoucher() {
           />
         )}
       </div>
+
+      <InlineVoucherEntry ledgers={ledgers} loading={saving} onSubmit={handleSubmit} selectedFY={selectedFY} />
 
       {modal !== null && (
         <JournalModal

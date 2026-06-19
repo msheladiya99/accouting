@@ -21,6 +21,60 @@ import { useState, useRef, useEffect } from "react";
 import { CalendarDays } from "lucide-react";
 import type { FinancialYear } from "../../api/financialYearApi";
 import { parseSmartDate, formatToUIDate } from "../../utils/dateUtils";
+import { cn } from "./utils";
+
+function splitClasses(className: string) {
+  if (!className) return { wrapperClassName: "", inputClassName: "" };
+  
+  const wrapper: string[] = [];
+  const input: string[] = [];
+  
+  className.split(/\s+/).forEach((c) => {
+    if (!c) return;
+    const parts = c.split(":");
+    const baseWord = parts[parts.length - 1].replace(/^!/, "");
+    
+    if (
+      baseWord.startsWith("w-") ||
+      baseWord.startsWith("h-") ||
+      baseWord.startsWith("m-") ||
+      baseWord.startsWith("mt-") ||
+      baseWord.startsWith("mb-") ||
+      baseWord.startsWith("ml-") ||
+      baseWord.startsWith("mr-") ||
+      baseWord.startsWith("mx-") ||
+      baseWord.startsWith("my-") ||
+      baseWord === "flex" ||
+      baseWord.startsWith("flex-") ||
+      baseWord.startsWith("shrink") ||
+      baseWord.startsWith("grow") ||
+      baseWord.startsWith("col-") ||
+      baseWord.startsWith("row-") ||
+      baseWord.startsWith("grid-") ||
+      baseWord.startsWith("justify-") ||
+      baseWord.startsWith("items-") ||
+      baseWord.startsWith("self-") ||
+      baseWord.startsWith("absolute") ||
+      baseWord.startsWith("relative") ||
+      baseWord.startsWith("fixed") ||
+      baseWord.startsWith("sticky") ||
+      baseWord.startsWith("top-") ||
+      baseWord.startsWith("bottom-") ||
+      baseWord.startsWith("left-") ||
+      baseWord.startsWith("right-") ||
+      baseWord.startsWith("z-")
+    ) {
+      wrapper.push(c);
+    } else {
+      input.push(c);
+    }
+  });
+  
+  return {
+    wrapperClassName: wrapper.join(" "),
+    inputClassName: input.join(" "),
+  };
+}
 
 interface SmartDateInputProps {
   value: string;                   // YYYY-MM-DD (controlled)
@@ -86,6 +140,7 @@ export function SmartDateInput({
     }
   }
 
+  const { wrapperClassName, inputClassName } = splitClasses(className);
   const showError = hasError || !!localErr;
   const baseClass = `w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all pr-10`;
   const stateClass = showError
@@ -93,7 +148,7 @@ export function SmartDateInput({
     : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400";
 
   return (
-    <div className={`relative ${className}`}>
+    <div className={cn("relative", wrapperClassName)}>
       {/* Text input for typing */}
       <input
         id={id}
@@ -112,7 +167,7 @@ export function SmartDateInput({
             handleBlur();
           }
         }}
-        className={`${baseClass} ${stateClass}`}
+        className={cn(baseClass, stateClass, inputClassName, "pr-10")}
       />
 
       {/* Calendar icon button */}

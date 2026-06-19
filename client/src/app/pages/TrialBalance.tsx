@@ -207,7 +207,7 @@ function MiniJVForm({
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <span className="text-slate-600 font-semibold text-xs w-8">Date</span>
-            <div className="w-32">
+            <div className="w-36">
               <Controller
                 name="date" control={control}
                 rules={{ validate: (v) => parseSmartDate(v, selectedFY).error ?? true }}

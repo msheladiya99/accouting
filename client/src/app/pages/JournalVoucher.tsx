@@ -279,7 +279,7 @@ function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY }: {
         <div className="flex flex-wrap items-center gap-4 bg-[#f8fafc] p-3 rounded-lg border border-slate-200">
           <div className="flex items-center gap-2">
             <span className="text-slate-600 font-semibold w-8">Date</span>
-            <div className="w-32">
+            <div className="w-36">
               <Controller
                 name="date" control={control}
                 rules={{ validate: (v) => parseSmartDate(v, selectedFY).error ?? true }}

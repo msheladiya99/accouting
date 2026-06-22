@@ -93,6 +93,107 @@ const getGroupMeta = (group: any) => {
   };
 };
 
+// Levenshtein distance
+function getLevenshteinDistance(a: string, b: string): number {
+  const tmp = [];
+  let i, j;
+  for (i = 0; i <= a.length; i++) {
+    tmp[i] = [i];
+  }
+  for (j = 1; j <= b.length; j++) {
+    tmp[0][j] = j;
+  }
+  for (i = 1; i <= a.length; i++) {
+    for (j = 1; j <= b.length; j++) {
+      tmp[i][j] = Math.min(
+        tmp[i - 1][j] + 1, // deletion
+        tmp[i][j - 1] + 1, // insertion
+        tmp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1) // substitution
+      );
+    }
+  }
+  return tmp[a.length][b.length];
+}
+
+// Dice's coefficient
+function getDiceCoefficient(str1: string, str2: string): number {
+  const s1 = str1.trim().toLowerCase().replace(/\s+/g, "");
+  const s2 = str2.trim().toLowerCase().replace(/\s+/g, "");
+  
+  if (s1 === s2) return 1.0;
+  if (s1.length < 2 || s2.length < 2) return 0.0;
+
+  const getBigrams = (str: string) => {
+    const bigrams = new Set<string>();
+    for (let i = 0; i < str.length - 1; i++) {
+      bigrams.add(str.substring(i, i + 2));
+    }
+    return bigrams;
+  };
+
+  const bigrams1 = getBigrams(s1);
+  const bigrams2 = getBigrams(s2);
+  
+  let intersection = 0;
+  for (const bigram of bigrams1) {
+    if (bigrams2.has(bigram)) {
+      intersection++;
+    }
+  }
+
+  return (2.0 * intersection) / (bigrams1.size + bigrams2.size);
+}
+
+// Combined similarity score
+function getLedgerSimilarity(name1: string, name2: string): number {
+  const n1 = name1.trim().toLowerCase();
+  const n2 = name2.trim().toLowerCase();
+  
+  if (n1 === n2) return 1.0;
+  
+  const distance = getLevenshteinDistance(n1, n2);
+  const maxLen = Math.max(n1.length, n2.length);
+  const levSimilarity = maxLen > 0 ? 1.0 - distance / maxLen : 0.0;
+  
+  const diceSimilarity = getDiceCoefficient(n1, n2);
+  
+  return Math.max(levSimilarity, diceSimilarity);
+}
+
+// Cluster duplicate grouping (max 4 per group)
+function findDuplicateGroups(ledgers: Ledger[], threshold: number): Ledger[][] {
+  const groups: Ledger[][] = [];
+  const visited = new Set<string>();
+
+  const sortedLedgers = [...ledgers].sort((a, b) => a.ledgerName.localeCompare(b.ledgerName));
+
+  for (let i = 0; i < sortedLedgers.length; i++) {
+    const l1 = sortedLedgers[i];
+    if (visited.has(l1._id)) continue;
+
+    const group: Ledger[] = [l1];
+    
+    for (let j = 0; j < sortedLedgers.length; j++) {
+      if (i === j) continue;
+      const l2 = sortedLedgers[j];
+      if (visited.has(l2._id)) continue;
+
+      const sim = getLedgerSimilarity(l1.ledgerName, l2.ledgerName);
+      if (sim >= threshold) {
+        group.push(l2);
+        if (group.length === 4) break; // Limit group size to max 4
+      }
+    }
+
+    if (group.length > 1) {
+      group.forEach((l) => visited.add(l._id));
+      groups.push(group);
+    }
+  }
+
+  return groups;
+}
+
 function GroupBadge({ group }: { group: string }) {
   const m = getGroupMeta(group);
   return (
@@ -451,6 +552,35 @@ export default function LedgerMaster() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const gridRef                 = useRef<AgGridReact<Ledger>>(null);
 
+  // Duplicate Matching States
+  const [similarityThreshold, setSimilarityThreshold] = useState<number>(0.5); // Default 50%
+  const [suggestionsExpanded, setSuggestionsExpanded] = useState<boolean>(false);
+  const [ignoredGroups, setIgnoredGroups] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("ap_ignored_duplicates");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleIgnoreGroup = useCallback((groupIds: string[]) => {
+    const key = [...groupIds].sort().join(",");
+    const updated = [...ignoredGroups, key];
+    setIgnoredGroups(updated);
+    localStorage.setItem("ap_ignored_duplicates", JSON.stringify(updated));
+    toast.success("Suggestion ignored");
+  }, [ignoredGroups]);
+
+  // Compute duplicate groups dynamically (excluding ignored groups)
+  const duplicateGroups = useMemo(() => {
+    const allGroups = findDuplicateGroups(rows, similarityThreshold);
+    return allGroups.filter((group) => {
+      const key = group.map((l) => l._id).sort().join(",");
+      return !ignoredGroups.includes(key);
+    });
+  }, [rows, similarityThreshold, ignoredGroups]);
+
   // ── Load ────────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
@@ -739,7 +869,13 @@ export default function LedgerMaster() {
           </button>
           {selectedIds.length >= 2 && (
             <button
-              onClick={() => setMergeModalOpen(true)}
+              onClick={() => {
+                if (selectedIds.length > 4) {
+                  toast.error("You can merge a maximum of 4 accounts at once.");
+                  return;
+                }
+                setMergeModalOpen(true);
+              }}
               className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700 transition-colors shadow-sm animate-in fade-in slide-in-from-right-2 duration-200"
             >
               <GitMerge size={15} /> Merge ({selectedIds.length})
@@ -767,6 +903,119 @@ export default function LedgerMaster() {
           </button>
         </div>
       </div>
+
+      {/* Duplicate Suggestions Panel */}
+      {duplicateGroups.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center justify-between px-5 py-4 bg-amber-50/50 border-b border-amber-100 flex-wrap gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center text-amber-700">
+                <GitMerge size={16} />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Potential Duplicate Ledgers Detected
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Found {duplicateGroups.length} group{duplicateGroups.length > 1 ? "s" : ""} of similar ledger names (match similarity &ge; {Math.round(similarityThreshold * 100)}%)
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 flex-wrap">
+              {/* Threshold Slider */}
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm">
+                <span>Match Threshold:</span>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="0.9"
+                  step="0.05"
+                  value={similarityThreshold}
+                  onChange={(e) => setSimilarityThreshold(parseFloat(e.target.value))}
+                  className="w-24 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                />
+                <span className="w-8 text-right font-semibold text-indigo-600">
+                  {Math.round(similarityThreshold * 100)}%
+                </span>
+              </div>
+              <button
+                onClick={() => setSuggestionsExpanded(!suggestionsExpanded)}
+                className="px-3.5 py-1.5 bg-amber-100 text-amber-800 hover:bg-amber-200 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+              >
+                {suggestionsExpanded ? "Hide Suggestions" : "Review Suggestions"}
+              </button>
+            </div>
+          </div>
+
+          {suggestionsExpanded && (
+            <div className="p-5 space-y-4 max-h-[350px] overflow-y-auto bg-slate-50/30">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {duplicateGroups.map((group, groupIdx) => {
+                  return (
+                    <div
+                      key={groupIdx}
+                      className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-3 hover:shadow-md transition-shadow"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                            Duplicate Group #{groupIdx + 1}
+                          </span>
+                          <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+                            {group.length} Accounts (Max 4)
+                          </span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {group.map((ledger, idx) => {
+                            const similarity = idx === 0 
+                              ? 1.0 
+                              : getLedgerSimilarity(group[0].ledgerName, ledger.ledgerName);
+                            return (
+                              <div
+                                key={ledger._id}
+                                className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-50 border border-slate-100"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="font-semibold text-slate-700 truncate">
+                                    {ledger.ledgerName}
+                                  </span>
+                                  <GroupBadge group={ledger.groupName} />
+                                </div>
+                                <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">
+                                  {idx === 0 ? "Base" : `${Math.round(similarity * 100)}% match`}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setSelectedIds(group.map((l) => l._id));
+                            setMergeModalOpen(true);
+                          }}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-semibold text-xs rounded-lg transition-colors border border-indigo-100"
+                        >
+                          <GitMerge size={13} />
+                          Merge Group ({group.length})
+                        </button>
+                        <button
+                          onClick={() => handleIgnoreGroup(group.map((l) => l._id))}
+                          className="px-3 py-2 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700 font-semibold text-xs rounded-lg transition-colors border border-slate-200 flex-shrink-0"
+                          title="Ignore this suggestion"
+                        >
+                          Ignore
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Search + Quick Filter row */}
       <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-center gap-3 flex-wrap">

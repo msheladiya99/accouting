@@ -566,12 +566,8 @@ export async function mergeLedgers(req: AuthenticatedRequest, res: Response): Pr
     // ── 2. Rewrite BankCashEntry references ───────────────────────────────────
     for (const srcName of sourceNames) {
       await BankCashEntry.updateMany(
-        { companyId: companyIdFilter, contraLedger: srcName },
-        { $set: { contraLedger: targetName } }
-      );
-      await BankCashEntry.updateMany(
-        { companyId: companyIdFilter, ledgerName: srcName },
-        { $set: { ledgerName: targetName } }
+        { companyId: companyIdFilter, contraAccountName: { $regex: new RegExp(`^${srcName.trim()}$`, "i") } },
+        { $set: { contraAccountName: targetName, contraAccountGroup: targetGroup } }
       );
     }
 
@@ -598,14 +594,28 @@ export async function mergeLedgers(req: AuthenticatedRequest, res: Response): Pr
     targetLedger.openingCr = totalOpeningCr;
     await targetLedger.save();
 
-    // ── 5. Delete source bank/cash accounts ───────────────────────────────────
+    // ── 5. Delete source bank/cash accounts (and move their transactions) ─────
     const sourceAccounts = await BankCashAccount.find({
       name: { $in: sourceNames.map((n) => new RegExp(`^${n}$`, "i")) },
       companyId: req.companyId,
     });
     if (sourceAccounts.length > 0) {
       const sourceAccountIds = sourceAccounts.map((a) => a._id.toString());
-      await BankCashEntry.deleteMany({ accountId: { $in: sourceAccountIds }, companyId: companyIdFilter });
+      const targetAccount = await BankCashAccount.findOne({
+        name: { $regex: new RegExp(`^${targetName.trim()}$`, "i") },
+        companyId: req.companyId,
+      });
+
+      if (targetAccount) {
+        // Move entries to the target account
+        await BankCashEntry.updateMany(
+          { accountId: { $in: sourceAccountIds }, companyId: companyIdFilter },
+          { $set: { accountId: targetAccount._id.toString() } }
+        );
+      } else {
+        // Delete entries if no target bank/cash account exists
+        await BankCashEntry.deleteMany({ accountId: { $in: sourceAccountIds }, companyId: companyIdFilter });
+      }
       await BankCashAccount.deleteMany({ _id: { $in: sourceAccounts.map((a) => a._id) } });
     }
 

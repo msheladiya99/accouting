@@ -1756,7 +1756,7 @@ export default function BankCashBook() {
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Operation failed");
+      toast.error(e.response?.data?.message || e.message || "Operation failed");
     } finally {
       setSaving(false);
     }
@@ -1796,7 +1796,7 @@ export default function BankCashBook() {
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(e.response?.data?.message || e.message || "Failed to delete entry");
     }
   }, [accountFilter, loadRows]);
 
@@ -1814,7 +1814,7 @@ export default function BankCashBook() {
       }
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Failed to clear entries");
+      toast.error(e.response?.data?.message || e.message || "Failed to clear entries");
     }
   }, [accountFilter, loadRows]);
 
@@ -1835,7 +1835,7 @@ export default function BankCashBook() {
       setAccounts(accountsData);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Failed to delete account");
+      toast.error(e.response?.data?.message || e.message || "Failed to delete account");
     }
   }, [loadRows]);
 
@@ -1902,7 +1902,7 @@ export default function BankCashBook() {
       await loadRows(accountFilter, true); // silent background load
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Failed to save");
+      toast.error(e.response?.data?.message || e.message || "Failed to save");
       await loadRows(accountFilter); // full reload to reset state on error
     }
   }, [accountFilter, loadRows, ledgers]);
@@ -1920,7 +1920,7 @@ export default function BankCashBook() {
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Failed to update opening balance");
+      toast.error(e.response?.data?.message || e.message || "Failed to update opening balance");
     }
   }, [accountFilter, loadRows]);
 
@@ -1947,7 +1947,7 @@ export default function BankCashBook() {
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Bulk update failed");
+      toast.error(e.response?.data?.message || e.message || "Bulk update failed");
     } finally {
       setBulkSaving(false);
     }
@@ -1965,7 +1965,7 @@ export default function BankCashBook() {
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Bulk deletion failed");
+      toast.error(e.response?.data?.message || e.message || "Bulk deletion failed");
     } finally {
       setBulkSaving(false);
     }
@@ -1982,7 +1982,7 @@ export default function BankCashBook() {
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Bulk approval failed");
+      toast.error(e.response?.data?.message || e.message || "Bulk approval failed");
     } finally {
       setBulkSaving(false);
     }

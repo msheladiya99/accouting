@@ -1248,7 +1248,7 @@ export default function JournalVoucher() {
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
       return true;
     } catch (err: any) {
-      toast.error(err.message);
+      toast.error(err.response?.data?.message || err.message || "Failed to save journal entry");
       return false;
     } finally {
       setSaving(false);
@@ -1263,7 +1263,7 @@ export default function JournalVoucher() {
       toast.success(`${entry.voucherNo} deleted`);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (err: any) {
-      toast.error(err.message);
+      toast.error(err.response?.data?.message || err.message || "Failed to delete journal entry");
     }
   }, []);
 
@@ -1274,7 +1274,7 @@ export default function JournalVoucher() {
       toast.success("Saved", { duration: 1200, icon: "✓" });
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Failed to save");
+      toast.error(e.response?.data?.message || e.message || "Failed to save");
       await load();
     }
   }, [load]);

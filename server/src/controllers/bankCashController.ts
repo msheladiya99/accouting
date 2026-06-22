@@ -5,6 +5,10 @@ import { AuthenticatedRequest } from "../middleware/auth";
 import { Ledger } from "../models/Ledger";
 import { syncBankCashAccountFromLedger } from "./ledgerController";
 
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // ── BankCashAccount Controller Handlers ───────────────────────────────────────
 export async function syncLedgerFromBankCashAccount(account: any, oldName?: string): Promise<void> {
   const { name, group, openingBalance, companyId } = account;
@@ -18,7 +22,7 @@ export async function syncLedgerFromBankCashAccount(account: any, oldName?: stri
   const nameToSearch = oldName ? oldName.trim() : finalName;
 
   let ledger = await Ledger.findOne({
-    ledgerName: { $regex: new RegExp(`^${nameToSearch}$`, "i") },
+    ledgerName: { $regex: new RegExp(`^${escapeRegExp(nameToSearch)}$`, "i") },
     companyId
   });
 
@@ -131,7 +135,7 @@ export async function createAccount(req: AuthenticatedRequest, res: Response): P
     }
 
     const exists = await BankCashAccount.findOne({
-      name: { $regex: new RegExp(`^${name.trim()}$`, "i") },
+      name: { $regex: new RegExp(`^${escapeRegExp(name.trim())}$`, "i") },
       companyId: req.companyId
     });
     if (exists) {
@@ -168,7 +172,7 @@ export async function updateAccount(req: AuthenticatedRequest, res: Response): P
 
     if (name) {
       const duplicate = await BankCashAccount.findOne({
-        name: { $regex: new RegExp(`^${name.trim()}$`, "i") },
+        name: { $regex: new RegExp(`^${escapeRegExp(name.trim())}$`, "i") },
         companyId: req.companyId,
         _id: { $ne: id }
       });
@@ -228,7 +232,7 @@ export async function deleteAccount(req: AuthenticatedRequest, res: Response): P
     // Delete corresponding ledger (only for Bank accounts)
     if (account.group === "Bank") {
       await Ledger.deleteOne({
-        ledgerName: { $regex: new RegExp(`^${account.name.trim()}$`, "i") },
+        ledgerName: { $regex: new RegExp(`^${escapeRegExp(account.name.trim())}$`, "i") },
         companyId: req.companyId
       });
     }
@@ -417,7 +421,7 @@ export async function createEntry(req: AuthenticatedRequest, res: Response): Pro
 
     // Auto-create ledger if it doesn't exist in Ledger master
     const exists = await Ledger.findOne({
-      ledgerName: { $regex: new RegExp(`^${cleanContraName}$`, "i") },
+      ledgerName: { $regex: new RegExp(`^${escapeRegExp(cleanContraName)}$`, "i") },
       companyId: req.companyId
     });
 
@@ -500,7 +504,7 @@ export async function updateEntry(req: AuthenticatedRequest, res: Response): Pro
       // Auto-create ledger if it doesn't exist in Ledger master
       const group = contraAccountGroup || entry.contraAccountGroup || "Expense";
       const exists = await Ledger.findOne({
-        ledgerName: { $regex: new RegExp(`^${cleanContraName}$`, "i") },
+        ledgerName: { $regex: new RegExp(`^${escapeRegExp(cleanContraName)}$`, "i") },
         companyId: req.companyId
       });
 
@@ -524,14 +528,14 @@ export async function updateEntry(req: AuthenticatedRequest, res: Response): Pro
       if (ledgerName) {
         // Also update the Ledger master group name for this account
         await Ledger.updateOne(
-          { ledgerName: { $regex: new RegExp(`^${ledgerName}$`, "i") }, companyId: req.companyId },
+          { ledgerName: { $regex: new RegExp(`^${escapeRegExp(ledgerName)}$`, "i") }, companyId: req.companyId },
           { $set: { groupName: contraAccountGroup } }
         );
 
         // Update all other BankCashEntry records with the same account name in the same company
         await BankCashEntry.updateMany(
           { 
-            contraAccountName: { $regex: new RegExp(`^${ledgerName}$`, "i") }, 
+            contraAccountName: { $regex: new RegExp(`^${escapeRegExp(ledgerName)}$`, "i") }, 
             companyId: req.companyId 
           },
           { $set: { contraAccountGroup } }

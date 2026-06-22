@@ -460,7 +460,7 @@ export default function OpeningBalances() {
       setRows(mappedRows);
       setGroups(groupsData.map((g) => g.groupName).sort());
     } catch (err: any) {
-      toast.error(err.message || "Failed to load opening balances");
+      toast.error(err.response?.data?.message || err.message || "Failed to load opening balances");
     } finally {
       setLoading(false);
     }
@@ -549,7 +549,7 @@ export default function OpeningBalances() {
       await load();
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (err: any) {
-      toast.error(err.message || "Failed to save opening balances");
+      toast.error(err.response?.data?.message || err.message || "Failed to save opening balances");
     } finally {
       setSaving(false);
     }

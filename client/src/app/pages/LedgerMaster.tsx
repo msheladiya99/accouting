@@ -613,7 +613,7 @@ export default function LedgerMaster() {
       setGroupModalOpen(false);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Failed to create group");
+      toast.error(e.response?.data?.message || e.message || "Failed to create group");
     } finally {
       setGroupSaving(false);
     }
@@ -635,7 +635,7 @@ export default function LedgerMaster() {
       setModal(null);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message || "Operation failed");
+      toast.error(e.response?.data?.message || e.message || "Operation failed");
     } finally {
       setSaving(false);
     }
@@ -649,7 +649,7 @@ export default function LedgerMaster() {
       toast.success(`"${ledger.ledgerName}" deleted`);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(e.response?.data?.message || e.message || "Failed to delete ledger");
     }
   }, []);
 
@@ -717,7 +717,7 @@ export default function LedgerMaster() {
       toast.success("Saved");
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(e.response?.data?.message || e.message || "Failed to update ledger");
       setRows((p) => p.map((r) => r._id === data._id ? { ...r, [field]: oldValue } : r));
     }
   }, []);

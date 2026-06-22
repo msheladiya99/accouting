@@ -10,9 +10,8 @@ export async function syncLedgerFromBankCashAccount(account: any, oldName?: stri
   const { name, group, openingBalance, companyId } = account;
   if (!name || !group) return;
 
-  if (group !== "Bank") return; // only for bank, not for cash!
-
-  const groupName = "Bank Accounts (Banks)";
+  const isBank = group === "Bank";
+  const groupName = isBank ? "Bank Accounts (Banks)" : "Cash-in-hand";
   const openingDr = openingBalance >= 0 ? openingBalance : 0;
   const openingCr = openingBalance < 0 ? Math.abs(openingBalance) : 0;
   const finalName = name.trim().toUpperCase();
@@ -180,11 +179,38 @@ export async function updateAccount(req: AuthenticatedRequest, res: Response): P
       account.name = name.trim().toUpperCase();
     }
     if (group) account.group = group;
-    if (openingBalance !== undefined) account.openingBalance = openingBalance;
+    if (openingBalance !== undefined) {
+      let finalOpeningBalance = openingBalance;
+      if (req.financialYear) {
+        const { Types: MongoTypes } = require("mongoose");
+        let companyIdFilter: any;
+        try {
+          companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+        } catch {
+          companyIdFilter = req.companyId;
+        }
+
+        const priorEntries = await BankCashEntry.find({
+          accountId: account._id.toString(),
+          companyId: companyIdFilter,
+          date: { $lt: req.financialYear.startDate }
+        });
+        const movement = priorEntries.reduce((sum, e) => sum + e.deposit - e.withdrawal, 0);
+        finalOpeningBalance = openingBalance - movement;
+      }
+      account.openingBalance = finalOpeningBalance;
+    }
 
     await account.save();
     await syncLedgerFromBankCashAccount(account, oldName);
-    res.json(account);
+
+    const initialBalance = req.financialYear
+      ? await getOpeningBalanceAt(account, req.financialYear.startDate, req.companyId as string)
+      : account.openingBalance;
+      
+    const accObj = account.toObject();
+    accObj.openingBalance = initialBalance;
+    res.json(accObj);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to update account" });
   }

@@ -271,6 +271,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
         console.info(`[BankImport] Removed ${dupsRemoved} duplicate rows (${beforeCount} → ${txns.length})`);
       }
 
+      let initialBal = 0;
       if (parsedBankName) {
         setDetectedBankName(parsedBankName);
         const matched = accounts.find(
@@ -278,6 +279,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
         );
         if (matched) {
           setSelectedAccountId(matched._id);
+          initialBal = matched.openingBalance || 0;
           toast.success(`Detected ${parsedBankName} - Auto-selected matched account`);
         } else {
           setSelectedAccountId("auto-create");
@@ -293,13 +295,24 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
           id: uid(),
           date: firstTxnDate,
           narration: "Opening Balance",
-          withdrawal: 0,
-          deposit: 0,
+          withdrawal: initialBal < 0 ? Math.abs(initialBal) : 0,
+          deposit: initialBal >= 0 ? initialBal : 0,
           aiAccountName: "",
           aiAccountGroup: "",
           aiStatus: "done" as const,
         };
         prepared.unshift(opRow);
+      } else {
+        if (initialBal !== 0) {
+          const firstOpIdx = prepared.findIndex((r) => isOpeningBalRow(r.narration));
+          if (firstOpIdx !== -1) {
+            const opRow = prepared[firstOpIdx];
+            if ((opRow.deposit || 0) === 0 && (opRow.withdrawal || 0) === 0) {
+              opRow.deposit = initialBal >= 0 ? initialBal : 0;
+              opRow.withdrawal = initialBal < 0 ? Math.abs(initialBal) : 0;
+            }
+          }
+        }
       }
       setRows(prepared);
       setStep(1);
@@ -331,6 +344,18 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       setNewAccName("");
       setNewAccBal("");
       toast.success(`Account "${newAcc.name}" created and selected!`);
+      const bal = newAcc.openingBalance || 0;
+      setRows((prev) =>
+        prev.map((r) =>
+          isOpeningBalRow(r.narration)
+            ? {
+                ...r,
+                deposit: bal >= 0 ? bal : 0,
+                withdrawal: bal < 0 ? Math.abs(bal) : 0,
+              }
+            : r
+        )
+      );
     } catch (err: any) {
       toast.error(err.response?.data?.message || err.message || "Failed to create account");
     } finally {
@@ -784,7 +809,23 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
             {!showCreateForm && (
               <select
                 value={selectedAccountId}
-                onChange={(e) => setSelectedAccountId(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedAccountId(val);
+                  const acc = accounts.find((a) => a._id === val);
+                  const bal = acc ? acc.openingBalance : 0;
+                  setRows((prev) =>
+                    prev.map((r) =>
+                      isOpeningBalRow(r.narration)
+                        ? {
+                            ...r,
+                            deposit: bal >= 0 ? bal : 0,
+                            withdrawal: bal < 0 ? Math.abs(bal) : 0,
+                          }
+                        : r
+                    )
+                  );
+                }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 text-sm font-medium text-slate-800"
               >
                 <option value="auto-create">

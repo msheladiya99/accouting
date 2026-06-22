@@ -8,6 +8,10 @@ import { FinancialYear } from "../models/FinancialYear";
 import { BankCashAccount } from "../models/BankCashAccount";
 import { ImportedTransaction } from "../models/ImportedTransaction";
 
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
   "Capital Account": "Capital",
   "Profit & Loss A/c": "Capital",
@@ -181,7 +185,7 @@ export async function syncBankCashAccountFromLedger(ledger: any, oldName?: strin
     const nameToSearch = oldName ? oldName.trim() : finalName;
 
     let acc = await BankCashAccount.findOne({
-      name: { $regex: new RegExp(`^${nameToSearch}$`, "i") },
+      name: { $regex: new RegExp(`^${escapeRegExp(nameToSearch)}$`, "i") },
       companyId
     });
 
@@ -202,7 +206,7 @@ export async function syncBankCashAccountFromLedger(ledger: any, oldName?: strin
   } else {
     const nameToSearch = oldName ? oldName.trim() : ledgerName.trim();
     await BankCashAccount.deleteOne({
-      name: { $regex: new RegExp(`^${nameToSearch}$`, "i") },
+      name: { $regex: new RegExp(`^${escapeRegExp(nameToSearch)}$`, "i") },
       group: "Bank",
       companyId
     });
@@ -262,7 +266,7 @@ export async function createLedger(req: AuthenticatedRequest, res: Response): Pr
 
     const trimmedName = ledgerName.trim().toUpperCase();
     const exists = await Ledger.findOne({
-      ledgerName: { $regex: new RegExp(`^${trimmedName}$`, "i") },
+      ledgerName: { $regex: new RegExp(`^${escapeRegExp(trimmedName)}$`, "i") },
       companyId: req.companyId
     });
 
@@ -302,7 +306,7 @@ export async function updateLedger(req: AuthenticatedRequest, res: Response): Pr
     if (ledgerName) {
       const trimmedName = ledgerName.trim().toUpperCase();
       const duplicate = await Ledger.findOne({
-        ledgerName: { $regex: new RegExp(`^${trimmedName}$`, "i") },
+        ledgerName: { $regex: new RegExp(`^${escapeRegExp(trimmedName)}$`, "i") },
         companyId: req.companyId,
         _id: { $ne: id }
       });
@@ -343,7 +347,8 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
     }
 
     // ── Guard: block deletion if the ledger has any journal or bank/cash entries ──
-    const ledgerNamePattern = new RegExp(`^${ledger.ledgerName.trim()}$`, "i");
+    const escapedName = escapeRegExp(ledger.ledgerName.trim());
+    const ledgerNamePattern = new RegExp(`^${escapedName}$`, "i");
 
     const journalEntryCount = await JournalEntry.countDocuments({
       companyId: companyIdFilter,
@@ -424,7 +429,8 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
     const deletableLedgers: typeof ledgers = [];
 
     for (const ledger of ledgers) {
-      const namePattern = new RegExp(`^${ledger.ledgerName.trim()}$`, "i");
+      const escapedName = escapeRegExp(ledger.ledgerName.trim());
+      const namePattern = new RegExp(`^${escapedName}$`, "i");
 
       const jCount = await JournalEntry.countDocuments({
         companyId: companyIdFilter,
@@ -482,7 +488,7 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
 
     // Clean up associated BankCashAccounts for deletable ledgers only
     const accounts = await BankCashAccount.find({
-      name: { $in: deletableNames.map(name => new RegExp(`^${name}$`, "i")) },
+      name: { $in: deletableNames.map(name => new RegExp(`^${escapeRegExp(name)}$`, "i")) },
       companyId: req.companyId
     });
     if (accounts.length > 0) {
@@ -566,7 +572,7 @@ export async function mergeLedgers(req: AuthenticatedRequest, res: Response): Pr
     // ── 2. Rewrite BankCashEntry references ───────────────────────────────────
     for (const srcName of sourceNames) {
       await BankCashEntry.updateMany(
-        { companyId: companyIdFilter, contraAccountName: { $regex: new RegExp(`^${srcName.trim()}$`, "i") } },
+        { companyId: companyIdFilter, contraAccountName: { $regex: new RegExp(`^${escapeRegExp(srcName.trim())}$`, "i") } },
         { $set: { contraAccountName: targetName, contraAccountGroup: targetGroup } }
       );
     }
@@ -602,7 +608,7 @@ export async function mergeLedgers(req: AuthenticatedRequest, res: Response): Pr
     if (sourceAccounts.length > 0) {
       const sourceAccountIds = sourceAccounts.map((a) => a._id.toString());
       const targetAccount = await BankCashAccount.findOne({
-        name: { $regex: new RegExp(`^${targetName.trim()}$`, "i") },
+        name: { $regex: new RegExp(`^${escapeRegExp(targetName.trim())}$`, "i") },
         companyId: req.companyId,
       });
 
@@ -646,7 +652,7 @@ export async function updateBulkOpeningBalances(req: AuthenticatedRequest, res: 
 
       const trimmedName = ledgerName.trim().toUpperCase();
       let ledger = await Ledger.findOne({
-        ledgerName: { $regex: new RegExp(`^${trimmedName}$`, "i") },
+        ledgerName: { $regex: new RegExp(`^${escapeRegExp(trimmedName)}$`, "i") },
         companyId: req.companyId
       });
 
@@ -689,13 +695,13 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
 
     // Find the ledger for opening balance and group info
     const ledger = await Ledger.findOne({
-      ledgerName: { $regex: new RegExp(`^${ledgerName}$`, "i") },
+      ledgerName: { $regex: new RegExp(`^${escapeRegExp(ledgerName)}$`, "i") },
       companyId
     });
 
     // Also check if it is a BankCashAccount (Bank/Cash)
     const bankAccount = await BankCashAccount.findOne({
-      name: { $regex: new RegExp(`^${ledgerName}$`, "i") },
+      name: { $regex: new RegExp(`^${escapeRegExp(ledgerName)}$`, "i") },
       companyId
     });
 
@@ -766,7 +772,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
 
     // 2. Bank/Cash entries where this ledger is the CONTRA ACCOUNT
     const contraQuery: any = {
-      contraAccountName: { $regex: new RegExp(`^${ledgerName}$`, "i") },
+      contraAccountName: { $regex: new RegExp(`^${escapeRegExp(ledgerName)}$`, "i") },
       companyId
     };
     if (fyStart && fyEnd) contraQuery.date = { $gte: fyStart, $lte: fyEnd };
@@ -809,9 +815,9 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
     const jEntriesQuery: any = {
       companyId,
       $or: [
-        { debitAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") } },
-        { creditAccount: { $regex: new RegExp(`^${ledgerName}$`, "i") } },
-        { "items.accountName": { $regex: new RegExp(`^${ledgerName}$`, "i") } }
+        { debitAccount: { $regex: new RegExp(`^${escapeRegExp(ledgerName)}$`, "i") } },
+        { creditAccount: { $regex: new RegExp(`^${escapeRegExp(ledgerName)}$`, "i") } },
+        { "items.accountName": { $regex: new RegExp(`^${escapeRegExp(ledgerName)}$`, "i") } }
       ]
     };
     if (fyStart && fyEnd) jEntriesQuery.date = { $gte: fyStart, $lte: fyEnd };

@@ -63,7 +63,7 @@ export default function FinancialYear() {
       toast.success(`${fy.label} closed`);
       reload();
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(e.response?.data?.message || e.message || "Failed to close financial year");
     }
   }, [reload]);
 
@@ -75,7 +75,7 @@ export default function FinancialYear() {
       setAvailableFYs(availableFYs.filter((f) => f._id !== fy._id));
       toast.success(`${fy.label} deleted`);
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(e.response?.data?.message || e.message || "Failed to delete financial year");
     }
   }, [availableFYs, setAvailableFYs]);
 
@@ -91,7 +91,7 @@ export default function FinancialYear() {
       setCustomEnd("");
       await reload();
     } catch (e: any) {
-      toast.error(e.message || "Failed to create financial year");
+      toast.error(e.response?.data?.message || e.message || "Failed to create financial year");
     } finally {
       setCustomCreating(false);
     }

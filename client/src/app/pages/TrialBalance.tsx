@@ -498,10 +498,10 @@ export function LedgerStatementModal({
               <div className="flex items-center justify-center h-48 gap-2 text-red-500 text-sm">
                 <AlertTriangle size={16} /> {error}
               </div>
-            ) : filtered.length === 0 ? (
+            ) : !statement ? (
               <div className="flex flex-col items-center justify-center h-48 gap-2 text-slate-400 text-sm">
                 <FileText size={32} className="opacity-30" />
-                {search ? "No entries match your search" : "No transactions found for this ledger in the current financial year"}
+                No ledger data found
               </div>
             ) : (
               <table className="w-full text-xs font-mono border-collapse border border-slate-400" style={{ borderSpacing: 0 }}>
@@ -519,53 +519,65 @@ export function LedgerStatementModal({
                   </tr>
                 </thead>
                 <tbody className="bg-white">
-                  {/* Opening balance row - represented as a standard table row */}
-                  {statement && (
-                    <tr className="bg-slate-50 hover:bg-slate-100/70 border-b border-slate-300">
-                      <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
-                      <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
-                      <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
-                      <td className="px-3 py-2 border border-slate-300 text-slate-700 font-sans font-semibold">Opening Balance</td>
-                      <td className="px-3 py-2 border border-slate-300 text-right font-medium text-emerald-700">
-                        {statement.openingBalance > 0 ? statement.openingBalance.toFixed(2) : "NIL"}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-300 text-right font-medium text-red-600">
-                        {statement.openingBalance < 0 ? Math.abs(statement.openingBalance).toFixed(2) : "NIL"}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-300 text-right font-semibold text-slate-800">
-                        {fmtMiracleSigned(statement.openingBalance)}
+                  {/* Opening balance row - always shown */}
+                  <tr className="bg-slate-50 hover:bg-slate-100/70 border-b border-slate-300">
+                    <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                    <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                    <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                    <td className="px-3 py-2 border border-slate-300 text-slate-700 font-sans font-semibold">Opening Balance</td>
+                    <td className="px-3 py-2 border border-slate-300 text-right font-medium text-emerald-700">
+                      {statement.openingBalance > 0 ? statement.openingBalance.toFixed(2) : "NIL"}
+                    </td>
+                    <td className="px-3 py-2 border border-slate-300 text-right font-medium text-red-600">
+                      {statement.openingBalance < 0 ? Math.abs(statement.openingBalance).toFixed(2) : "NIL"}
+                    </td>
+                    <td className="px-3 py-2 border border-slate-300 text-right font-semibold text-slate-800">
+                      {fmtMiracleSigned(statement.openingBalance)}
+                    </td>
+                  </tr>
+                  {/* Transaction rows or empty-state row */}
+                  {filtered.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-8 border border-slate-300 text-center">
+                        <div className="flex flex-col items-center gap-2 text-slate-400">
+                          <FileText size={28} className="opacity-30" />
+                          <span className="text-xs font-sans">
+                            {search ? "No entries match your search" : "No transactions found for this ledger in the current financial year"}
+                          </span>
+                        </div>
                       </td>
                     </tr>
+                  ) : (
+                    filtered.map((row) => (
+                      <tr
+                        key={row.srNo}
+                        className="hover:bg-slate-50 transition-colors border-b border-slate-300"
+                      >
+                        <td className="px-3 py-2 border border-slate-300 text-slate-600 whitespace-nowrap">{fmtMiracleDate(row.date)}</td>
+                        <td className="px-3 py-2 border border-slate-300 text-slate-700 font-sans font-semibold">{row.voucherType}</td>
+                        <td className="px-3 py-2 border border-slate-300 text-slate-500 font-mono">
+                          {row.voucherNo || "—"}
+                        </td>
+                        <td className="px-3 py-2 border border-slate-300 text-slate-800 font-sans max-w-[200px]">
+                          <div className="font-semibold">{row.accountName || "—"}</div>
+                          {row.particulars && row.particulars !== row.accountName && (
+                            <div className="text-[10px] text-slate-400 truncate mt-0.5" title={row.particulars}>
+                              {row.particulars}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 border border-slate-300 text-right text-emerald-700 font-medium">
+                          {row.debit > 0 ? row.debit.toFixed(2) : "NIL"}
+                        </td>
+                        <td className="px-3 py-2 border border-slate-300 text-right text-red-600 font-medium">
+                          {row.credit > 0 ? row.credit.toFixed(2) : "NIL"}
+                        </td>
+                        <td className="px-3 py-2 border border-slate-300 text-right font-semibold text-slate-800">
+                          {fmtMiracleSigned(row.balance)}
+                        </td>
+                      </tr>
+                    ))
                   )}
-                  {filtered.map((row) => (
-                    <tr
-                      key={row.srNo}
-                      className="hover:bg-slate-50 transition-colors border-b border-slate-300"
-                    >
-                      <td className="px-3 py-2 border border-slate-300 text-slate-600 whitespace-nowrap">{fmtMiracleDate(row.date)}</td>
-                      <td className="px-3 py-2 border border-slate-300 text-slate-700 font-sans font-semibold">{row.voucherType}</td>
-                      <td className="px-3 py-2 border border-slate-300 text-slate-500 font-mono">
-                        {row.voucherNo || "—"}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-300 text-slate-800 font-sans max-w-[200px]">
-                        <div className="font-semibold">{row.accountName || "—"}</div>
-                        {row.particulars && row.particulars !== row.accountName && (
-                          <div className="text-[10px] text-slate-400 truncate mt-0.5" title={row.particulars}>
-                            {row.particulars}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-300 text-right text-emerald-700 font-medium">
-                        {row.debit > 0 ? row.debit.toFixed(2) : "NIL"}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-300 text-right text-red-600 font-medium">
-                        {row.credit > 0 ? row.credit.toFixed(2) : "NIL"}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-300 text-right font-semibold text-slate-800">
-                        {fmtMiracleSigned(row.balance)}
-                      </td>
-                    </tr>
-                  ))}
                 </tbody>
                 {/* Totals & Closing Balance footers styled exactly like Miracle */}
                 <tfoot className="bg-[#e6f0fa]">
@@ -590,7 +602,7 @@ export function LedgerStatementModal({
                     <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-right text-slate-800">
-                      {statement ? fmtMiracleSigned(statement.closingBalance) : "NIL"}
+                      {fmtMiracleSigned(statement.closingBalance)}
                     </td>
                   </tr>
                 </tfoot>

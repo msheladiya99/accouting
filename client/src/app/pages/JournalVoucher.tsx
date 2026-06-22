@@ -14,7 +14,7 @@ import {
   getAllJournalEntries, createJournalEntry, updateJournalEntry, deleteJournalEntry,
   type JournalEntry, type JournalPayload,
 } from "../api/journalVoucherApi";
-import { getAllLedgers, type Ledger } from "../api/ledgerApi";
+import { getAllLedgers, type Ledger, LEDGER_GROUPS, createLedger } from "../api/ledgerApi";
 import { SmartDateInput } from "../components/ui/SmartDateInput";
 import { parseSmartDate, formatToUIDate } from "../utils/dateUtils";
 import type { FinancialYear } from "../api/financialYearApi";
@@ -49,13 +49,14 @@ function GroupBadge({ group }: { group: string }) {
 }
 
 // ── LedgerCombobox ────────────────────────────────────────────────────────────
-function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compact }: {
+function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compact, onQuickCreate }: {
   ledgers: Ledger[];
   value: string;
   onChange: (name: string, group: string) => void;
   placeholder?: string;
   hasError?: boolean;
   compact?: boolean;
+  onQuickCreate?: (name: string, callback: (newLedger: Ledger) => void) => void;
 }) {
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState("");
@@ -84,6 +85,9 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
   }, []);
 
   const selected = ledgers.find((l) => l.ledgerName === value);
+  const isExactMatch = useMemo(() => {
+    return ledgers.some((l) => l.ledgerName.trim().toLowerCase() === query.trim().toLowerCase());
+  }, [ledgers, query]);
 
   return (
     <div ref={ref} className="relative">
@@ -122,26 +126,44 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
       {selected && !open && !compact && <div className="mt-1"><GroupBadge group={selected.groupName} /></div>}
       {open && (
         <div className="absolute z-50 w-full bg-white border border-slate-200 rounded-xl shadow-xl mt-1 max-h-56 overflow-y-auto">
-          {filtered.length === 0 ? (
+          {filtered.length === 0 && !query.trim() ? (
             <p className="px-4 py-3 text-xs text-slate-400 text-center">No ledgers match "{query}"</p>
           ) : (
-            [...grouped.entries()].map(([group, items]) => (
-              <div key={group}>
-                <p className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider sticky top-0 ${GROUP_COLORS[group]?.bg ?? "bg-slate-50"} ${GROUP_COLORS[group]?.text ?? "text-slate-600"}`}>
-                  {group}
-                </p>
-                {items.map((l) => (
-                  <button
-                    key={l._id}
-                    onMouseDown={(e) => { e.preventDefault(); onChange(l.ledgerName, l.groupName); setOpen(false); setQuery(""); }}
-                    className={`w-full flex items-center justify-between px-4 py-2 text-left text-sm hover:bg-slate-50 transition-colors ${l.ledgerName === value ? "bg-indigo-50 text-indigo-700 font-medium" : "text-slate-700"}`}
-                  >
-                    <span>{l.ledgerName}</span>
-                    {l.ledgerName === value && <CheckCircle2 size={12} className="text-indigo-500" />}
-                  </button>
-                ))}
-              </div>
-            ))
+            <>
+              {[...grouped.entries()].map(([group, items]) => (
+                <div key={group}>
+                  <p className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider sticky top-0 ${GROUP_COLORS[group]?.bg ?? "bg-slate-50"} ${GROUP_COLORS[group]?.text ?? "text-slate-600"}`}>
+                    {group}
+                  </p>
+                  {items.map((l) => (
+                    <button
+                      key={l._id}
+                      onMouseDown={(e) => { e.preventDefault(); onChange(l.ledgerName, l.groupName); setOpen(false); setQuery(""); }}
+                      className={`w-full flex items-center justify-between px-4 py-2 text-left text-sm hover:bg-slate-50 transition-colors ${l.ledgerName === value ? "bg-indigo-50 text-indigo-700 font-medium" : "text-slate-700"}`}
+                    >
+                      <span>{l.ledgerName}</span>
+                      {l.ledgerName === value && <CheckCircle2 size={12} className="text-indigo-500" />}
+                    </button>
+                  ))}
+                </div>
+              ))}
+              {query.trim() && !isExactMatch && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onQuickCreate?.(query.trim(), (newLedger) => {
+                      onChange(newLedger.ledgerName, newLedger.groupName);
+                    });
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 border-t border-slate-100 flex items-center gap-1.5 sticky bottom-0 bg-white"
+                >
+                  <Plus size={12} /> Create "{query.trim()}"
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
@@ -157,11 +179,12 @@ interface MiniJVRow {
   amount: string;
 }
 
-function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY }: {
+function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY, onQuickCreate }: {
   ledgers: Ledger[];
   loading: boolean;
   onSubmit: (data: JournalPayload) => Promise<boolean> | boolean | void;
   selectedFY: any;
+  onQuickCreate?: (name: string, callback: (newLedger: Ledger) => void) => void;
 }) {
   const { register, handleSubmit, watch, control, reset, formState: { errors } } = useForm<JournalPayload>({
     defaultValues: {
@@ -347,7 +370,7 @@ function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY }: {
                             placeholder={isDb ? "Select Debit Account" : "Select Credit Account"}
                             className="w-full border border-slate-300 rounded px-2 py-1 text-xs outline-none bg-white focus:border-indigo-400"
                           />
-                          {dropOpen === idx && filteredLedgers.length > 0 && (
+                          {dropOpen === idx && (
                             <div className="absolute left-0 top-full z-50 bg-white border border-slate-200 rounded-lg shadow-xl max-h-40 overflow-y-auto w-full min-w-[200px]">
                               {filteredLedgers.slice(0, 20).map((l) => (
                                 <button
@@ -364,6 +387,25 @@ function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY }: {
                                   <span className="ml-2 text-slate-400 text-[10px]">{l.groupName}</span>
                                 </button>
                               ))}
+                              {search[idx]?.trim() && !ledgers.some((l) => l.ledgerName.trim().toLowerCase() === search[idx].trim().toLowerCase()) && (
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    onQuickCreate?.(search[idx].trim(), (newLedger) => {
+                                      updateRow(idx, { accountName: newLedger.ledgerName, groupName: newLedger.groupName });
+                                      setSearch((s) => { const n=[...s]; n[idx]=newLedger.ledgerName; return n; });
+                                    });
+                                    setDropOpen(null);
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 border-t border-slate-100 flex items-center gap-1.5 sticky bottom-0 bg-white"
+                                >
+                                  <Plus size={12} /> Create "{search[idx].trim()}"
+                                </button>
+                              )}
+                              {filteredLedgers.length === 0 && !search[idx]?.trim() && (
+                                <div className="px-3 py-2 text-xs text-slate-400 italic text-center">No matching ledgers</div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -428,13 +470,14 @@ interface RowState {
   credit: string;
 }
 
-function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }: {
+function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY, onQuickCreate }: {
   entry?: JournalEntry;
   ledgers: Ledger[];
   loading: boolean;
   onClose: () => void;
   onSubmit: (data: JournalPayload) => Promise<boolean> | boolean | void;
   selectedFY: FinancialYear | null;
+  onQuickCreate?: (name: string, callback: (newLedger: Ledger) => void) => void;
 }) {
   const { register, handleSubmit, watch, setValue, control, reset, formState: { errors } } = useForm<JournalPayload>({
     defaultValues: {
@@ -733,6 +776,7 @@ function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY }
                             }}
                             placeholder={isDb ? "Select Debit Ledger" : "Select Credit Ledger"}
                             compact
+                            onQuickCreate={onQuickCreate}
                           />
                         ) : (
                           <div className="h-full w-full bg-slate-50 select-none" />
@@ -1145,6 +1189,13 @@ export default function JournalVoucher() {
   const [search,       setSearch]       = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | "Draft" | "Posted">("All");
   const [modal,        setModal]        = useState<{ entry?: JournalEntry } | null>(null);
+  const [quickCreateName, setQuickCreateName] = useState<string | null>(null);
+  const [quickCreateCallback, setQuickCreateCallback] = useState<((newLedger: Ledger) => void) | null>(null);
+
+  const handleQuickCreateOpen = useCallback((name: string, callback: (newLedger: Ledger) => void) => {
+    setQuickCreateName(name);
+    setQuickCreateCallback(() => callback);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1378,7 +1429,7 @@ export default function JournalVoucher() {
         )}
       </div>
 
-      <InlineVoucherEntry ledgers={ledgers} loading={saving} onSubmit={handleSubmit} selectedFY={selectedFY} />
+      <InlineVoucherEntry ledgers={ledgers} loading={saving} onSubmit={handleSubmit} selectedFY={selectedFY} onQuickCreate={handleQuickCreateOpen} />
 
       {modal !== null && (
         <JournalModal
@@ -1388,8 +1439,134 @@ export default function JournalVoucher() {
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
           selectedFY={selectedFY}
+          onQuickCreate={handleQuickCreateOpen}
         />
       )}
+
+      {quickCreateName !== null && (
+        <QuickCreateLedgerModal
+          initialName={quickCreateName}
+          onClose={() => {
+            setQuickCreateName(null);
+            setQuickCreateCallback(null);
+          }}
+          onCreated={(newLedger) => {
+            setLedgers((prev) => [newLedger, ...prev]);
+            quickCreateCallback?.(newLedger);
+            setQuickCreateName(null);
+            setQuickCreateCallback(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Quick Create Ledger Modal ──────────────────────────────────────────────────
+function QuickCreateLedgerModal({
+  initialName,
+  onClose,
+  onCreated,
+}: {
+  initialName: string;
+  onClose: () => void;
+  onCreated: (newLedger: Ledger) => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [group, setGroup] = useState<string>("Sundry Creditors");
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast.error("Ledger name is required");
+      return;
+    }
+    setSaving(true);
+    try {
+      const created = await createLedger({
+        ledgerName: name.trim().toUpperCase(),
+        groupName: group as any,
+      });
+      toast.success(`Ledger "${created.ledgerName}" created!`);
+      onCreated(created);
+      onClose();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to create ledger");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-xs" onClick={onClose} />
+      <div className="relative bg-white border border-slate-300 rounded-xl w-full max-w-md overflow-hidden shadow-2xl font-sans text-xs">
+        <div className="bg-indigo-600 px-4 py-2 flex items-center justify-between">
+          <span className="text-white font-bold text-xs tracking-wide">
+            Create New Account
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-white hover:text-red-200 text-xs font-bold"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          <div>
+            <label className="block text-slate-600 font-semibold mb-1">
+              Account / Ledger Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full border border-slate-300 rounded px-2 py-1.5 outline-none text-xs"
+              placeholder="e.g. ABC Trading Co."
+              required
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-600 font-semibold mb-1">
+              Group Name
+            </label>
+            <select
+              value={group}
+              onChange={(e) => setGroup(e.target.value)}
+              className="w-full border border-slate-300 rounded px-2 py-1.5 outline-none text-xs bg-white"
+            >
+              {LEDGER_GROUPS.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-1.5 border border-slate-300 rounded text-slate-600 hover:bg-slate-50 font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-semibold flex items-center gap-1.5 disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={12} className="animate-spin" /> : null}
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

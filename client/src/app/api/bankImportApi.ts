@@ -477,6 +477,9 @@ function parsePDFText(text: string): RawTransaction[] {
   for (let idx = 0; idx < lines.length; idx++) {
     const line = lines[idx];
     const isOpBal = /opening\s*balance|bal\s*b\/f|balance\s*b\/f|brought\s*forward|opening\s*bal/i.test(line);
+    if (isOpBal) {
+      continue;
+    }
 
     if (!isOpBal && /closing\s*balance|balance\s*c\/f|carried\s*forward|page\s+(\d+|total)|statement\s*of|generated\s*on|period|interest\s*rate|limit\s*amount|drawing\s*power|overdraft|page\s*total/i.test(line)) {
       isTableInProgress = false;

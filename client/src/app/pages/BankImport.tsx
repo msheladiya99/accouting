@@ -164,6 +164,34 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       .catch(() => toast.error("Failed to load Bank/Cash accounts"));
   }, []);
 
+  useEffect(() => {
+    if (selectedAccountId === "auto-create") {
+      setRows((prev) =>
+        prev.map((r) =>
+          isOpeningBalRow(r.narration)
+            ? { ...r, deposit: 0, withdrawal: 0 }
+            : r
+        )
+      );
+      return;
+    }
+    const acc = accounts.find((a) => a._id === selectedAccountId);
+    if (acc) {
+      const bal = acc.openingBalance || 0;
+      setRows((prev) =>
+        prev.map((r) =>
+          isOpeningBalRow(r.narration)
+            ? {
+                ...r,
+                deposit: bal >= 0 ? bal : 0,
+                withdrawal: bal < 0 ? Math.abs(bal) : 0,
+              }
+            : r
+        )
+      );
+    }
+  }, [selectedAccountId, accounts]);
+
   // ── Accept file ──────────────────────────────────────────────────────────
   const acceptFile = useCallback((f: File) => {
     const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
@@ -287,33 +315,20 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
         }
       }
 
-      const prepared = toImportRows(txns);
-      const hasOpBal = prepared.some((r) => isOpeningBalRow(r.narration));
-      if (!hasOpBal) {
-        const firstTxnDate = prepared[0]?.date || new Date().toISOString().slice(0, 10);
-        const opRow: ImportRow = {
-          id: uid(),
-          date: firstTxnDate,
-          narration: "Opening Balance",
-          withdrawal: initialBal < 0 ? Math.abs(initialBal) : 0,
-          deposit: initialBal >= 0 ? initialBal : 0,
-          aiAccountName: "",
-          aiAccountGroup: "",
-          aiStatus: "done" as const,
-        };
-        prepared.unshift(opRow);
-      } else {
-        if (initialBal !== 0) {
-          const firstOpIdx = prepared.findIndex((r) => isOpeningBalRow(r.narration));
-          if (firstOpIdx !== -1) {
-            const opRow = prepared[firstOpIdx];
-            if ((opRow.deposit || 0) === 0 && (opRow.withdrawal || 0) === 0) {
-              opRow.deposit = initialBal >= 0 ? initialBal : 0;
-              opRow.withdrawal = initialBal < 0 ? Math.abs(initialBal) : 0;
-            }
-          }
-        }
-      }
+      const cleanTxns = txns.filter((t) => !isOpeningBalRow(t.narration));
+      const prepared = toImportRows(cleanTxns);
+      const firstTxnDate = prepared[0]?.date || new Date().toISOString().slice(0, 10);
+      const opRow: ImportRow = {
+        id: uid(),
+        date: firstTxnDate,
+        narration: "Opening Balance",
+        withdrawal: initialBal < 0 ? Math.abs(initialBal) : 0,
+        deposit: initialBal >= 0 ? initialBal : 0,
+        aiAccountName: "",
+        aiAccountGroup: "",
+        aiStatus: "done" as const,
+      };
+      prepared.unshift(opRow);
       setRows(prepared);
       setStep(1);
       await runAI(prepared);
@@ -416,7 +431,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     try {
       const firstOpRow = rows.find((r) => isOpeningBalRow(r.narration));
       const opBal = firstOpRow
-        ? Math.abs(firstOpRow.deposit || firstOpRow.withdrawal || 0)
+        ? (firstOpRow.deposit || 0) - (firstOpRow.withdrawal || 0)
         : 0;
 
       await saveImportedTransactions(activeTxns, selectedAccountId, detectedBankName, opBal);
@@ -509,7 +524,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     
     const firstOpRow = rows.find((r) => isOpeningBalRow(r.narration));
     const statementOpeningBalance = firstOpRow
-      ? Math.abs(firstOpRow.deposit || firstOpRow.withdrawal || 0)
+      ? (firstOpRow.deposit || 0) - (firstOpRow.withdrawal || 0)
       : null;
 
     let running = statementOpeningBalance !== null ? statementOpeningBalance : openingBalance;
@@ -809,23 +824,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
             {!showCreateForm && (
               <select
                 value={selectedAccountId}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setSelectedAccountId(val);
-                  const acc = accounts.find((a) => a._id === val);
-                  const bal = acc ? acc.openingBalance : 0;
-                  setRows((prev) =>
-                    prev.map((r) =>
-                      isOpeningBalRow(r.narration)
-                        ? {
-                            ...r,
-                            deposit: bal >= 0 ? bal : 0,
-                            withdrawal: bal < 0 ? Math.abs(bal) : 0,
-                          }
-                        : r
-                    )
-                  );
-                }}
+                onChange={(e) => setSelectedAccountId(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 text-sm font-medium text-slate-800"
               >
                 <option value="auto-create">

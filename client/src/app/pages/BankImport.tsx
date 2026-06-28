@@ -29,12 +29,21 @@ const fmt = (n: number) =>
   n === 0 ? "—" : "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const GROUP_COLORS: Record<string, string> = {
-  Assets: "bg-blue-50 text-blue-700", Liabilities: "bg-red-50 text-red-700",
-  Capital: "bg-purple-50 text-purple-700", Income: "bg-emerald-50 text-emerald-700",
-  Expense: "bg-orange-50 text-orange-700", Bank: "bg-cyan-50 text-cyan-700",
-  Cash: "bg-amber-50 text-amber-700", Purchases: "bg-lime-50 text-lime-700",
-  Sales: "bg-teal-50 text-teal-700", "Sundry Debtors": "bg-indigo-50 text-indigo-700",
-  "Sundry Creditors": "bg-pink-50 text-pink-700",
+  "CURRENT ASSETS": "bg-blue-50 text-blue-700 border-blue-200",
+  "FIXED ASSETS": "bg-blue-50 text-blue-700 border-blue-200",
+  "CURRENT LIABILITIES": "bg-red-50 text-red-700 border-red-200",
+  "CAPITAL ACCOUNT": "bg-purple-50 text-purple-700 border-purple-200",
+  "INCOME": "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "INCOME (TRADING)": "bg-emerald-50 text-emerald-700 border-emerald-200",
+  "EXPENSE ACCOUNT": "bg-orange-50 text-orange-700 border-orange-200",
+  "DIRECT EXPENSES": "bg-orange-50 text-orange-700 border-orange-200",
+  "INDIRECT EXPENSES": "bg-orange-50 text-orange-700 border-orange-200",
+  "BANK ACCOUNTS (BANKS)": "bg-cyan-50 text-cyan-700 border-cyan-200",
+  "CASH-IN-HAND": "bg-amber-50 text-amber-700 border-amber-200",
+  "PURCHASE ACCOUNT": "bg-lime-50 text-lime-700 border-lime-200",
+  "SALES ACCOUNT": "bg-teal-50 text-teal-700 border-teal-200",
+  "SUNDRY DEBTORS": "bg-indigo-50 text-indigo-700 border-indigo-200",
+  "SUNDRY CREDITORS": "bg-pink-50 text-pink-700 border-pink-200",
 };
 
 function toImportRows(txns: RawTransaction[]): ImportRow[] {
@@ -43,7 +52,7 @@ function toImportRows(txns: RawTransaction[]): ImportRow[] {
 
 // Deduplicate raw transactions by fingerprint (date + narration + withdrawal + deposit)
 // Bank statements sometimes have per-page opening/closing totals that get repeated.
-// NOTE: This is conservative \u2014 only removes duplicates that appear 3+ times (likely page carry-forward)
+// NOTE: This is conservative — only removes duplicates that appear 3+ times (likely page carry-forward)
 // OR when the overall duplicate rate is very high (>50% indicating systematic repetition).
 function deduplicateTransactions(txns: RawTransaction[]): RawTransaction[] {
   // Count occurrences of each fingerprint
@@ -88,7 +97,7 @@ const isOpeningBalRow = (narration: string) =>
 
 // ── Inline group cell editor ──────────────────────────────────────────────────
 const GroupCellEditor = forwardRef(function GroupCellEditor(props: any, ref) {
-  const [val, setVal] = useState<string>(props.value ?? "Expense");
+  const [val, setVal] = useState<string>(props.value ?? "EXPENSE ACCOUNT");
   const selRef = useRef<HTMLSelectElement>(null);
   useEffect(() => { selRef.current?.focus(); }, []);
   useImperativeHandle(ref, () => ({ getValue: () => val }));

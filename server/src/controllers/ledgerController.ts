@@ -79,6 +79,12 @@ async function getCalculatedLedgerBalances(
     date: { $lt: startDate }
   });
 
+  const bankCashAccounts = await BankCashAccount.find({ companyId: companyIdFilter });
+  const accountIdToNameMap = new Map<string, string>();
+  bankCashAccounts.forEach((acc) => {
+    accountIdToNameMap.set(acc._id.toString(), acc.name);
+  });
+
   // 5. Sum up prior transactions for all ledgers
   const ledgerMap: Record<string, { dr: number; cr: number }> = {};
   allLedgers.forEach((l) => {
@@ -108,6 +114,15 @@ async function getCalculatedLedgerBalances(
       }
       if (e.deposit > 0) {
         ledgerMap[e.contraAccountName].cr += e.deposit;
+      }
+    }
+    const accName = accountIdToNameMap.get(e.accountId);
+    if (accName && ledgerMap[accName]) {
+      if (e.deposit > 0) {
+        ledgerMap[accName].dr += e.deposit;
+      }
+      if (e.withdrawal > 0) {
+        ledgerMap[accName].cr += e.withdrawal;
       }
     }
   });
@@ -172,14 +187,230 @@ async function getCalculatedLedgerBalances(
   });
 }
 
+async function getPriorMovement(
+  companyId: string,
+  startDate: string,
+  ledgerName: string,
+  groupName: string
+): Promise<{ dr: number; cr: number }> {
+  const { Types: MongoTypes } = require("mongoose");
+  let companyIdFilter: any;
+  try {
+    companyIdFilter = { $in: [companyId, new MongoTypes.ObjectId(companyId)] };
+  } catch {
+    companyIdFilter = companyId;
+  }
+
+  const escName = escapeRegExp(ledgerName.trim());
+  const namePattern = new RegExp(`^${escName}$`, "i");
+
+  let dr = 0;
+  let cr = 0;
+
+  // 1. Journal entries
+  const journalEntries = await JournalEntry.find({
+    companyId: companyIdFilter,
+    date: { $lt: startDate },
+    $or: [
+      { debitAccount: namePattern },
+      { creditAccount: namePattern },
+      { "items.accountName": namePattern }
+    ]
+  });
+
+  journalEntries.forEach((e: any) => {
+    const items = e.items && e.items.length > 0 ? e.items : [
+      { type: "Db", accountName: e.debitAccount, amount: e.debitAmount },
+      { type: "Cr", accountName: e.creditAccount, amount: e.creditAmount }
+    ];
+    items.forEach((item: any) => {
+      if (item.accountName && item.accountName.toLowerCase() === ledgerName.toLowerCase()) {
+        if (item.type === "Db") {
+          dr += Number(item.amount || 0);
+        } else {
+          cr += Number(item.amount || 0);
+        }
+      }
+    });
+  });
+
+  // 2. Bank/Cash entries as contra
+  const bankCashContra = await BankCashEntry.find({
+    companyId: companyIdFilter,
+    date: { $lt: startDate },
+    contraAccountName: namePattern
+  });
+
+  bankCashContra.forEach((e) => {
+    if (e.withdrawal > 0) {
+      dr += e.withdrawal;
+    }
+    if (e.deposit > 0) {
+      cr += e.deposit;
+    }
+  });
+
+  // 3. Bank/Cash entries as account
+  const bankAccount = await BankCashAccount.findOne({
+    name: namePattern,
+    companyId
+  });
+
+  if (bankAccount) {
+    const bankCashAccEntries = await BankCashEntry.find({
+      companyId: companyIdFilter,
+      date: { $lt: startDate },
+      accountId: bankAccount._id.toString()
+    });
+    bankCashAccEntries.forEach((e) => {
+      if (e.deposit > 0) {
+        dr += e.deposit;
+      }
+      if (e.withdrawal > 0) {
+        cr += e.withdrawal;
+      }
+    });
+  }
+
+  return { dr, cr };
+}
+
+async function getAdjustedOpeningBalance(
+  companyId: string,
+  startDate: string,
+  ledgerName: string,
+  groupName: string,
+  inputDr: number,
+  inputCr: number
+): Promise<{ openingDr: number; openingCr: number }> {
+  const { Types: MongoTypes } = require("mongoose");
+  let companyIdFilter: any;
+  try {
+    companyIdFilter = { $in: [companyId, new MongoTypes.ObjectId(companyId)] };
+  } catch {
+    companyIdFilter = companyId;
+  }
+
+  const priorFYExists = await FinancialYear.exists({
+    companyId: companyIdFilter,
+    startDate: { $lt: startDate }
+  });
+
+  if (!priorFYExists) {
+    return { openingDr: inputDr, openingCr: inputCr };
+  }
+
+  const isPL = ledgerName.trim().toUpperCase() === "PROFIT & LOSS A/C" || groupName.trim().toUpperCase() === "PROFIT & LOSS A/C";
+
+  if (isPL) {
+    const allLedgers = await Ledger.find({ companyId: companyIdFilter });
+    const groups = await AccountGroup.find({ companyId: companyIdFilter });
+    const groupToCategoryMap: Record<string, string> = {};
+    groups.forEach((g) => {
+      groupToCategoryMap[g.groupName] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
+    });
+
+    const priorJournalEntries = await JournalEntry.find({
+      companyId: companyIdFilter,
+      date: { $lt: startDate }
+    });
+
+    const priorBankCashEntries = await BankCashEntry.find({
+      companyId: companyIdFilter,
+      date: { $lt: startDate }
+    });
+
+    const bankCashAccounts = await BankCashAccount.find({ companyId: companyIdFilter });
+    const accountIdToNameMap = new Map<string, string>();
+    bankCashAccounts.forEach((acc) => {
+      accountIdToNameMap.set(acc._id.toString(), acc.name);
+    });
+
+    const ledgerMap: Record<string, { dr: number; cr: number }> = {};
+    allLedgers.forEach((l) => {
+      ledgerMap[l.ledgerName] = { dr: 0, cr: 0 };
+    });
+
+    priorJournalEntries.forEach((e: any) => {
+      const items = e.items && e.items.length > 0 ? e.items : [
+        { type: "Db", accountName: e.debitAccount, amount: e.debitAmount },
+        { type: "Cr", accountName: e.creditAccount, amount: e.creditAmount }
+      ];
+      items.forEach((item: any) => {
+        if (ledgerMap[item.accountName]) {
+          if (item.type === "Db") {
+            ledgerMap[item.accountName].dr += Number(item.amount || 0);
+          } else {
+            ledgerMap[item.accountName].cr += Number(item.amount || 0);
+          }
+        }
+      });
+    });
+
+    priorBankCashEntries.forEach((e) => {
+      if (ledgerMap[e.contraAccountName]) {
+        if (e.withdrawal > 0) {
+          ledgerMap[e.contraAccountName].dr += e.withdrawal;
+        }
+        if (e.deposit > 0) {
+          ledgerMap[e.contraAccountName].cr += e.deposit;
+        }
+      }
+      const accName = accountIdToNameMap.get(e.accountId);
+      if (accName && ledgerMap[accName]) {
+        if (e.deposit > 0) {
+          ledgerMap[accName].dr += e.deposit;
+        }
+        if (e.withdrawal > 0) {
+          ledgerMap[accName].cr += e.withdrawal;
+        }
+      }
+    });
+
+    let priorRevenue = 0;
+    let priorExpenses = 0;
+
+    allLedgers.forEach((l) => {
+      const category = groupToCategoryMap[l.groupName] || "Assets";
+      const txns = ledgerMap[l.ledgerName] || { dr: 0, cr: 0 };
+      const originalDr = l.openingDr || 0;
+      const originalCr = l.openingCr || 0;
+
+      if (category === "Income") {
+        priorRevenue += (originalCr - originalDr) + txns.cr - txns.dr;
+      } else if (category === "Expense") {
+        priorExpenses += (originalDr - originalCr) + txns.dr - txns.cr;
+      }
+    });
+
+    const priorNetProfit = priorRevenue - priorExpenses;
+    const txns = ledgerMap[ledgerName] || { dr: 0, cr: 0 };
+    const targetNet = (inputCr - inputDr) - (txns.cr - txns.dr) - priorNetProfit;
+    if (targetNet >= 0) {
+      return { openingDr: 0, openingCr: targetNet };
+    } else {
+      return { openingDr: Math.abs(targetNet), openingCr: 0 };
+    }
+  } else {
+    const movement = await getPriorMovement(companyId, startDate, ledgerName, groupName);
+    const targetNet = (inputDr - inputCr) - (movement.dr - movement.cr);
+    if (targetNet >= 0) {
+      return { openingDr: targetNet, openingCr: 0 };
+    } else {
+      return { openingDr: 0, openingCr: Math.abs(targetNet) };
+    }
+  }
+}
+
 export async function syncBankCashAccountFromLedger(ledger: any, oldName?: string): Promise<void> {
   const { ledgerName, groupName, openingDr, openingCr, companyId } = ledger;
   if (!ledgerName || !groupName) return;
 
   const isBank = /bank/i.test(groupName);
+  const isCash = /cash/i.test(groupName);
 
-  if (isBank) {
-    const group = "Bank";
+  if (isBank || isCash) {
+    const group = isBank ? "Bank" : "Cash";
     const openingBalance = (openingDr || 0) - (openingCr || 0);
     const finalName = ledgerName.trim();
     const nameToSearch = oldName ? oldName.trim() : finalName;
@@ -207,7 +438,6 @@ export async function syncBankCashAccountFromLedger(ledger: any, oldName?: strin
     const nameToSearch = oldName ? oldName.trim() : ledgerName.trim();
     await BankCashAccount.deleteOne({
       name: { $regex: new RegExp(`^${escapeRegExp(nameToSearch)}$`, "i") },
-      group: "Bank",
       companyId
     });
   }
@@ -275,11 +505,22 @@ export async function createLedger(req: AuthenticatedRequest, res: Response): Pr
       return;
     }
 
+    const adjusted = req.financialYear
+      ? await getAdjustedOpeningBalance(
+          req.companyId as string,
+          req.financialYear.startDate,
+          trimmedName,
+          groupName,
+          openingDr || 0,
+          openingCr || 0
+        )
+      : { openingDr: openingDr || 0, openingCr: openingCr || 0 };
+
     const ledger = new Ledger({
       ledgerName: trimmedName,
       groupName,
-      openingDr: openingDr || 0,
-      openingCr: openingCr || 0,
+      openingDr: adjusted.openingDr,
+      openingCr: adjusted.openingCr,
       companyId: req.companyId
     });
 
@@ -318,8 +559,22 @@ export async function updateLedger(req: AuthenticatedRequest, res: Response): Pr
     }
 
     if (groupName) ledger.groupName = groupName;
-    if (openingDr !== undefined) ledger.openingDr = openingDr;
-    if (openingCr !== undefined) ledger.openingCr = openingCr;
+    if (openingDr !== undefined || openingCr !== undefined) {
+      const inputDr = openingDr !== undefined ? openingDr : ledger.openingDr;
+      const inputCr = openingCr !== undefined ? openingCr : ledger.openingCr;
+      const adjusted = req.financialYear
+        ? await getAdjustedOpeningBalance(
+            req.companyId as string,
+            req.financialYear.startDate,
+            ledger.ledgerName,
+            ledger.groupName,
+            inputDr,
+            inputCr
+          )
+        : { openingDr: inputDr, openingCr: inputCr };
+      ledger.openingDr = adjusted.openingDr;
+      ledger.openingCr = adjusted.openingCr;
+    }
 
     await ledger.save();
     await syncBankCashAccountFromLedger(ledger, oldName);
@@ -656,19 +911,32 @@ export async function updateBulkOpeningBalances(req: AuthenticatedRequest, res: 
         companyId: req.companyId
       });
 
+      const inputDr = openingDr || 0;
+      const inputCr = openingCr || 0;
+      const adjusted = req.financialYear
+        ? await getAdjustedOpeningBalance(
+            req.companyId as string,
+            req.financialYear.startDate,
+            trimmedName,
+            groupName,
+            inputDr,
+            inputCr
+          )
+        : { openingDr: inputDr, openingCr: inputCr };
+
       if (ledger) {
         ledger.ledgerName = trimmedName;
         ledger.groupName = groupName;
-        ledger.openingDr = openingDr || 0;
-        ledger.openingCr = openingCr || 0;
+        ledger.openingDr = adjusted.openingDr;
+        ledger.openingCr = adjusted.openingCr;
         await ledger.save();
         results.push(ledger);
       } else {
         ledger = new Ledger({
           ledgerName: trimmedName,
           groupName,
-          openingDr: openingDr || 0,
-          openingCr: openingCr || 0,
+          openingDr: adjusted.openingDr,
+          openingCr: adjusted.openingCr,
           companyId: req.companyId
         });
         await ledger.save();

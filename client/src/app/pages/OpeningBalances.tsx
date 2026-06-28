@@ -388,7 +388,8 @@ function parseOpeningBalancesSheetRows(
     );
 
     const group = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "";
-    const finalGroup = group || "Assets"; // Use Excel's group exactly, default to "Assets" only if empty
+    // Match Excel group against known system groups; fallback to first group if empty/unmatched
+    const finalGroup = findBestGroupMatch(group, groupsList);
     
     let finalId = `imported-${Date.now()}-${Math.random()}-${i}`;
     if (existing) {
@@ -447,7 +448,7 @@ export default function OpeningBalances() {
     setSelectedIds([]);
     try {
       const [ledgers, groupsData] = await Promise.all([
-        getAllLedgers({ raw: true }),
+        getAllLedgers(),
         getAllGroups()
       ]);
       const mappedRows: OBRow[] = ledgers.map((l) => ({

@@ -51,7 +51,7 @@ export async function getAllAccounts(req: AuthenticatedRequest, res: Response): 
     // Sync any missing BankCashAccount records from Ledger master
     const bankCashLedgers = await Ledger.find({
       companyId: req.companyId,
-      groupName: { $regex: /bank/i }
+      groupName: { $regex: /bank|cash/i }
     });
 
     let needsRefetch = false;
@@ -59,7 +59,7 @@ export async function getAllAccounts(req: AuthenticatedRequest, res: Response): 
       const nameClean = l.ledgerName.trim();
       const exists = accounts.some(acc => acc.name.trim().toLowerCase() === nameClean.toLowerCase());
       if (!exists) {
-        const group = "Bank";
+        const group = /bank/i.test(l.groupName) ? "Bank" : "Cash";
         const openingBalance = (l.openingDr || 0) - (l.openingCr || 0);
 
         const newAcc = new BankCashAccount({

@@ -235,12 +235,16 @@ interface ModalProps {
 
 function LedgerModal({ mode, ledger, loading, groups, onClose, onSubmit }: ModalProps) {
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<LedgerPayload>({
-    defaultValues: { ledgerName: ledger?.ledgerName ?? "", groupName: ledger?.groupName ?? "Assets" },
+    defaultValues: { ledgerName: ledger?.ledgerName ?? "", groupName: ledger?.groupName ?? "" },
   });
 
   useEffect(() => {
-    reset({ ledgerName: ledger?.ledgerName ?? "", groupName: ledger?.groupName ?? "Assets" });
-  }, [ledger, reset]);
+    // Always reset to the ledger's actual current group — never fall back to a different group
+    reset({
+      ledgerName: ledger?.ledgerName ?? "",
+      groupName: ledger?.groupName ?? (groups[0] ?? ""),
+    });
+  }, [ledger, groups, reset]);
 
   const selectedGroup = watch("groupName");
   const meta = getGroupMeta(selectedGroup);
@@ -278,6 +282,11 @@ function LedgerModal({ mode, ledger, loading, groups, onClose, onSubmit }: Modal
               {...register("groupName", { required: "Group name is required" })}
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all text-slate-700 font-medium"
             >
+              <option value="" disabled>-- Select Group --</option>
+              {/* If the ledger's current group is not in the standard list, show it as a selectable option */}
+              {ledger?.groupName && !groups.includes(ledger.groupName) && (
+                <option value={ledger.groupName}>{ledger.groupName}</option>
+              )}
               {groups.map((g) => (
                 <option key={g} value={g}>{g}</option>
               ))}

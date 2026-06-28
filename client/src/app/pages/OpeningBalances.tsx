@@ -66,6 +66,10 @@ const GroupCellEditor = forwardRef(function GroupCellEditor(props: any, ref) {
       onChange={(e) => setVal(e.target.value)}
       className="w-full h-full px-2 text-sm outline-none border-2 border-indigo-400 rounded bg-white"
     >
+      {/* If the current group is not in the standard list, show it as a selectable option */}
+      {val && !groupsList.includes(val) && (
+        <option value={val}>{val}</option>
+      )}
       {groupsList.map((g: string) => <option key={g} value={g}>{g}</option>)}
     </select>
   );
@@ -222,7 +226,11 @@ function EditRowModal({ row, groups, onClose, onSave }: { row: OBRow; groups: st
 
   const handleSave = () => {
     if (!validate()) return;
-    onSave(form);
+    onSave({
+      ...form,
+      ledgerName: form.ledgerName.trim().toUpperCase(),
+      group: form.group.trim().toUpperCase()
+    });
     onClose();
   };
 
@@ -265,6 +273,10 @@ function EditRowModal({ row, groups, onClose, onSave }: { row: OBRow; groups: st
               onChange={(e) => setForm({ ...form, group: e.target.value })}
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
             >
+              {/* If the current group is not in the standard list, show it as a selectable option */}
+              {form.group && !groups.includes(form.group) && (
+                <option value={form.group}>{form.group}</option>
+              )}
               {groups.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
@@ -379,22 +391,20 @@ function parseOpeningBalancesSheetRows(
     const row = (rows[i] || []) as unknown[];
     if (row.length === 0) continue;
 
-    const ledgerName = ledgerCol >= 0 ? String(row[ledgerCol] ?? "").trim() : "";
+    const ledgerName = ledgerCol >= 0 ? String(row[ledgerCol] ?? "").trim().toUpperCase() : "";
     if (!ledgerName) continue;
 
-    // Try to match against existing database ledgers to map to the correct ID
+    // Try to match against existing database ledgers (case-insensitive)
     const existing = existingLedgers.find(
-      (el) => el.ledgerName.trim().toLowerCase() === ledgerName.toLowerCase()
+      (el) => el.ledgerName.trim().toUpperCase() === ledgerName
     );
 
-    const group = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "";
-    // Match Excel group against known system groups; fallback to first group if empty/unmatched
-    const finalGroup = findBestGroupMatch(group, groupsList);
-    
-    let finalId = `imported-${Date.now()}-${Math.random()}-${i}`;
-    if (existing) {
-      finalId = existing.id;
-    }
+    const excelGroup = groupCol >= 0 ? String(row[groupCol] ?? "").trim().toUpperCase() : "";
+
+    // Same-to-same import: Use Excel group if present, otherwise fallback to existing DB group or "Assets"
+    const finalGroup = (excelGroup || (existing ? existing.group : "Assets")).toUpperCase();
+
+    const finalId = existing ? existing.id : `imported-${Date.now()}-${Math.random()}-${i}`;
 
     const toNum = (val: unknown) => {
       if (val === null || val === undefined || val === "") return 0;
@@ -495,30 +505,6 @@ export default function OpeningBalances() {
     }, 50);
   };
 
-  const deleteRow = useCallback((id: string) => {
-    setRows((prev) => prev.filter((r) => r.id !== id));
-    toast.success("Row deleted locally");
-  }, []);
-
-  const handleBulkDelete = useCallback(() => {
-    if (selectedIds.length === 0) return;
-    if (!window.confirm(`Delete the ${selectedIds.length} selected row(s) locally? You must click 'Save Balances' to commit these changes.`)) return;
-    setRows((prev) => prev.filter((r) => !selectedIds.includes(r.id)));
-    setSelectedIds([]);
-    toast.success(`Deleted ${selectedIds.length} row(s) locally`);
-  }, [selectedIds]);
-
-  const onSelectionChanged = useCallback(() => {
-    const selectedNodes = gridRef.current?.api.getSelectedNodes() || [];
-    const ids = selectedNodes.map((node) => node.data?.id).filter(Boolean) as string[];
-    setSelectedIds(ids);
-  }, []);
-
-  const saveEditRow = useCallback((updated: OBRow) => {
-    setRows((prev) => prev.map((r) => r.id === updated.id ? updated : r));
-    toast.success("Entry updated locally");
-  }, []);
-
   const saveBalancesDirect = useCallback(async (targetRows: OBRow[]) => {
     if (targetRows.some((r) => !r.ledgerName.trim())) {
       return toast.error("All rows must have a ledger name");
@@ -555,6 +541,42 @@ export default function OpeningBalances() {
       setSaving(false);
     }
   }, [load]);
+
+  const deleteRow = useCallback(async (id: string) => {
+    const remaining = rows.filter((r) => r.id !== id);
+    setRows(remaining);
+    try {
+      await saveBalancesDirect(remaining);
+    } catch {
+      // saveBalancesDirect already shows error toast; revert local state
+      setRows(rows);
+    }
+  }, [rows, saveBalancesDirect]);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Delete the ${selectedIds.length} selected row(s)? This will be saved to the database.`)) return;
+    const remaining = rows.filter((r) => !selectedIds.includes(r.id));
+    setRows(remaining);
+    setSelectedIds([]);
+    try {
+      await saveBalancesDirect(remaining);
+    } catch {
+      // saveBalancesDirect already shows error toast; revert local state
+      setRows(rows);
+    }
+  }, [selectedIds, rows, saveBalancesDirect]);
+
+  const onSelectionChanged = useCallback(() => {
+    const selectedNodes = gridRef.current?.api.getSelectedNodes() || [];
+    const ids = selectedNodes.map((node) => node.data?.id).filter(Boolean) as string[];
+    setSelectedIds(ids);
+  }, []);
+
+  const saveEditRow = useCallback((updated: OBRow) => {
+    setRows((prev) => prev.map((r) => r.id === updated.id ? updated : r));
+    toast.success("Entry updated locally");
+  }, []);
 
   const bulkCommit = useCallback((newRows: OBRow[]) => {
     const nextRows = [...rows, ...newRows];
@@ -637,8 +659,12 @@ export default function OpeningBalances() {
   const onCellEditingStopped = useCallback((e: any) => {
     const { data, column, newValue } = e;
     const field = column.colId as keyof OBRow;
+    let finalValue = newValue;
+    if (field === "ledgerName" || field === "group") {
+      finalValue = typeof newValue === "string" ? newValue.trim().toUpperCase() : newValue;
+    }
     setRows((prev) =>
-      prev.map((r) => r.id === data.id ? { ...r, [field]: newValue } : r)
+      prev.map((r) => r.id === data.id ? { ...r, [field]: finalValue } : r)
     );
   }, []);
 

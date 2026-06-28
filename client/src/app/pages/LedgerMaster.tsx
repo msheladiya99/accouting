@@ -218,6 +218,10 @@ const GroupCellEditor = forwardRef(function GroupCellEditor(props: any, ref) {
       onChange={(e) => setVal(e.target.value)}
       className="w-full h-full px-2 text-sm outline-none border-2 border-indigo-400 rounded-md bg-white"
     >
+      {/* If the current group is not in the standard list, show it as a selectable option */}
+      {val && !groupsList.includes(val) && (
+        <option value={val}>{val}</option>
+      )}
       {groupsList.map((g: any) => <option key={g} value={g}>{g}</option>)}
     </select>
   );
@@ -615,7 +619,11 @@ export default function LedgerMaster() {
   const handleCreateGroup = useCallback(async (data: { groupName: string; superGroup: any }) => {
     setGroupSaving(true);
     try {
-      const created = await createGroup(data);
+      const payload = {
+        groupName: data.groupName.trim().toUpperCase(),
+        superGroup: data.superGroup.trim().toUpperCase()
+      };
+      const created = await createGroup(payload);
       setGroups((p) => [...p, created]);
       DYNAMIC_SUPER_GROUP_MAP[created.groupName] = created.superGroup;
       toast.success(`Account group "${created.groupName}" created!`);
@@ -632,12 +640,16 @@ export default function LedgerMaster() {
   const handleSubmit = useCallback(async (data: LedgerPayload) => {
     setSaving(true);
     try {
+      const payload: LedgerPayload = {
+        ledgerName: data.ledgerName.trim().toUpperCase(),
+        groupName: data.groupName.trim().toUpperCase() as any
+      };
       if (modal?.mode === "add") {
-        const created = await createLedger(data);
+        const created = await createLedger(payload);
         setRows((p) => [created, ...p]);
         toast.success(`Ledger "${created.ledgerName}" created`);
       } else if (modal?.ledger) {
-        const updated = await updateLedger(modal.ledger._id, data);
+        const updated = await updateLedger(modal.ledger._id, payload);
         setRows((p) => p.map((r) => r._id === updated._id ? updated : r));
         toast.success(`Ledger "${updated.ledgerName}" updated`);
       }
@@ -713,7 +725,7 @@ export default function LedgerMaster() {
     const field = column.colId as keyof Ledger;
     const payload: LedgerPayload = {
       ledgerName: field === "ledgerName" ? (newValue ? String(newValue).trim().toUpperCase() : "") : data.ledgerName,
-      groupName:  field === "groupName"  ? newValue : data.groupName,
+      groupName:  field === "groupName"  ? (newValue ? String(newValue).trim().toUpperCase() : "") : data.groupName,
     };
     if (!payload.ledgerName.trim()) {
       toast.error("Ledger name cannot be empty");

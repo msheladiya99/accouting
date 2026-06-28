@@ -66,6 +66,10 @@ const GroupCellEditor = forwardRef(function GroupCellEditor(props: any, ref) {
       onChange={(e) => setVal(e.target.value)}
       className="w-full h-full px-2 text-sm outline-none border-2 border-indigo-400 rounded bg-white"
     >
+      {/* If the current group is not in the standard list, show it as a selectable option */}
+      {val && !groupsList.includes(val) && (
+        <option value={val}>{val}</option>
+      )}
       {groupsList.map((g: string) => <option key={g} value={g}>{g}</option>)}
     </select>
   );
@@ -265,6 +269,10 @@ function EditRowModal({ row, groups, onClose, onSave }: { row: OBRow; groups: st
               onChange={(e) => setForm({ ...form, group: e.target.value })}
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
             >
+              {/* If the current group is not in the standard list, show it as a selectable option */}
+              {form.group && !groups.includes(form.group) && (
+                <option value={form.group}>{form.group}</option>
+              )}
               {groups.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
           </div>
@@ -382,19 +390,17 @@ function parseOpeningBalancesSheetRows(
     const ledgerName = ledgerCol >= 0 ? String(row[ledgerCol] ?? "").trim() : "";
     if (!ledgerName) continue;
 
-    // Try to match against existing database ledgers to map to the correct ID
+    // Try to match against existing database ledgers (case-insensitive)
     const existing = existingLedgers.find(
       (el) => el.ledgerName.trim().toLowerCase() === ledgerName.toLowerCase()
     );
 
-    const group = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "";
-    // Match Excel group against known system groups; fallback to first group if empty/unmatched
-    const finalGroup = findBestGroupMatch(group, groupsList);
-    
-    let finalId = `imported-${Date.now()}-${Math.random()}-${i}`;
-    if (existing) {
-      finalId = existing.id;
-    }
+    const excelGroup = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "";
+
+    // Same-to-same import: Use Excel group if present, otherwise fallback to existing DB group or "Assets"
+    const finalGroup = excelGroup || (existing ? existing.group : "Assets");
+
+    const finalId = existing ? existing.id : `imported-${Date.now()}-${Math.random()}-${i}`;
 
     const toNum = (val: unknown) => {
       if (val === null || val === undefined || val === "") return 0;

@@ -218,6 +218,10 @@ const GroupCellEditor = forwardRef(function GroupCellEditor(props: any, ref) {
       onChange={(e) => setVal(e.target.value)}
       className="w-full h-full px-2 text-sm outline-none border-2 border-indigo-400 rounded-md bg-white"
     >
+      {/* If the current group is not in the standard list, show it as a selectable option */}
+      {val && !groupsList.includes(val) && (
+        <option value={val}>{val}</option>
+      )}
       {groupsList.map((g: any) => <option key={g} value={g}>{g}</option>)}
     </select>
   );

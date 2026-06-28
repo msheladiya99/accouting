@@ -117,7 +117,7 @@ async function runMigration() {
 
         if (oldName !== newName || oldSuper !== newSuper) {
           group.groupName = newName;
-          group.superGroup = newSuper;
+          group.superGroup = newSuper as any;
           await group.save();
         }
       }

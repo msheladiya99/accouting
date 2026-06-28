@@ -46,18 +46,37 @@ export const tenantMiddleware = async (req: Request, res: Response, next: NextFu
   }
 
   try {
-    const company = await Company.findOne({ subdomain, status: "active" });
+    const tenantCompany = await Company.findOne({ subdomain, status: "active" });
 
-    if (!company) {
+    if (!tenantCompany) {
       return res.status(404).json({ 
         message: `Company not found or suspended for subdomain: ${subdomain}` 
       });
     }
 
+    // Respect the user's selected company/firm if it belongs to the resolved tenant
+    const headerCompanyId = req.headers["x-company-id"];
+    let finalCompanyId = tenantCompany._id.toString();
+
+    if (headerCompanyId && typeof headerCompanyId === "string") {
+      try {
+        const selectedCompany = await Company.findById(headerCompanyId);
+        if (
+          selectedCompany &&
+          (selectedCompany._id.toString() === tenantCompany._id.toString() ||
+           selectedCompany.parentCompanyId?.toString() === tenantCompany._id.toString())
+        ) {
+          finalCompanyId = selectedCompany._id.toString();
+        }
+      } catch (e) {
+        // ignore invalid/malformed IDs
+      }
+    }
+
     // Set the headers and req parameter so that existing scoping works automatically
-    req.headers["x-company-id"] = company._id.toString();
-    (req as any).companyId = company._id.toString();
-    (req as any).company = company;
+    req.headers["x-company-id"] = finalCompanyId;
+    (req as any).companyId = finalCompanyId;
+    (req as any).company = tenantCompany;
     next();
   } catch (error) {
     console.error("Tenant middleware error:", error);

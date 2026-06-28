@@ -406,10 +406,26 @@ export async function syncBankCashAccountFromLedger(ledger: any, oldName?: strin
   const { ledgerName, groupName, openingDr, openingCr, companyId } = ledger;
   if (!ledgerName || !groupName) return;
 
+  const nameUpper = ledgerName.trim().toUpperCase();
+  const excludedNames = [
+    "BANK ACCOUNTS (BANKS)",
+    "BANK OCC A/C",
+    "CASH-IN-HAND",
+    "CASH LEDGER A/C.",
+    "BANK",
+    "CASH",
+    "ASSETS",
+    "LIABILITIES",
+    "CAPITAL",
+    "EXPENSE",
+    "EXPENSE ACCOUNT",
+    "INCOME"
+  ];
+
   const isBank = /bank/i.test(groupName);
   const isCash = /cash/i.test(groupName);
 
-  if (isBank || isCash) {
+  if ((isBank || isCash) && !excludedNames.includes(nameUpper)) {
     const group = isBank ? "Bank" : "Cash";
     const openingBalance = (openingDr || 0) - (openingCr || 0);
     const finalName = ledgerName.trim();

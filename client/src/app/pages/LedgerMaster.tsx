@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
-  type Ledger, type LedgerPayload,
+  type Ledger, type LedgerPayload, LEDGER_GROUPS,
   getAllLedgers, createLedger, updateLedger, deleteLedger, bulkDeleteLedgers, mergeLedgers,
 } from "../api/ledgerApi";
 import {
@@ -809,7 +809,7 @@ export default function LedgerMaster() {
       editable: true,
       cellEditor: GroupCellEditor,
       cellEditorParams: {
-        groups: groups.map((g) => g.groupName).sort()
+        groups: [...LEDGER_GROUPS].sort()
       },
       filter: "agTextColumnFilter",
       floatingFilter: true,
@@ -1149,7 +1149,7 @@ export default function LedgerMaster() {
           mode={modal.mode}
           ledger={modal.ledger}
           loading={saving}
-          groups={groups.map((g) => g.groupName).sort()}
+          groups={[...LEDGER_GROUPS].sort()}
           onClose={() => setModal(null)}
           onSubmit={handleSubmit}
         />

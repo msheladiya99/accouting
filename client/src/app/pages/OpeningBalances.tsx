@@ -495,30 +495,6 @@ export default function OpeningBalances() {
     }, 50);
   };
 
-  const deleteRow = useCallback((id: string) => {
-    setRows((prev) => prev.filter((r) => r.id !== id));
-    toast.success("Row deleted locally");
-  }, []);
-
-  const handleBulkDelete = useCallback(() => {
-    if (selectedIds.length === 0) return;
-    if (!window.confirm(`Delete the ${selectedIds.length} selected row(s) locally? You must click 'Save Balances' to commit these changes.`)) return;
-    setRows((prev) => prev.filter((r) => !selectedIds.includes(r.id)));
-    setSelectedIds([]);
-    toast.success(`Deleted ${selectedIds.length} row(s) locally`);
-  }, [selectedIds]);
-
-  const onSelectionChanged = useCallback(() => {
-    const selectedNodes = gridRef.current?.api.getSelectedNodes() || [];
-    const ids = selectedNodes.map((node) => node.data?.id).filter(Boolean) as string[];
-    setSelectedIds(ids);
-  }, []);
-
-  const saveEditRow = useCallback((updated: OBRow) => {
-    setRows((prev) => prev.map((r) => r.id === updated.id ? updated : r));
-    toast.success("Entry updated locally");
-  }, []);
-
   const saveBalancesDirect = useCallback(async (targetRows: OBRow[]) => {
     if (targetRows.some((r) => !r.ledgerName.trim())) {
       return toast.error("All rows must have a ledger name");
@@ -555,6 +531,42 @@ export default function OpeningBalances() {
       setSaving(false);
     }
   }, [load]);
+
+  const deleteRow = useCallback(async (id: string) => {
+    const remaining = rows.filter((r) => r.id !== id);
+    setRows(remaining);
+    try {
+      await saveBalancesDirect(remaining);
+    } catch {
+      // saveBalancesDirect already shows error toast; revert local state
+      setRows(rows);
+    }
+  }, [rows, saveBalancesDirect]);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Delete the ${selectedIds.length} selected row(s)? This will be saved to the database.`)) return;
+    const remaining = rows.filter((r) => !selectedIds.includes(r.id));
+    setRows(remaining);
+    setSelectedIds([]);
+    try {
+      await saveBalancesDirect(remaining);
+    } catch {
+      // saveBalancesDirect already shows error toast; revert local state
+      setRows(rows);
+    }
+  }, [selectedIds, rows, saveBalancesDirect]);
+
+  const onSelectionChanged = useCallback(() => {
+    const selectedNodes = gridRef.current?.api.getSelectedNodes() || [];
+    const ids = selectedNodes.map((node) => node.data?.id).filter(Boolean) as string[];
+    setSelectedIds(ids);
+  }, []);
+
+  const saveEditRow = useCallback((updated: OBRow) => {
+    setRows((prev) => prev.map((r) => r.id === updated.id ? updated : r));
+    toast.success("Entry updated locally");
+  }, []);
 
   const bulkCommit = useCallback((newRows: OBRow[]) => {
     const nextRows = [...rows, ...newRows];

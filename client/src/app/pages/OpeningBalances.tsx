@@ -226,7 +226,11 @@ function EditRowModal({ row, groups, onClose, onSave }: { row: OBRow; groups: st
 
   const handleSave = () => {
     if (!validate()) return;
-    onSave(form);
+    onSave({
+      ...form,
+      ledgerName: form.ledgerName.trim().toUpperCase(),
+      group: form.group.trim().toUpperCase()
+    });
     onClose();
   };
 
@@ -387,18 +391,18 @@ function parseOpeningBalancesSheetRows(
     const row = (rows[i] || []) as unknown[];
     if (row.length === 0) continue;
 
-    const ledgerName = ledgerCol >= 0 ? String(row[ledgerCol] ?? "").trim() : "";
+    const ledgerName = ledgerCol >= 0 ? String(row[ledgerCol] ?? "").trim().toUpperCase() : "";
     if (!ledgerName) continue;
 
     // Try to match against existing database ledgers (case-insensitive)
     const existing = existingLedgers.find(
-      (el) => el.ledgerName.trim().toLowerCase() === ledgerName.toLowerCase()
+      (el) => el.ledgerName.trim().toUpperCase() === ledgerName
     );
 
-    const excelGroup = groupCol >= 0 ? String(row[groupCol] ?? "").trim() : "";
+    const excelGroup = groupCol >= 0 ? String(row[groupCol] ?? "").trim().toUpperCase() : "";
 
     // Same-to-same import: Use Excel group if present, otherwise fallback to existing DB group or "Assets"
-    const finalGroup = excelGroup || (existing ? existing.group : "Assets");
+    const finalGroup = (excelGroup || (existing ? existing.group : "Assets")).toUpperCase();
 
     const finalId = existing ? existing.id : `imported-${Date.now()}-${Math.random()}-${i}`;
 
@@ -655,8 +659,12 @@ export default function OpeningBalances() {
   const onCellEditingStopped = useCallback((e: any) => {
     const { data, column, newValue } = e;
     const field = column.colId as keyof OBRow;
+    let finalValue = newValue;
+    if (field === "ledgerName" || field === "group") {
+      finalValue = typeof newValue === "string" ? newValue.trim().toUpperCase() : newValue;
+    }
     setRows((prev) =>
-      prev.map((r) => r.id === data.id ? { ...r, [field]: newValue } : r)
+      prev.map((r) => r.id === data.id ? { ...r, [field]: finalValue } : r)
     );
   }, []);
 

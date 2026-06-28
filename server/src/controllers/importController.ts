@@ -20,6 +20,44 @@ export async function getImportedTransactions(req: AuthenticatedRequest, res: Re
   }
 }
 
+function normalizeAndMapGroup(rawGroup: string): string {
+  if (!rawGroup) return "EXPENSE ACCOUNT";
+  const groupUpper = rawGroup.trim().toUpperCase();
+
+  const GROUP_MAPPING: Record<string, string> = {
+    "CAPITAL": "CAPITAL ACCOUNT",
+    "CURRENT CAPITAL ACCOUNT": "CAPITAL ACCOUNT",
+    "EXPENSE": "EXPENSE ACCOUNT",
+    "EXPENSE ACCOUNT": "EXPENSE ACCOUNT",
+    "ASSETS": "CURRENT ASSETS",
+    "LIABILITIES": "CURRENT LIABILITIES",
+    "INCOME": "INCOME",
+    "BANK": "BANK ACCOUNTS (BANKS)",
+    "CASH": "CASH-IN-HAND",
+    "CASH LEDGER A/C.": "CASH LEDGER A/C.",
+    "PURCHASES": "PURCHASE ACCOUNT",
+    "SALES": "SALES ACCOUNT",
+    "SUNDRY CREDITORS - MATERIAL": "SUNDRY CREDITORS",
+    "SUNDRY CREDITORS - SERVICES": "SUNDRY CREDITORS"
+  };
+
+  const standardGroups = [
+    "DIRECT EXPENSES", "INCOME (TRADING)", "PURCHASE ACCOUNT", "SALES ACCOUNT",
+    "EXPENSE ACCOUNT", "FINANCIAL EXPENSES", "INCOME", "INCOME (OTHER THEN SALES)",
+    "INDIRECT EXPENSES", "PARTNER INTEREST", "PARTNER REMUNERATION", "ADVANCES FROM CUSTOMERS",
+    "BANK ACCOUNTS (BANKS)", "BANK OCC A/C", "CAPITAL ACCOUNT", "CASH LEDGER A/C.",
+    "CASH-IN-HAND", "CURRENT CAPITAL ACCOUNT", "CURRENT LIABILITIES", "DEPOSITS (ASSET)",
+    "DUTIES & TAXES", "FIXED ASSETS", "INVESTMENTS", "LOANS & ADVANCES (ASSET)",
+    "LOANS (LIABILITY)", "MISC. EXPENSES (ASSET)", "PROFIT & LOSS A/C", "PROVISIONS",
+    "RESERVES & SURPLUS", "SALARY EXPENSES PAYABLE", "SECURED LOANS", "STOCK-IN-HAND",
+    "SUNDRY CREDITORS", "SUNDRY CREDITORS - MATERIAL", "SUNDRY CREDITORS - SERVICES",
+    "SUNDRY DEBTORS", "SUSPENSE ACCOUNT", "UNSECURED LOANS"
+  ];
+
+  const mapped = GROUP_MAPPING[groupUpper] || groupUpper;
+  return standardGroups.includes(mapped) ? mapped : "EXPENSE ACCOUNT";
+}
+
 export async function saveImportedTransactions(req: AuthenticatedRequest, res: Response): Promise<void> {
   const { rows, accountId, bankName, statementOpeningBalance } = req.body;
   try {
@@ -84,16 +122,19 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
 
     const now = new Date();
     const companyObjId = new Types.ObjectId(req.companyId as string);
-    const preparedImport = rows.map((r: any) => ({
-      date: r.date,
-      narration: r.narration,
-      withdrawal: r.withdrawal || 0,
-      deposit: r.deposit || 0,
-      accountName: r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "",
-      accountGroup: r.aiAccountGroup,
-      importedAt: now,
-      companyId: companyObjId
-    }));
+    const preparedImport = rows.map((r: any) => {
+      const finalGroup = normalizeAndMapGroup(r.aiAccountGroup);
+      return {
+        date: r.date,
+        narration: r.narration,
+        withdrawal: r.withdrawal || 0,
+        deposit: r.deposit || 0,
+        accountName: r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "",
+        accountGroup: finalGroup,
+        importedAt: now,
+        companyId: companyObjId
+      };
+    });
 
     // Deduplicate ImportedTransaction entries
     const existingImports = await ImportedTransaction.find(
@@ -121,7 +162,8 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
     const uniqueLedgers = new Map<string, string>(); // ledgerName (uppercase) -> groupName
     for (const r of rows) {
       if (r.aiAccountName?.trim() && r.aiAccountGroup?.trim()) {
-        uniqueLedgers.set(r.aiAccountName.trim().toUpperCase(), r.aiAccountGroup.trim());
+        const finalGroup = normalizeAndMapGroup(r.aiAccountGroup);
+        uniqueLedgers.set(r.aiAccountName.trim().toUpperCase(), finalGroup);
       }
     }
 
@@ -150,6 +192,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       if (cleanDate.length > 10) {
         cleanDate = cleanDate.slice(0, 10);
       }
+      const finalGroup = normalizeAndMapGroup(r.aiAccountGroup);
       return {
         companyId: companyObjId,
         accountId: targetAccountId,
@@ -158,7 +201,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
         withdrawal: r.withdrawal || 0,
         deposit: r.deposit || 0,
         contraAccountName: r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "",
-        contraAccountGroup: r.aiAccountGroup
+        contraAccountGroup: finalGroup
       };
     });
 
@@ -399,33 +442,33 @@ function localEnrich(narrations: string[]): { accountName: string; accountGroup:
     const text = (n || "").toLowerCase();
 
     if (/swiggy|zomato|domino|starbucks|cafe|canteen|hotel|restaurant|diner|eats|food/i.test(text)) {
-      return { accountName: "Food & Restaurant Expense", accountGroup: "Expense" };
+      return { accountName: "Food & Restaurant Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
     if (/uber|ola|rapido|taxi|cab|travel|transport|metro|irctc|railway|flight/i.test(text)) {
-      return { accountName: "Travel Expense", accountGroup: "Expense" };
+      return { accountName: "Travel Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
     if (/rent|lease|prestige estate/i.test(text)) {
-      return { accountName: "Rent Expense", accountGroup: "Expense" };
+      return { accountName: "Rent Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
     if (/salary|payroll|wage|stipend/i.test(text)) {
-      return { accountName: "Salary Expense", accountGroup: "Expense" };
+      return { accountName: "Salary Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
     if (/electricity|power|bescom|electric/i.test(text)) {
-      return { accountName: "Electricity Expense", accountGroup: "Expense" };
+      return { accountName: "Electricity Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
     if (/phone|tele|internet|airtel|jio|broadband|wifi/i.test(text)) {
-      return { accountName: "Telephone & Internet Expense", accountGroup: "Expense" };
+      return { accountName: "Telephone & Internet Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
     if (/charge|fee|commission|annual fee|chgs/i.test(text)) {
-      return { accountName: "Bank Charges", accountGroup: "Expense" };
+      return { accountName: "Bank Charges", accountGroup: "EXPENSE ACCOUNT" };
     }
     if (/interest|int\.? received|fd maturity/i.test(text)) {
-      return { accountName: "Interest Income", accountGroup: "Income" };
+      return { accountName: "Interest Income", accountGroup: "INCOME" };
     }
     if (/neft|rtgs|upi|transfer/i.test(text)) {
-      return { accountName: "Suspense Account", accountGroup: "Liabilities" };
+      return { accountName: "Suspense Account", accountGroup: "CURRENT LIABILITIES" };
     }
-    return { accountName: "Suspense Account", accountGroup: "Expense" };
+    return { accountName: "Suspense Account", accountGroup: "EXPENSE ACCOUNT" };
   });
 }
 
@@ -455,21 +498,21 @@ export async function enrichWithOpenRouter(req: AuthenticatedRequest, res: Respo
 
 Based on these bank transaction narrations, suggest the accounting ledger account name and group for each.
 
-Available Groups (use exactly one of these): Assets, Liabilities, Capital, Income, Expense, Bank, Cash, Purchases, Sales, Sundry Debtors, Sundry Creditors
+Available Groups (use exactly one of these): DIRECT EXPENSES, INCOME (TRADING), PURCHASE ACCOUNT, SALES ACCOUNT, EXPENSE ACCOUNT, FINANCIAL EXPENSES, INCOME, INCOME (OTHER THEN SALES), INDIRECT EXPENSES, PARTNER INTEREST, PARTNER REMUNERATION, ADVANCES FROM CUSTOMERS, BANK ACCOUNTS (BANKS), BANK OCC A/C, CAPITAL ACCOUNT, CASH LEDGER A/C., CASH-IN-HAND, CURRENT CAPITAL ACCOUNT, CURRENT LIABILITIES, DEPOSITS (ASSET), DUTIES & TAXES, FIXED ASSETS, INVESTMENTS, LOANS & ADVANCES (ASSET), LOANS (LIABILITY), MISC. EXPENSES (ASSET), PROFIT & LOSS A/C, PROVISIONS, RESERVES & SURPLUS, SALARY EXPENSES PAYABLE, SECURED LOANS, SUNDRY CREDITORS, SUNDRY CREDITORS - MATERIAL, SUNDRY CREDITORS - SERVICES, SUNDRY DEBTORS, SUSPENSE ACCOUNT, UNSECURED LOANS
 
 Specific Mapping Guidelines (Critical!):
-- Payments to services like "Uber", "Ola", "Rapido", "Taxi", "Cab", etc. must be mapped to account name "Travel Expense" and group "Expense".
-- Payments to "Swiggy", "Zomato", "Dominos", "Starbucks", cafes, diners, hotels, or other food/restaurant businesses must be mapped to account name "Food & Restaurant Expense" and group "Expense".
-- Rent payments (e.g., "Rent", "Lease", "Prestige Estates") must be mapped to "Rent Expense" and group "Expense".
-- Salaries/Wages (e.g., "Salary", "Payroll", "Pay") must be mapped to "Salary Expense" and group "Expense".
-- Regular utility bills like electricity ("BESCOM", "Power", "Electricity"), phone/internet ("Airtel", "Jio", "Internet") must be mapped to "Electricity Expense" or "Telephone & Internet Expense" and group "Expense".
-- Purchases of goods/materials must be mapped to account "Purchases" and group "Purchases".
-- Vendor payments (NEFT/RTGS/UPI to companies/businesses) that are not simple expenses must be mapped to "Sundry Creditors" group (with the vendor name as the account name, e.g. "Sigma Supplies Co" or "ABC Corp Ltd").
-- Customer receipts (NEFT/RTGS/UPI from customers/businesses) must be mapped to "Sundry Debtors" group (with customer name as the account name).
-- Asset purchases like computers, laptops, furniture must be mapped to group "Assets" (e.g. "Office Equipment").
-- Taxes, TDS, GST payments must be mapped to group "Liabilities" (e.g. "GST Payable" or "TDS Payable").
-- Bank charges or interest paid must be mapped to "Bank Charges" and group "Expense".
-- Interest received or FD maturity proceeds must be mapped to group "Income" (e.g. "Interest Income").
+- Payments to services like "Uber", "Ola", "Rapido", "Taxi", "Cab", etc. must be mapped to account name "Travel Expense" and group "EXPENSE ACCOUNT".
+- Payments to "Swiggy", "Zomato", "Dominos", "Starbucks", cafes, diners, hotels, or other food/restaurant businesses must be mapped to account name "Food & Restaurant Expense" and group "EXPENSE ACCOUNT".
+- Rent payments (e.g., "Rent", "Lease", "Prestige Estates") must be mapped to "Rent Expense" and group "EXPENSE ACCOUNT".
+- Salaries/Wages (e.g., "Salary", "Payroll", "Pay") must be mapped to "Salary Expense" and group "EXPENSE ACCOUNT".
+- Regular utility bills like electricity ("BESCOM", "Power", "Electricity"), phone/internet ("Airtel", "Jio", "Internet") must be mapped to "Electricity Expense" or "Telephone & Internet Expense" and group "EXPENSE ACCOUNT".
+- Purchases of goods/materials must be mapped to account "Purchases" and group "PURCHASE ACCOUNT".
+- Vendor payments (NEFT/RTGS/UPI to companies/businesses) that are not simple expenses must be mapped to "SUNDRY CREDITORS" group (with the vendor name as the account name, e.g. "Sigma Supplies Co" or "ABC Corp Ltd").
+- Customer receipts (NEFT/RTGS/UPI from customers/businesses) must be mapped to "SUNDRY DEBTORS" group (with customer name as the account name).
+- Asset purchases like computers, laptops, furniture must be mapped to group "FIXED ASSETS" (e.g. "Office Equipment").
+- Taxes, TDS, GST payments must be mapped to group "CURRENT LIABILITIES" (e.g. "GST Payable" or "TDS Payable").
+- Bank charges or interest paid must be mapped to "Bank Charges" and group "EXPENSE ACCOUNT".
+- Interest received or FD maturity proceeds must be mapped to group "INCOME" (e.g. "Interest Income").
 
 Return ONLY a valid JSON array with exactly ${batch.length} objects, one per narration in the same order:
 [{"accountName":"...","accountGroup":"..."}, ...]

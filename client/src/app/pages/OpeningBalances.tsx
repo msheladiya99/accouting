@@ -18,7 +18,7 @@ import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import * as XLSX from "xlsx";
-import { getAllLedgers, saveBulkOpeningBalances } from "../api/ledgerApi";
+import { getAllLedgers, saveBulkOpeningBalances, LEDGER_GROUPS } from "../api/ledgerApi";
 import { getAllGroups } from "../api/accountGroupApi";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -721,7 +721,7 @@ export default function OpeningBalances() {
       editable: true,
       cellEditor: GroupCellEditor,
       cellEditorParams: {
-        groups: groups
+        groups: [...LEDGER_GROUPS].sort()
       },
       cellRenderer: (p: ICellRendererParams<OBRow>) => {
         if (p.node?.rowPinned || !p.value) return null;
@@ -1036,8 +1036,8 @@ export default function OpeningBalances() {
       </div>
 
       {/* Modals */}
-      {showBulk && <BulkEntryModal groups={groups} onClose={() => setShowBulk(false)} onCommit={bulkCommit} />}
-      {editRow  && <EditRowModal row={editRow} groups={groups} onClose={() => setEditRow(null)} onSave={saveEditRow} />}
+      {showBulk && <BulkEntryModal groups={[...LEDGER_GROUPS].sort()} onClose={() => setShowBulk(false)} onCommit={bulkCommit} />}
+      {editRow  && <EditRowModal row={editRow} groups={[...LEDGER_GROUPS].sort()} onClose={() => setEditRow(null)} onSave={saveEditRow} />}
     </div>
   );
 }

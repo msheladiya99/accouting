@@ -6,53 +6,49 @@ import { BankCashAccount } from "../models/BankCashAccount";
 import { AuthenticatedRequest } from "../middleware/auth";
 
 const DEFAULT_GROUPS_SEEDS = [
-  { groupName: "Direct Expenses", superGroup: "Expenses (Direct)" },
-  { groupName: "Income (Trading)", superGroup: "Income (Trading)" },
-  { groupName: "Purchase Account", superGroup: "Purchase Account" },
-  { groupName: "Sales Account", superGroup: "Sales Account" },
-  { groupName: "Expense Account", superGroup: "Expense Account" },
-  { groupName: "Financial Expenses", superGroup: "Expense Account" },
-  { groupName: "Income", superGroup: "Income" },
-  { groupName: "Income (Other Then Sales)", superGroup: "Income (Other Then Sales)" },
-  { groupName: "Indirect Expenses", superGroup: "Expense Account" },
-  { groupName: "Partner Interest", superGroup: "Partner Interest" },
-  { groupName: "Partner Remuneration", superGroup: "Partner Remuneration" },
-  { groupName: "Advances From Customers", superGroup: "Current Liabilities" },
-  { groupName: "Bank Accounts (Banks)", superGroup: "Current Assets" },
-  { groupName: "Bank OCC a/c", superGroup: "Loans (Liability)" },
-  { groupName: "Capital Account", superGroup: "Capital Account" },
-  { groupName: "Cash Ledger A/C.", superGroup: "Cash Ledger A/C." },
-  { groupName: "Cash-in-hand", superGroup: "Current Assets" },
-  { groupName: "Current Capital Account", superGroup: "Capital Account" },
-  { groupName: "Current Liabilities", superGroup: "Current Liabilities" },
-  { groupName: "Deposits (Asset)", superGroup: "Current Assets" },
-  { groupName: "Duties & Taxes", superGroup: "Current Liabilities" },
-  { groupName: "Fixed Assets", superGroup: "Fixed Assets" },
-  { groupName: "Investments", superGroup: "Investments" },
-  { groupName: "Loans & Advances (Asset)", superGroup: "Current Assets" },
-  { groupName: "Loans (Liability)", superGroup: "Loans (Liability)" },
-  { groupName: "Misc. Expenses (Asset)", superGroup: "Misc. Expenses (Asset)" },
-  { groupName: "Profit & Loss A/c", superGroup: "Profit & Loss A/c" },
-  { groupName: "Provisions", superGroup: "Current Liabilities" },
-  { groupName: "Reserves & Surplus", superGroup: "Capital Account" },
-  { groupName: "Salary Expenses Payable", superGroup: "Current Liabilities" },
-  { groupName: "Secured Loans", superGroup: "Loans (Liability)" },
-  { groupName: "Stock-in-hand", superGroup: "Stock-in-hand" },
-  { groupName: "Sundry Creditors", superGroup: "Current Liabilities" },
-  { groupName: "Sundry Creditors - Material", superGroup: "Current Liabilities" },
-  { groupName: "Sundry Creditors - Services", superGroup: "Current Liabilities" },
-  { groupName: "Sundry Debtors", superGroup: "Current Assets" },
-  { groupName: "Suspense Account", superGroup: "Suspense Account" },
-  { groupName: "Unsecured Loans", superGroup: "Loans (Liability)" },
-  { groupName: "Assets", superGroup: "Current Assets" },
-  { groupName: "Liabilities", superGroup: "Current Liabilities" },
-  { groupName: "Capital", superGroup: "Capital Account" },
-  { groupName: "Income", superGroup: "Income" },
-  { groupName: "Expense", superGroup: "Expense Account" },
-  { groupName: "Bank", superGroup: "Current Assets" },
-  { groupName: "Cash", superGroup: "Current Assets" },
-  { groupName: "Purchases", superGroup: "Purchase Account" },
-  { groupName: "Sales", superGroup: "Sales Account" }
+  // Trading
+  { groupName: "DIRECT EXPENSES", superGroup: "EXPENSES (DIRECT)" },
+  { groupName: "INCOME (TRADING)", superGroup: "INCOME (TRADING)" },
+  { groupName: "PURCHASE ACCOUNT", superGroup: "PURCHASE ACCOUNT" },
+  { groupName: "SALES ACCOUNT", superGroup: "SALES ACCOUNT" },
+
+  // Profit & Loss
+  { groupName: "EXPENSE ACCOUNT", superGroup: "EXPENSE ACCOUNT" },
+  { groupName: "FINANCIAL EXPENSES", superGroup: "EXPENSE ACCOUNT" },
+  { groupName: "INCOME", superGroup: "INCOME" },
+  { groupName: "INCOME (OTHER THEN SALES)", superGroup: "INCOME (OTHER THEN SALES)" },
+  { groupName: "INDIRECT EXPENSES", superGroup: "EXPENSE ACCOUNT" },
+  { groupName: "PARTNER INTEREST", superGroup: "PARTNER INTEREST" },
+  { groupName: "PARTNER REMUNERATION", superGroup: "PARTNER REMUNERATION" },
+
+  // Balance Sheet
+  { groupName: "ADVANCES FROM CUSTOMERS", superGroup: "CURRENT LIABILITIES" },
+  { groupName: "BANK ACCOUNTS (BANKS)", superGroup: "CURRENT ASSETS" },
+  { groupName: "BANK OCC A/C", superGroup: "LOANS (LIABILITY)" },
+  { groupName: "CAPITAL ACCOUNT", superGroup: "CAPITAL ACCOUNT" },
+  { groupName: "CASH LEDGER A/C.", superGroup: "CASH LEDGER A/C." },
+  { groupName: "CASH-IN-HAND", superGroup: "CURRENT ASSETS" },
+  { groupName: "CURRENT CAPITAL ACCOUNT", superGroup: "CAPITAL ACCOUNT" },
+  { groupName: "CURRENT LIABILITIES", superGroup: "CURRENT LIABILITIES" },
+  { groupName: "DEPOSITS (ASSET)", superGroup: "CURRENT ASSETS" },
+  { groupName: "DUTIES & TAXES", superGroup: "CURRENT LIABILITIES" },
+  { groupName: "FIXED ASSETS", superGroup: "FIXED ASSETS" },
+  { groupName: "INVESTMENTS", superGroup: "INVESTMENTS" },
+  { groupName: "LOANS & ADVANCES (ASSET)", superGroup: "CURRENT ASSETS" },
+  { groupName: "LOANS (LIABILITY)", superGroup: "LOANS (LIABILITY)" },
+  { groupName: "MISC. EXPENSES (ASSET)", superGroup: "MISC. EXPENSES (ASSET)" },
+  { groupName: "PROFIT & LOSS A/C", superGroup: "PROFIT & LOSS A/C" },
+  { groupName: "PROVISIONS", superGroup: "CURRENT LIABILITIES" },
+  { groupName: "RESERVES & SURPLUS", superGroup: "CAPITAL ACCOUNT" },
+  { groupName: "SALARY EXPENSES PAYABLE", superGroup: "CURRENT LIABILITIES" },
+  { groupName: "SECURED LOANS", superGroup: "LOANS (LIABILITY)" },
+  { groupName: "STOCK-IN-HAND", superGroup: "STOCK-IN-HAND" },
+  { groupName: "SUNDRY CREDITORS", superGroup: "CURRENT LIABILITIES" },
+  { groupName: "SUNDRY CREDITORS - MATERIAL", superGroup: "CURRENT LIABILITIES" },
+  { groupName: "SUNDRY CREDITORS - SERVICES", superGroup: "CURRENT LIABILITIES" },
+  { groupName: "SUNDRY DEBTORS", superGroup: "CURRENT ASSETS" },
+  { groupName: "SUSPENSE ACCOUNT", superGroup: "SUSPENSE ACCOUNT" },
+  { groupName: "UNSECURED LOANS", superGroup: "LOANS (LIABILITY)" }
 ];
 
 export async function getAllCompanies(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -102,18 +98,26 @@ export async function createCompany(req: AuthenticatedRequest, res: Response): P
     }));
     await AccountGroup.insertMany(defaultGroups);
 
-    // Automatically create default ledgers for all 46 groups
-    const defaultLedgers = DEFAULT_GROUPS_SEEDS.map((g) => ({
-      ledgerName: g.groupName,
-      groupName: g.groupName,
-      companyId: company._id
-    }));
+    // Automatically create default ledgers (excluding categories/super-categories from having active ledger accounts)
+    const excludedLedgerGroups = [
+      "EXPENSE ACCOUNT",
+      "INCOME",
+      "CURRENT LIABILITIES",
+      "CURRENT CAPITAL ACCOUNT",
+    ];
+    const defaultLedgers = DEFAULT_GROUPS_SEEDS
+      .filter((g) => !excludedLedgerGroups.includes(g.groupName))
+      .map((g) => ({
+        ledgerName: g.groupName,
+        groupName: g.groupName,
+        companyId: company._id
+      }));
     await Ledger.insertMany(defaultLedgers);
 
     // Automatically create default Cash account
     const defaultCash = new BankCashAccount({
-      name: "Cash Account",
-      group: "Cash",
+      name: "CASH ACCOUNT",
+      group: "CASH-IN-HAND",
       openingBalance: 0,
       companyId: company._id
     });

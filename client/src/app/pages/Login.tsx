@@ -58,7 +58,7 @@ export default function Login() {
   };
 
   const companyName = company?.companyName || subdomain || "AccountPro";
-  const displayBrand = companyName.toUpperCase().replace(/\s+/g, "-");
+  const displayBrand = companyName.toUpperCase();
 
   return (
     <div className="min-h-screen flex bg-white font-sans">

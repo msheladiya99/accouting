@@ -22,7 +22,8 @@ axiosClient.interceptors.request.use(
     }
 
     const savedCompany = localStorage.getItem("ap_company");
-    if (savedCompany) {
+    const isLoginOrCurrentCompany = config.url?.endsWith("/login") || config.url?.endsWith("/company/current");
+    if (savedCompany && !isLoginOrCurrentCompany) {
       try {
         const companyObj = JSON.parse(savedCompany);
         if (companyObj && companyObj.id) {

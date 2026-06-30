@@ -693,24 +693,31 @@ export default function BalanceSheet() {
     load(false, hasCache);
   }, [load, selectedFY?._id]);
 
+  // When data changes, wait for the background global listener to finish prefetching,
+  // then read the result into state — no double-fetch when Balance Sheet is already open.
   useEffect(() => {
     const handleUpdate = () => {
-      cachedData = null;
-      cachedCapitalAccounts = [];
-      cachedTradingPLData = null;
-      cachedFYId = null;
-      try {
-        sessionStorage.removeItem("ap_cached_bs_data");
-        sessionStorage.removeItem("ap_cached_bs_capital");
-        sessionStorage.removeItem("ap_cached_bs_tpl");
-        sessionStorage.removeItem("ap_cached_bs_fy");
-        sessionStorage.removeItem("ap_cached_bs_ver");
-      } catch {}
-      load(true);
+      // The global module-level listener has already cleared cache and started prefetching.
+      // Wait briefly for it to complete, then pull the fresh cache into component state.
+      const checkCache = () => {
+        if (cachedData && cachedFYId === selectedFY?._id) {
+          setData(cachedData);
+          setCapitalAccounts(cachedCapitalAccounts);
+          setTradingPLData(cachedTradingPLData);
+          setLoading(false);
+          setRefreshing(false);
+        } else {
+          // Prefetch still in progress or failed — do a full reload
+          load(true);
+        }
+      };
+      // Give the global background prefetch ~600ms to finish
+      const t = setTimeout(checkCache, 600);
+      return () => clearTimeout(t);
     };
     window.addEventListener("accounting-data-updated", handleUpdate);
     return () => window.removeEventListener("accounting-data-updated", handleUpdate);
-  }, [load]);
+  }, [load, selectedFY?._id]);
 
   const today = new Date().toLocaleDateString("en-IN", {
     day: "2-digit", month: "short", year: "numeric",

@@ -953,15 +953,26 @@ export default function TrialBalance() {
     load(false, hasCache);
   }, [load, selectedFY?._id]);
 
+  // When data changes, wait for the global background prefetch to finish,
+  // then pull the fresh cache into component state — no double-fetch.
   useEffect(() => {
     const handleUpdate = () => {
-      cachedSummary = null;
-      cachedFYId = null;
-      load(true);
+      const checkCache = () => {
+        if (cachedSummary && cachedFYId === selectedFY?._id) {
+          setSummary(cachedSummary);
+          setLoading(false);
+        } else {
+          // Prefetch still in progress or failed — do a full reload
+          load(true);
+        }
+      };
+      // Give the global background prefetch ~600ms to finish
+      const t = setTimeout(checkCache, 600);
+      return () => clearTimeout(t);
     };
     window.addEventListener("accounting-data-updated", handleUpdate);
     return () => window.removeEventListener("accounting-data-updated", handleUpdate);
-  }, [load]);
+  }, [load, selectedFY?._id]);
 
   const allGroups = useMemo(() => {
     if (!summary) return [];

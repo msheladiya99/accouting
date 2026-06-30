@@ -184,6 +184,7 @@ function MiniJVForm({
       reset({ date: formData.date, narration: "", status: "Posted" });
       setRows(getDefaultRows());
       onSaved();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e?.response?.data?.message || e?.message || "Failed to save");
     } finally {

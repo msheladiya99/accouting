@@ -109,7 +109,7 @@ const GROUP_COLORS: Record<AccountGroup, { bg: string; text: string; icon: React
 };
 
 // ── Entry Modal ───────────────────────────────────────────────────────────────
-function EntryModal({
+export function EntryModal({
   accounts, entry, loading, onClose, onSubmit, contraGroups, ledgers, selectedFY,
 }: {
   accounts: BankCashAccount[];

@@ -1007,6 +1007,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
       voucherType: string;
       debit: number;
       credit: number;
+      refId: string;
     }
 
     const lines: LedgerLine[] = [];
@@ -1038,6 +1039,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
             voucherType: vType,
             debit: e.deposit,
             credit: 0,
+            refId: e._id.toString(),
           });
         }
         if (e.withdrawal > 0) {
@@ -1049,6 +1051,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
             voucherType: vType,
             debit: 0,
             credit: e.withdrawal,
+            refId: e._id.toString(),
           });
         }
       }
@@ -1079,6 +1082,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
           voucherType: vType,
           debit: 0,
           credit: e.deposit,
+          refId: e._id.toString(),
         });
       }
       if (e.withdrawal > 0) {
@@ -1091,6 +1095,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
           voucherType: vType,
           debit: e.withdrawal,
           credit: 0,
+          refId: e._id.toString(),
         });
       }
     }
@@ -1131,6 +1136,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
             voucherType: "JVou",
             debit: Number(leg.amount || 0),
             credit: 0,
+            refId: e._id.toString(),
           });
         } else {
           const contras = items
@@ -1145,6 +1151,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
             voucherType: "JVou",
             debit: 0,
             credit: Number(leg.amount || 0),
+            refId: e._id.toString(),
           });
         }
       }
@@ -1170,6 +1177,7 @@ export async function getLedgerStatement(req: AuthenticatedRequest, res: Respons
         debit: l.debit,
         credit: l.credit,
         balance: running,
+        refId: l.refId,
       };
     });
 

@@ -14,7 +14,10 @@ import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeTrialBalance, TrialRow, TrialSummary } from "../api/trialBalanceApi";
 import { getLedgerStatement, getAllLedgers, LedgerStatement, LedgerStatementRow, Ledger } from "../api/ledgerApi";
-import { createJournalEntry, type JournalPayload } from "../api/journalVoucherApi";
+import { createJournalEntry, getAllJournalEntries, updateJournalEntry, type JournalPayload, type JournalEntry } from "../api/journalVoucherApi";
+import { getAllEntries, getAllAccounts, updateEntry, type BankCashAccount, type BankCashRow, type EntryPayload } from "../api/bankCashBookApi";
+import { EntryModal } from "./BankCashBook";
+import { JournalModal } from "./JournalVoucher";
 import { SmartDateInput } from "../components/ui/SmartDateInput";
 import { parseSmartDate } from "../utils/dateUtils";
 
@@ -363,6 +366,13 @@ export function LedgerStatementModal({
   const [showJVForm, setShowJVForm] = useState(false);
   const [allLedgers, setAllLedgers] = useState<Ledger[]>([]);
 
+  // Editing states
+  const [editingRow, setEditingRow] = useState<LedgerStatementRow | null>(null);
+  const [loadingEdit, setLoadingEdit] = useState(false);
+  const [activeBankEntry, setActiveBankEntry] = useState<BankCashRow | undefined>(undefined);
+  const [activeJournalEntry, setActiveJournalEntry] = useState<JournalEntry | undefined>(undefined);
+  const [accounts, setAccounts] = useState<BankCashAccount[]>([]);
+
   const loadStatement = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -370,6 +380,76 @@ export function LedgerStatementModal({
       .then((s) => { setStatement(s); setLoading(false); })
       .catch((e: any) => { setError(e?.response?.data?.message || e?.message || "Failed to load"); setLoading(false); });
   }, [ledgerName]);
+
+  const handleRowDoubleClick = async (row: LedgerStatementRow) => {
+    if (!row.refId) return;
+    setLoadingEdit(true);
+    try {
+      if (row.voucherType === "JVou") {
+        const jvs = await getAllJournalEntries();
+        const found = jvs.find((j) => j._id === row.refId);
+        if (found) {
+          setActiveJournalEntry(found);
+          setEditingRow(row);
+        } else {
+          toast.error("Voucher entry not found");
+        }
+      } else {
+        const [accs, entries] = await Promise.all([
+          getAllAccounts(),
+          getAllEntries()
+        ]);
+        setAccounts(accs);
+        const found = entries.find((e) => e._id === row.refId);
+        if (found) {
+          setActiveBankEntry(found);
+          setEditingRow(row);
+        } else {
+          toast.error("Voucher entry not found");
+        }
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to load entry details");
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
+
+  const handleBankEntrySubmit = async (data: EntryPayload) => {
+    if (!editingRow?.refId) return;
+    setLoadingEdit(true);
+    try {
+      await updateEntry(editingRow.refId, data);
+      toast.success("Voucher entry updated!");
+      setEditingRow(null);
+      setActiveBankEntry(undefined);
+      loadStatement();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || "Failed to update voucher");
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
+
+  const handleJournalEntrySubmit = async (data: JournalPayload) => {
+    if (!editingRow?.refId) return false;
+    setLoadingEdit(true);
+    try {
+      await updateJournalEntry(editingRow.refId, data);
+      toast.success("Journal voucher updated!");
+      setEditingRow(null);
+      setActiveJournalEntry(undefined);
+      loadStatement();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      return true;
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || "Failed to update journal");
+      return false;
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
 
   useEffect(() => { loadStatement(); }, [loadStatement]);
 
@@ -425,16 +505,24 @@ export function LedgerStatementModal({
         </button>
 
         {/* ── Path Breadcrumb ── */}
-        <div className="max-w-7xl mx-auto w-full px-6 pt-3 text-[11px] font-semibold text-indigo-700 tracking-wide select-none">
-          Report -{'>'} Account Books -{'>'} Ledger -{'>'} Ledger
+        <div className="max-w-7xl mx-auto w-full px-6 pt-3 text-[11px] font-semibold text-indigo-700 tracking-wide select-none flex items-center justify-between">
+          <span>Report -{'>'} Account Books -{'>'} Ledger -{'>'} Ledger</span>
+          <span className="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 animate-pulse shrink-0">💡 Double-click any row to edit its voucher entry</span>
         </div>
 
         {/* ── Header ── */}
         <div className="max-w-7xl mx-auto w-full px-6 py-2">
           <div className="flex items-baseline justify-between border-b border-slate-300 pb-2">
             <div>
-              <h2 className="text-lg font-bold text-slate-900 leading-none">
-                Ledger <span className="uppercase">{ledgerName}</span>
+              <h2 className="text-lg font-bold text-slate-900 leading-none flex items-center gap-2.5">
+                <button
+                  onClick={onClose}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer"
+                  title="Close and return to Balance Sheet / Reports"
+                >
+                  ← Back to Reports
+                </button>
+                <span>Ledger <span className="uppercase">{ledgerName}</span></span>
               </h2>
               <div className="text-xs font-semibold text-slate-600 mt-2">
                 Group <span className="text-slate-800">{statement?.groupName ?? "—"}</span>
@@ -551,7 +639,9 @@ export function LedgerStatementModal({
                     filtered.map((row) => (
                       <tr
                         key={row.srNo}
-                        className="hover:bg-slate-50 transition-colors border-b border-slate-300"
+                        onDoubleClick={() => handleRowDoubleClick(row)}
+                        className="hover:bg-[#f0f6ff] transition-colors border-b border-slate-300 cursor-cell group"
+                        title="Double-click to edit this voucher entry"
                       >
                         <td className="px-3 py-2 border border-slate-300 text-slate-600 whitespace-nowrap">{fmtMiracleDate(row.date)}</td>
                         <td className="px-3 py-2 border border-slate-300 text-slate-700 font-sans font-semibold">{row.voucherType}</td>
@@ -613,6 +703,39 @@ export function LedgerStatementModal({
 
       </div>
 
+      {editingRow && editingRow.voucherType !== "JVou" && activeBankEntry && (
+        <EntryModal
+          accounts={accounts}
+          entry={activeBankEntry}
+          loading={loadingEdit}
+          onClose={() => { setEditingRow(null); setActiveBankEntry(undefined); }}
+          onSubmit={handleBankEntrySubmit}
+          contraGroups={["Assets", "Liabilities", "Capital", "Income", "Expense", "Bank", "Cash", "Purchases", "Sales", "Sundry Debtors", "Sundry Creditors"]}
+          ledgers={allLedgers}
+          selectedFY={selectedFY}
+        />
+      )}
+
+      {editingRow && editingRow.voucherType === "JVou" && activeJournalEntry && (
+        <JournalModal
+          entry={activeJournalEntry}
+          ledgers={allLedgers}
+          loading={loadingEdit}
+          onClose={() => { setEditingRow(null); setActiveJournalEntry(undefined); }}
+          onSubmit={handleJournalEntrySubmit}
+          selectedFY={selectedFY}
+        />
+      )}
+
+      {loadingEdit && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/30 backdrop-blur-xs">
+          <div className="bg-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 text-slate-700 text-xs font-semibold">
+            <Loader2 size={16} className="animate-spin text-indigo-600" />
+            Loading voucher details...
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes slideInRight {
           from { transform: translateX(100%); opacity: 0.5; }
@@ -673,6 +796,16 @@ export default function TrialBalance() {
 
     load(false, hasCache);
   }, [load, selectedFY?._id]);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      cachedSummary = null;
+      cachedFYId = null;
+      load(true);
+    };
+    window.addEventListener("accounting-data-updated", handleUpdate);
+    return () => window.removeEventListener("accounting-data-updated", handleUpdate);
+  }, [load]);
 
   const allGroups = useMemo(() => {
     if (!summary) return [];

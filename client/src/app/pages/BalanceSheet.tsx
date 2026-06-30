@@ -663,6 +663,25 @@ export default function BalanceSheet() {
     load(false, hasCache);
   }, [load, selectedFY?._id]);
 
+  useEffect(() => {
+    const handleUpdate = () => {
+      cachedData = null;
+      cachedCapitalAccounts = [];
+      cachedTradingPLData = null;
+      cachedFYId = null;
+      try {
+        sessionStorage.removeItem("ap_cached_bs_data");
+        sessionStorage.removeItem("ap_cached_bs_capital");
+        sessionStorage.removeItem("ap_cached_bs_tpl");
+        sessionStorage.removeItem("ap_cached_bs_fy");
+        sessionStorage.removeItem("ap_cached_bs_ver");
+      } catch {}
+      load(true);
+    };
+    window.addEventListener("accounting-data-updated", handleUpdate);
+    return () => window.removeEventListener("accounting-data-updated", handleUpdate);
+  }, [load]);
+
   const today = new Date().toLocaleDateString("en-IN", {
     day: "2-digit", month: "short", year: "numeric",
   });

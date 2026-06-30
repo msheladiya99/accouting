@@ -109,7 +109,7 @@ const GROUP_COLORS: Record<AccountGroup, { bg: string; text: string; icon: React
 };
 
 // ── Entry Modal ───────────────────────────────────────────────────────────────
-function EntryModal({
+export function EntryModal({
   accounts, entry, loading, onClose, onSubmit, contraGroups, ledgers, selectedFY,
 }: {
   accounts: BankCashAccount[];
@@ -806,7 +806,7 @@ function ExcelTable({
     }
   }
 
-  const fields = ["date", "particulars", "withdrawal", "deposit", "contraAccountName", "contraAccountGroup"];
+  const fields = ["date", "particulars", "withdrawal", "deposit"];
 
   function navigateCell(rowId: string, currentField: string, direction: "next" | "prev" | "down" | "up") {
     const rowIndex = rows.findIndex(r => r._id === rowId);
@@ -1535,18 +1535,18 @@ function ExcelTable({
                   {row.balance < 0 && <span className="text-[10px] font-normal ml-1 text-red-400">(Cr)</span>}
                 </td>
 
-                {/* Account name — editable */}
-                <EditableCell row={row} field="contraAccountName" value={row.contraAccountName} inputType="select-ledger" className="text-slate-600">
-                  <span className="block truncate max-w-[160px] cursor-cell">{row.contraAccountName || <span className="text-slate-300 italic">Select Ledger</span>}</span>
-                </EditableCell>
+                {/* Account name — read-only */}
+                <td className={`${COL_CELL} text-slate-600`}>
+                  <span className="block truncate max-w-[160px]">{row.contraAccountName || <span className="text-slate-300 italic">Select Ledger</span>}</span>
+                </td>
 
 
-                {/* Account group name — editable select */}
-                <EditableCell row={row} field="contraAccountGroup" value={row.contraAccountGroup} inputType="select">
-                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium cursor-cell">
+                {/* Account group name — read-only */}
+                <td className={`${COL_CELL}`}>
+                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">
                     {row.contraAccountGroup}
                   </span>
-                </EditableCell>
+                </td>
 
                 {/* Permanent Checkmark (Only shown if modified) */}
                 <td className={`${COL_CELL} text-center w-10 bg-emerald-50/10`}>
@@ -1676,6 +1676,22 @@ export default function BankCashBook() {
     modified: "",
   });
 
+  const clearFilters = useCallback(() => {
+    setSearch("");
+    setColFilters({
+      srNo: "",
+      accountName: "",
+      date: "",
+      particulars: "",
+      withdrawal: "",
+      deposit: "",
+      balance: "",
+      contraAccountName: "",
+      contraAccountGroup: "",
+      modified: "",
+    });
+  }, []);
+
   useEffect(() => {
     setColFilters({
       srNo: "",
@@ -1753,6 +1769,7 @@ export default function BankCashBook() {
         toast.success("Entry added");
       }
       setModal(null);
+      clearFilters();
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
@@ -1760,7 +1777,7 @@ export default function BankCashBook() {
     } finally {
       setSaving(false);
     }
-  }, [modal, accountFilter, loadRows]);
+  }, [modal, accountFilter, loadRows, clearFilters]);
 
   const handleCreateAccountSubmit = useCallback(async (data: { name: string; group: "Bank" | "Cash"; openingBalance: number }) => {
     if (!data.name.trim()) {
@@ -1899,13 +1916,14 @@ export default function BankCashBook() {
     try {
       await updateEntry(id, patch);
       toast.success("Saved", { duration: 1200, icon: "✓" });
+      clearFilters();
       await loadRows(accountFilter, true); // silent background load
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to save");
       await loadRows(accountFilter); // full reload to reset state on error
     }
-  }, [accountFilter, loadRows, ledgers]);
+  }, [accountFilter, loadRows, ledgers, clearFilters]);
 
   // Called when user edits the Opening Balance row
   const handleOpeningBalanceChange = useCallback(async (newBalance: number, targetAccountId?: string) => {
@@ -1944,6 +1962,7 @@ export default function BankCashBook() {
       setSelectedIds(new Set());
       setBulkAccName("");
       setBulkAccGroup("");
+      clearFilters();
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
@@ -1951,7 +1970,7 @@ export default function BankCashBook() {
     } finally {
       setBulkSaving(false);
     }
-  }, [selectedIds, bulkAccName, bulkAccGroup, accountFilter, loadRows]);
+  }, [selectedIds, bulkAccName, bulkAccGroup, accountFilter, loadRows, clearFilters]);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = Array.from(selectedIds);
@@ -1962,6 +1981,7 @@ export default function BankCashBook() {
       await bulkDeleteEntries(ids);
       toast.success(`Successfully deleted ${ids.length} entries`);
       setSelectedIds(new Set());
+      clearFilters();
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
@@ -1969,7 +1989,7 @@ export default function BankCashBook() {
     } finally {
       setBulkSaving(false);
     }
-  }, [selectedIds, accountFilter, loadRows]);
+  }, [selectedIds, accountFilter, loadRows, clearFilters]);
 
   const handleBulkApprove = useCallback(async () => {
     const ids = Array.from(selectedIds);
@@ -1979,6 +1999,7 @@ export default function BankCashBook() {
       await bulkApproveEntries(ids);
       toast.success(`Successfully approved ${ids.length} entries`);
       setSelectedIds(new Set());
+      clearFilters();
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
@@ -1986,7 +2007,7 @@ export default function BankCashBook() {
     } finally {
       setBulkSaving(false);
     }
-  }, [selectedIds, accountFilter, loadRows]);
+  }, [selectedIds, accountFilter, loadRows, clearFilters]);
 
 
   const filtered = useMemo(() => {
@@ -2376,6 +2397,7 @@ export default function BankCashBook() {
                 // Reset filter to "all" so newly imported entries are visible
                 setAccountFilter("all");
                 setGroupTypeFilter("all");
+                clearFilters();
                 // Reload entries
                 await loadRows("all");
                 window.dispatchEvent(new CustomEvent("accounting-data-updated"));

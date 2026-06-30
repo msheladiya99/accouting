@@ -20,6 +20,7 @@ import {
 } from "../api/bankImportApi";
 import { LEDGER_GROUPS } from "../api/ledgerApi";
 import { getAllAccounts, createAccount, type BankCashAccount } from "../api/bankCashBookApi";
+import { useApp } from "../context/AppContext";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -164,6 +165,19 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
   const [selectedRows, setSelectedRows] = useState<ImportRow[]>([]);
   const [bulkAccName, setBulkAccName] = useState("");
   const [bulkAccGroup, setBulkAccGroup] = useState("");
+
+  const { selectedFY } = useApp();
+
+  const outOfFYRows = useMemo(() => {
+    if (!selectedFY || rows.length === 0) return [];
+    const start = selectedFY.startDate;
+    const end = selectedFY.endDate;
+    return rows.filter((r) => {
+      if (isOpeningBalRow(r.narration)) return false;
+      const d = r.date.slice(0, 10);
+      return d < start || d > end;
+    });
+  }, [rows, selectedFY]);
 
   useEffect(() => {
     getAllAccounts()
@@ -1166,6 +1180,19 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
               <p className="text-sm text-amber-800">
                 <span className="font-semibold">{stats.total - stats.filled} rows</span> still need an Account Name and Group.
               </p>
+            </div>
+          )}
+
+          {/* Out of FY warning */}
+          {outOfFYRows.length > 0 && (
+            <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <AlertTriangle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-red-800">
+                <span className="font-semibold">{outOfFYRows.length} transactions</span> are outside the selected Financial Year ({selectedFY?.label}: {selectedFY?.startDate} to {selectedFY?.endDate}).
+                <p className="mt-1 text-xs text-red-700 font-medium">
+                  ⚠️ If you save, these transactions will not show up in the current grid. Please switch the Financial Year from the top-right menu to view them.
+                </p>
+              </div>
             </div>
           )}
 

@@ -7,14 +7,17 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 import {
   Download, Printer, Search, CheckCircle2, AlertTriangle,
   BookOpen, ArrowLeftRight, FileText, Layers, X, ExternalLink,
-  TrendingUp, TrendingDown, Minus, ChevronRight, Plus, Loader2, Save,
+  TrendingUp, TrendingDown, Minus, ChevronRight, Plus, Loader2, Save, Trash2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeTrialBalance, TrialRow, TrialSummary } from "../api/trialBalanceApi";
 import { getLedgerStatement, getAllLedgers, LedgerStatement, LedgerStatementRow, Ledger } from "../api/ledgerApi";
-import { createJournalEntry, type JournalPayload } from "../api/journalVoucherApi";
+import { createJournalEntry, getAllJournalEntries, updateJournalEntry, deleteJournalEntry, type JournalPayload, type JournalEntry } from "../api/journalVoucherApi";
+import { getAllEntries, getAllAccounts, updateEntry, bulkDeleteEntries, type BankCashAccount, type BankCashRow, type EntryPayload } from "../api/bankCashBookApi";
+import { EntryModal } from "./BankCashBook";
+import { JournalModal } from "./JournalVoucher";
 import { SmartDateInput } from "../components/ui/SmartDateInput";
 import { parseSmartDate } from "../utils/dateUtils";
 
@@ -363,6 +366,51 @@ export function LedgerStatementModal({
   const [showJVForm, setShowJVForm] = useState(false);
   const [allLedgers, setAllLedgers] = useState<Ledger[]>([]);
 
+  // Editing and selection states
+  const [editingRow, setEditingRow] = useState<LedgerStatementRow | null>(null);
+  const [loadingEdit, setLoadingEdit] = useState(false);
+  const [activeBankEntry, setActiveBankEntry] = useState<BankCashRow | undefined>(undefined);
+  const [activeJournalEntry, setActiveJournalEntry] = useState<JournalEntry | undefined>(undefined);
+  const [accounts, setAccounts] = useState<BankCashAccount[]>([]);
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+
+  const handleBulkDelete = async () => {
+    const selectedIds = Array.from(selectedRows);
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected entries?`)) return;
+    
+    setLoadingEdit(true);
+    try {
+      const bankIds: string[] = [];
+      const jvIds: string[] = [];
+      
+      selectedIds.forEach((id) => {
+        const row = statement?.rows.find((r) => r.refId === id);
+        if (row) {
+          if (row.voucherType === "JVou") {
+            jvIds.push(id);
+          } else {
+            bankIds.push(id);
+          }
+        }
+      });
+      
+      await Promise.all([
+        bankIds.length > 0 ? bulkDeleteEntries(bankIds) : Promise.resolve(),
+        ...jvIds.map(id => deleteJournalEntry(id))
+      ]);
+      
+      toast.success(`Deleted ${selectedIds.length} entries successfully`);
+      setSelectedRows(new Set());
+      loadStatement();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete selected entries");
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
+
   const loadStatement = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -370,6 +418,76 @@ export function LedgerStatementModal({
       .then((s) => { setStatement(s); setLoading(false); })
       .catch((e: any) => { setError(e?.response?.data?.message || e?.message || "Failed to load"); setLoading(false); });
   }, [ledgerName]);
+
+  const handleRowDoubleClick = async (row: LedgerStatementRow) => {
+    if (!row.refId) return;
+    setLoadingEdit(true);
+    try {
+      if (row.voucherType === "JVou") {
+        const jvs = await getAllJournalEntries();
+        const found = jvs.find((j) => j._id === row.refId);
+        if (found) {
+          setActiveJournalEntry(found);
+          setEditingRow(row);
+        } else {
+          toast.error("Voucher entry not found");
+        }
+      } else {
+        const [accs, entries] = await Promise.all([
+          getAllAccounts(),
+          getAllEntries()
+        ]);
+        setAccounts(accs);
+        const found = entries.find((e) => e._id === row.refId);
+        if (found) {
+          setActiveBankEntry(found);
+          setEditingRow(row);
+        } else {
+          toast.error("Voucher entry not found");
+        }
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to load entry details");
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
+
+  const handleBankEntrySubmit = async (data: EntryPayload) => {
+    if (!editingRow?.refId) return;
+    setLoadingEdit(true);
+    try {
+      await updateEntry(editingRow.refId, data);
+      toast.success("Voucher entry updated!");
+      setEditingRow(null);
+      setActiveBankEntry(undefined);
+      loadStatement();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || "Failed to update voucher");
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
+
+  const handleJournalEntrySubmit = async (data: JournalPayload) => {
+    if (!editingRow?.refId) return false;
+    setLoadingEdit(true);
+    try {
+      await updateJournalEntry(editingRow.refId, data);
+      toast.success("Journal voucher updated!");
+      setEditingRow(null);
+      setActiveJournalEntry(undefined);
+      loadStatement();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      return true;
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || "Failed to update journal");
+      return false;
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
 
   useEffect(() => { loadStatement(); }, [loadStatement]);
 
@@ -425,16 +543,24 @@ export function LedgerStatementModal({
         </button>
 
         {/* ── Path Breadcrumb ── */}
-        <div className="max-w-7xl mx-auto w-full px-6 pt-3 text-[11px] font-semibold text-indigo-700 tracking-wide select-none">
-          Report -{'>'} Account Books -{'>'} Ledger -{'>'} Ledger
+        <div className="max-w-7xl mx-auto w-full px-6 pt-3 text-[11px] font-semibold text-indigo-700 tracking-wide select-none flex items-center justify-between">
+          <span>Report -{'>'} Account Books -{'>'} Ledger -{'>'} Ledger</span>
+          <span className="text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 animate-pulse shrink-0">💡 Double-click any row to edit its voucher entry</span>
         </div>
 
         {/* ── Header ── */}
         <div className="max-w-7xl mx-auto w-full px-6 py-2">
           <div className="flex items-baseline justify-between border-b border-slate-300 pb-2">
             <div>
-              <h2 className="text-lg font-bold text-slate-900 leading-none">
-                Ledger <span className="uppercase">{ledgerName}</span>
+              <h2 className="text-lg font-bold text-slate-900 leading-none flex items-center gap-2.5">
+                <button
+                  onClick={onClose}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer"
+                  title="Close and return to Balance Sheet / Reports"
+                >
+                  ← Back to Reports
+                </button>
+                <span>Ledger <span className="uppercase">{ledgerName}</span></span>
               </h2>
               <div className="text-xs font-semibold text-slate-600 mt-2">
                 Group <span className="text-slate-800">{statement?.groupName ?? "—"}</span>
@@ -462,9 +588,9 @@ export function LedgerStatementModal({
           </div>
         </div>
 
-        {/* ── Search Bar ── */}
-        <div className="max-w-7xl mx-auto w-full px-6 py-1.5">
-          <div className="flex items-center gap-2 bg-white rounded border border-slate-300 px-2.5 py-1.5 max-w-xs shadow-sm">
+        {/* ── Search Bar & Bulk Actions ── */}
+        <div className="max-w-7xl mx-auto w-full px-6 py-1.5 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2 bg-white rounded border border-slate-300 px-2.5 py-1.5 max-w-xs shadow-sm flex-1">
             <Search size={13} className="text-slate-400 shrink-0" />
             <input
               value={search}
@@ -473,6 +599,15 @@ export function LedgerStatementModal({
               className="bg-transparent text-xs outline-none text-slate-700 placeholder-slate-400 w-full"
             />
           </div>
+          {selectedRows.size > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer"
+            >
+              <Trash2 size={13} />
+              Delete Selected ({selectedRows.size})
+            </button>
+          )}
         </div>
 
         {/* ── JV Entry Form ── */}
@@ -507,6 +642,20 @@ export function LedgerStatementModal({
               <table className="w-full text-xs font-mono border-collapse border border-slate-400" style={{ borderSpacing: 0 }}>
                 <thead>
                   <tr className="sticky top-0 z-10">
+                    <th className="bg-[#cfe3f5] text-slate-800 font-bold border border-slate-400 px-3 py-2 text-center w-10">
+                      <input
+                        type="checkbox"
+                        checked={filtered.length > 0 && filtered.every(r => selectedRows.has(r.refId))}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedRows(new Set(filtered.map(r => r.refId).filter(Boolean)));
+                          } else {
+                            setSelectedRows(new Set());
+                          }
+                        }}
+                        className="cursor-pointer"
+                      />
+                    </th>
                     {["Date", "Type", "Vou/Doc No.", "Account Name", "Debit", "Credit", "Closing Balance"].map((h, i) => (
                       <th
                         key={h}
@@ -521,6 +670,7 @@ export function LedgerStatementModal({
                 <tbody className="bg-white">
                   {/* Opening balance row - always shown */}
                   <tr className="bg-slate-50 hover:bg-slate-100/70 border-b border-slate-300">
+                    <td className="px-3 py-2 border border-slate-300 text-center text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
@@ -538,7 +688,7 @@ export function LedgerStatementModal({
                   {/* Transaction rows or empty-state row */}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-3 py-8 border border-slate-300 text-center">
+                      <td colSpan={8} className="px-3 py-8 border border-slate-300 text-center">
                         <div className="flex flex-col items-center gap-2 text-slate-400">
                           <FileText size={28} className="opacity-30" />
                           <span className="text-xs font-sans">
@@ -551,8 +701,28 @@ export function LedgerStatementModal({
                     filtered.map((row) => (
                       <tr
                         key={row.srNo}
-                        className="hover:bg-slate-50 transition-colors border-b border-slate-300"
+                        onDoubleClick={() => handleRowDoubleClick(row)}
+                        className="hover:bg-[#f0f6ff] transition-colors border-b border-slate-300 cursor-cell group"
+                        title="Double-click to edit this voucher entry"
                       >
+                        <td className="px-3 py-2 border border-slate-300 text-center" onClick={(e) => e.stopPropagation()}>
+                          {row.refId ? (
+                            <input
+                              type="checkbox"
+                              checked={selectedRows.has(row.refId)}
+                              onChange={(e) => {
+                                const next = new Set(selectedRows);
+                                if (e.target.checked) {
+                                  next.add(row.refId);
+                                } else {
+                                  next.delete(row.refId);
+                                }
+                                setSelectedRows(next);
+                              }}
+                              className="cursor-pointer"
+                            />
+                          ) : "—"}
+                        </td>
                         <td className="px-3 py-2 border border-slate-300 text-slate-600 whitespace-nowrap">{fmtMiracleDate(row.date)}</td>
                         <td className="px-3 py-2 border border-slate-300 text-slate-700 font-sans font-semibold">{row.voucherType}</td>
                         <td className="px-3 py-2 border border-slate-300 text-slate-500 font-mono">
@@ -582,7 +752,7 @@ export function LedgerStatementModal({
                 {/* Totals & Closing Balance footers styled exactly like Miracle */}
                 <tfoot className="bg-[#e6f0fa]">
                   <tr className="font-bold border-t border-slate-400">
-                    <td colSpan={3} className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                    <td colSpan={4} className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-right text-slate-800 uppercase font-sans">
                       Total
                     </td>
@@ -595,7 +765,7 @@ export function LedgerStatementModal({
                     <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                   </tr>
                   <tr className="font-bold border-t border-slate-400">
-                    <td colSpan={3} className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                    <td colSpan={4} className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-right text-slate-800 uppercase font-sans">
                       Closing Balance
                     </td>
@@ -612,6 +782,39 @@ export function LedgerStatementModal({
         </div>
 
       </div>
+
+      {editingRow && editingRow.voucherType !== "JVou" && activeBankEntry && (
+        <EntryModal
+          accounts={accounts}
+          entry={activeBankEntry}
+          loading={loadingEdit}
+          onClose={() => { setEditingRow(null); setActiveBankEntry(undefined); }}
+          onSubmit={handleBankEntrySubmit}
+          contraGroups={["Assets", "Liabilities", "Capital", "Income", "Expense", "Bank", "Cash", "Purchases", "Sales", "Sundry Debtors", "Sundry Creditors"]}
+          ledgers={allLedgers}
+          selectedFY={selectedFY}
+        />
+      )}
+
+      {editingRow && editingRow.voucherType === "JVou" && activeJournalEntry && (
+        <JournalModal
+          entry={activeJournalEntry}
+          ledgers={allLedgers}
+          loading={loadingEdit}
+          onClose={() => { setEditingRow(null); setActiveJournalEntry(undefined); }}
+          onSubmit={handleJournalEntrySubmit}
+          selectedFY={selectedFY}
+        />
+      )}
+
+      {loadingEdit && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/30 backdrop-blur-xs">
+          <div className="bg-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 text-slate-700 text-xs font-semibold">
+            <Loader2 size={16} className="animate-spin text-indigo-600" />
+            Loading voucher details...
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes slideInRight {
@@ -673,6 +876,16 @@ export default function TrialBalance() {
 
     load(false, hasCache);
   }, [load, selectedFY?._id]);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      cachedSummary = null;
+      cachedFYId = null;
+      load(true);
+    };
+    window.addEventListener("accounting-data-updated", handleUpdate);
+    return () => window.removeEventListener("accounting-data-updated", handleUpdate);
+  }, [load]);
 
   const allGroups = useMemo(() => {
     if (!summary) return [];

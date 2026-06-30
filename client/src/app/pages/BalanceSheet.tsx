@@ -385,15 +385,14 @@ function computePartnerCapital(
   const debitMap = new Map<string, number>();
   const creditMap = new Map<string, number>();
 
-  // Bank/Cash entries — group by the BANK ACCOUNT NAME (not the narration)
+  // Bank/Cash entries — group by the capital ledger name
   bankEntries.forEach((e) => {
     if (e.contraAccountName === name) {
-      const accountLabel = bankAccountNameMap.get(e.accountId?.toString() || "") || "BANK/CASH";
       if (e.withdrawal > 0) {
-        debitMap.set(accountLabel, (debitMap.get(accountLabel) || 0) + e.withdrawal);
+        debitMap.set(name, (debitMap.get(name) || 0) + e.withdrawal);
       }
       if (e.deposit > 0) {
-        creditMap.set(accountLabel, (creditMap.get(accountLabel) || 0) + e.deposit);
+        creditMap.set(name, (creditMap.get(name) || 0) + e.deposit);
       }
     }
   });
@@ -663,6 +662,25 @@ export default function BalanceSheet() {
 
     load(false, hasCache);
   }, [load, selectedFY?._id]);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      cachedData = null;
+      cachedCapitalAccounts = [];
+      cachedTradingPLData = null;
+      cachedFYId = null;
+      try {
+        sessionStorage.removeItem("ap_cached_bs_data");
+        sessionStorage.removeItem("ap_cached_bs_capital");
+        sessionStorage.removeItem("ap_cached_bs_tpl");
+        sessionStorage.removeItem("ap_cached_bs_fy");
+        sessionStorage.removeItem("ap_cached_bs_ver");
+      } catch {}
+      load(true);
+    };
+    window.addEventListener("accounting-data-updated", handleUpdate);
+    return () => window.removeEventListener("accounting-data-updated", handleUpdate);
+  }, [load]);
 
   const today = new Date().toLocaleDateString("en-IN", {
     day: "2-digit", month: "short", year: "numeric",
@@ -1092,9 +1110,10 @@ export default function BalanceSheet() {
 
             capitalAccounts.forEach((account: PartnerCapitalAccount) => {
               // For each capital ledger, add its opening balance with ledger name prefix
+              // For each capital ledger, add its opening balance with ledger name prefix
               const openingRow = account.credits.find(c => c.particulars === "BY OPENING BALANCE");
               if (openingRow && (openingRow.amount ?? 0) > 0) {
-                if (capitalAccounts.length === 1) {
+                if (capitalAccounts.length === 1 || account.ledgerName === "OPENING BALANCE") {
                   allCredits.push({ particulars: "BY OPENING BALANCE", amount: openingRow.amount });
                 } else {
                   allCredits.push({ particulars: `BY OPENING BALANCE (${account.ledgerName})`, amount: openingRow.amount });
@@ -1104,21 +1123,13 @@ export default function BalanceSheet() {
               account.credits
                 .filter(c => c.particulars !== "BY OPENING BALANCE")
                 .forEach(c => {
-                  if (capitalAccounts.length === 1) {
-                    allCredits.push(c);
-                  } else {
-                    allCredits.push({ particulars: `${c.particulars} (${account.ledgerName})`, amount: c.amount });
-                  }
+                  allCredits.push(c);
                 });
               // Debits (not closing balance)
               account.debits
                 .filter(d => !d.particulars.includes("TO CLOSING BALANCE"))
                 .forEach(d => {
-                  if (capitalAccounts.length === 1) {
-                    allDebits.push(d);
-                  } else {
-                    allDebits.push({ particulars: `${d.particulars} (${account.ledgerName})`, amount: d.amount });
-                  }
+                  allDebits.push(d);
                 });
             });
 

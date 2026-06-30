@@ -470,7 +470,7 @@ interface RowState {
   credit: string;
 }
 
-function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY, onQuickCreate }: {
+export function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selectedFY, onQuickCreate }: {
   entry?: JournalEntry;
   ledgers: Ledger[];
   loading: boolean;

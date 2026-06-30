@@ -7,15 +7,15 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 import {
   Download, Printer, Search, CheckCircle2, AlertTriangle,
   BookOpen, ArrowLeftRight, FileText, Layers, X, ExternalLink,
-  TrendingUp, TrendingDown, Minus, ChevronRight, Plus, Loader2, Save,
+  TrendingUp, TrendingDown, Minus, ChevronRight, Plus, Loader2, Save, Trash2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeTrialBalance, TrialRow, TrialSummary } from "../api/trialBalanceApi";
 import { getLedgerStatement, getAllLedgers, LedgerStatement, LedgerStatementRow, Ledger } from "../api/ledgerApi";
-import { createJournalEntry, getAllJournalEntries, updateJournalEntry, type JournalPayload, type JournalEntry } from "../api/journalVoucherApi";
-import { getAllEntries, getAllAccounts, updateEntry, type BankCashAccount, type BankCashRow, type EntryPayload } from "../api/bankCashBookApi";
+import { createJournalEntry, getAllJournalEntries, updateJournalEntry, deleteJournalEntry, type JournalPayload, type JournalEntry } from "../api/journalVoucherApi";
+import { getAllEntries, getAllAccounts, updateEntry, bulkDeleteEntries, type BankCashAccount, type BankCashRow, type EntryPayload } from "../api/bankCashBookApi";
 import { EntryModal } from "./BankCashBook";
 import { JournalModal } from "./JournalVoucher";
 import { SmartDateInput } from "../components/ui/SmartDateInput";
@@ -366,12 +366,50 @@ export function LedgerStatementModal({
   const [showJVForm, setShowJVForm] = useState(false);
   const [allLedgers, setAllLedgers] = useState<Ledger[]>([]);
 
-  // Editing states
+  // Editing and selection states
   const [editingRow, setEditingRow] = useState<LedgerStatementRow | null>(null);
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [activeBankEntry, setActiveBankEntry] = useState<BankCashRow | undefined>(undefined);
   const [activeJournalEntry, setActiveJournalEntry] = useState<JournalEntry | undefined>(undefined);
   const [accounts, setAccounts] = useState<BankCashAccount[]>([]);
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+
+  const handleBulkDelete = async () => {
+    const selectedIds = Array.from(selectedRows);
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected entries?`)) return;
+    
+    setLoadingEdit(true);
+    try {
+      const bankIds: string[] = [];
+      const jvIds: string[] = [];
+      
+      selectedIds.forEach((id) => {
+        const row = statement?.rows.find((r) => r.refId === id);
+        if (row) {
+          if (row.voucherType === "JVou") {
+            jvIds.push(id);
+          } else {
+            bankIds.push(id);
+          }
+        }
+      });
+      
+      await Promise.all([
+        bankIds.length > 0 ? bulkDeleteEntries(bankIds) : Promise.resolve(),
+        ...jvIds.map(id => deleteJournalEntry(id))
+      ]);
+      
+      toast.success(`Deleted ${selectedIds.length} entries successfully`);
+      setSelectedRows(new Set());
+      loadStatement();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to delete selected entries");
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
 
   const loadStatement = useCallback(() => {
     setLoading(true);
@@ -550,9 +588,9 @@ export function LedgerStatementModal({
           </div>
         </div>
 
-        {/* ── Search Bar ── */}
-        <div className="max-w-7xl mx-auto w-full px-6 py-1.5">
-          <div className="flex items-center gap-2 bg-white rounded border border-slate-300 px-2.5 py-1.5 max-w-xs shadow-sm">
+        {/* ── Search Bar & Bulk Actions ── */}
+        <div className="max-w-7xl mx-auto w-full px-6 py-1.5 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2 bg-white rounded border border-slate-300 px-2.5 py-1.5 max-w-xs shadow-sm flex-1">
             <Search size={13} className="text-slate-400 shrink-0" />
             <input
               value={search}
@@ -561,6 +599,15 @@ export function LedgerStatementModal({
               className="bg-transparent text-xs outline-none text-slate-700 placeholder-slate-400 w-full"
             />
           </div>
+          {selectedRows.size > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer"
+            >
+              <Trash2 size={13} />
+              Delete Selected ({selectedRows.size})
+            </button>
+          )}
         </div>
 
         {/* ── JV Entry Form ── */}
@@ -595,6 +642,20 @@ export function LedgerStatementModal({
               <table className="w-full text-xs font-mono border-collapse border border-slate-400" style={{ borderSpacing: 0 }}>
                 <thead>
                   <tr className="sticky top-0 z-10">
+                    <th className="bg-[#cfe3f5] text-slate-800 font-bold border border-slate-400 px-3 py-2 text-center w-10">
+                      <input
+                        type="checkbox"
+                        checked={filtered.length > 0 && filtered.every(r => selectedRows.has(r.refId))}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedRows(new Set(filtered.map(r => r.refId).filter(Boolean)));
+                          } else {
+                            setSelectedRows(new Set());
+                          }
+                        }}
+                        className="cursor-pointer"
+                      />
+                    </th>
                     {["Date", "Type", "Vou/Doc No.", "Account Name", "Debit", "Credit", "Closing Balance"].map((h, i) => (
                       <th
                         key={h}
@@ -609,6 +670,7 @@ export function LedgerStatementModal({
                 <tbody className="bg-white">
                   {/* Opening balance row - always shown */}
                   <tr className="bg-slate-50 hover:bg-slate-100/70 border-b border-slate-300">
+                    <td className="px-3 py-2 border border-slate-300 text-center text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
@@ -626,7 +688,7 @@ export function LedgerStatementModal({
                   {/* Transaction rows or empty-state row */}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-3 py-8 border border-slate-300 text-center">
+                      <td colSpan={8} className="px-3 py-8 border border-slate-300 text-center">
                         <div className="flex flex-col items-center gap-2 text-slate-400">
                           <FileText size={28} className="opacity-30" />
                           <span className="text-xs font-sans">
@@ -643,6 +705,24 @@ export function LedgerStatementModal({
                         className="hover:bg-[#f0f6ff] transition-colors border-b border-slate-300 cursor-cell group"
                         title="Double-click to edit this voucher entry"
                       >
+                        <td className="px-3 py-2 border border-slate-300 text-center" onClick={(e) => e.stopPropagation()}>
+                          {row.refId ? (
+                            <input
+                              type="checkbox"
+                              checked={selectedRows.has(row.refId)}
+                              onChange={(e) => {
+                                const next = new Set(selectedRows);
+                                if (e.target.checked) {
+                                  next.add(row.refId);
+                                } else {
+                                  next.delete(row.refId);
+                                }
+                                setSelectedRows(next);
+                              }}
+                              className="cursor-pointer"
+                            />
+                          ) : "—"}
+                        </td>
                         <td className="px-3 py-2 border border-slate-300 text-slate-600 whitespace-nowrap">{fmtMiracleDate(row.date)}</td>
                         <td className="px-3 py-2 border border-slate-300 text-slate-700 font-sans font-semibold">{row.voucherType}</td>
                         <td className="px-3 py-2 border border-slate-300 text-slate-500 font-mono">
@@ -672,7 +752,7 @@ export function LedgerStatementModal({
                 {/* Totals & Closing Balance footers styled exactly like Miracle */}
                 <tfoot className="bg-[#e6f0fa]">
                   <tr className="font-bold border-t border-slate-400">
-                    <td colSpan={3} className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                    <td colSpan={4} className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-right text-slate-800 uppercase font-sans">
                       Total
                     </td>
@@ -685,7 +765,7 @@ export function LedgerStatementModal({
                     <td className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                   </tr>
                   <tr className="font-bold border-t border-slate-400">
-                    <td colSpan={3} className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
+                    <td colSpan={4} className="px-3 py-2 border border-slate-300 text-slate-400">—</td>
                     <td className="px-3 py-2 border border-slate-300 text-right text-slate-800 uppercase font-sans">
                       Closing Balance
                     </td>

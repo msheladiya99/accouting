@@ -97,6 +97,36 @@ const VoucherBadge = ({ type }: { type: string }) => {
 let cachedSummary: TrialSummary | null = null;
 let cachedFYId: string | null = null;
 
+// Export background prefetch function to populate cache
+export async function prefetchTrialBalanceData(fyId: string, force = false) {
+  if (!force && cachedFYId === fyId && cachedSummary) return;
+  try {
+    const result = await computeTrialBalance();
+    cachedSummary = result;
+    cachedFYId = fyId;
+  } catch (e) {
+    console.warn("Background prefetch for Trial Balance failed:", e);
+  }
+}
+
+// Global event listener to clear cache and prefetch in background even when unmounted!
+if (typeof window !== "undefined") {
+  window.addEventListener("accounting-data-updated", () => {
+    cachedSummary = null;
+    cachedFYId = null;
+    try {
+      const saved = localStorage.getItem("ap_selected_fy");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const fyId = parsed?._id;
+        if (fyId) {
+          prefetchTrialBalanceData(fyId, true);
+        }
+      }
+    } catch (e) {}
+  });
+}
+
 // ── Mini JV Entry Form ─────────────────────────────────────────────────────────
 interface MiniJVRow {
   type: "Db" | "Cr" | "";

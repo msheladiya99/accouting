@@ -495,8 +495,8 @@ try {
 }
 
 // Export background prefetch function to populate cache
-export async function prefetchBalanceSheetData(fyId: string) {
-  if (cachedFYId === fyId && cachedData) return;
+export async function prefetchBalanceSheetData(fyId: string, force = false) {
+  if (!force && cachedFYId === fyId && cachedData) return;
 
   try {
     const [ledgers, bankAccounts, bankEntries, journalEntries, groups] = await Promise.all([
@@ -545,6 +545,36 @@ export async function prefetchBalanceSheetData(fyId: string) {
   } catch (e) {
     console.warn("Background prefetch for Balance Sheet failed:", e);
   }
+}
+
+// Global event listener to clear cache and prefetch in background even when unmounted!
+if (typeof window !== "undefined") {
+  window.addEventListener("accounting-data-updated", () => {
+    cachedData = null;
+    cachedCapitalAccounts = [];
+    cachedTradingPLData = null;
+    cachedFYId = null;
+    try {
+      sessionStorage.removeItem("ap_cached_bs_data");
+      sessionStorage.removeItem("ap_cached_bs_capital");
+      sessionStorage.removeItem("ap_cached_bs_tpl");
+      sessionStorage.removeItem("ap_cached_bs_fy");
+      sessionStorage.removeItem("ap_cached_bs_ver");
+    } catch {}
+
+    try {
+      const saved = localStorage.getItem("ap_selected_fy");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const fyId = parsed?._id;
+        if (fyId) {
+          prefetchBalanceSheetData(fyId, true);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  });
 }
 
 function getSavedFYId(): string | null {
@@ -663,24 +693,31 @@ export default function BalanceSheet() {
     load(false, hasCache);
   }, [load, selectedFY?._id]);
 
+  // When data changes, wait for the background global listener to finish prefetching,
+  // then read the result into state — no double-fetch when Balance Sheet is already open.
   useEffect(() => {
     const handleUpdate = () => {
-      cachedData = null;
-      cachedCapitalAccounts = [];
-      cachedTradingPLData = null;
-      cachedFYId = null;
-      try {
-        sessionStorage.removeItem("ap_cached_bs_data");
-        sessionStorage.removeItem("ap_cached_bs_capital");
-        sessionStorage.removeItem("ap_cached_bs_tpl");
-        sessionStorage.removeItem("ap_cached_bs_fy");
-        sessionStorage.removeItem("ap_cached_bs_ver");
-      } catch {}
-      load(true);
+      // The global module-level listener has already cleared cache and started prefetching.
+      // Wait briefly for it to complete, then pull the fresh cache into component state.
+      const checkCache = () => {
+        if (cachedData && cachedFYId === selectedFY?._id) {
+          setData(cachedData);
+          setCapitalAccounts(cachedCapitalAccounts);
+          setTradingPLData(cachedTradingPLData);
+          setLoading(false);
+          setRefreshing(false);
+        } else {
+          // Prefetch still in progress or failed — do a full reload
+          load(true);
+        }
+      };
+      // Give the global background prefetch ~600ms to finish
+      const t = setTimeout(checkCache, 600);
+      return () => clearTimeout(t);
     };
     window.addEventListener("accounting-data-updated", handleUpdate);
     return () => window.removeEventListener("accounting-data-updated", handleUpdate);
-  }, [load]);
+  }, [load, selectedFY?._id]);
 
   const today = new Date().toLocaleDateString("en-IN", {
     day: "2-digit", month: "short", year: "numeric",

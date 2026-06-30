@@ -460,6 +460,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       await saveImportedTransactions(activeTxns, selectedAccountId, detectedBankName, opBal);
       setStep(3);
       toast.success(`${activeTxns.length} transactions saved`);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (err: any) {
       toast.error(err?.message || "Failed to save transactions");
     } finally {

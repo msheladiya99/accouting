@@ -13,7 +13,7 @@ import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeTrialBalance, TrialRow, TrialSummary } from "../api/trialBalanceApi";
-import { getLedgerStatement, getAllLedgers, LedgerStatement, LedgerStatementRow, Ledger } from "../api/ledgerApi";
+import { getLedgerStatement, getAllLedgers, LedgerStatement, LedgerStatementRow, Ledger, createLedger, LEDGER_GROUPS } from "../api/ledgerApi";
 import { createJournalEntry, getAllJournalEntries, updateJournalEntry, deleteJournalEntry, type JournalPayload, type JournalEntry } from "../api/journalVoucherApi";
 import { getAllEntries, getAllAccounts, updateEntry, bulkDeleteEntries, type BankCashAccount, type BankCashRow, type EntryPayload } from "../api/bankCashBookApi";
 import { EntryModal } from "./BankCashBook";
@@ -97,6 +97,36 @@ const VoucherBadge = ({ type }: { type: string }) => {
 let cachedSummary: TrialSummary | null = null;
 let cachedFYId: string | null = null;
 
+// Export background prefetch function to populate cache
+export async function prefetchTrialBalanceData(fyId: string, force = false) {
+  if (!force && cachedFYId === fyId && cachedSummary) return;
+  try {
+    const result = await computeTrialBalance();
+    cachedSummary = result;
+    cachedFYId = fyId;
+  } catch (e) {
+    console.warn("Background prefetch for Trial Balance failed:", e);
+  }
+}
+
+// Global event listener to clear cache and prefetch in background even when unmounted!
+if (typeof window !== "undefined") {
+  window.addEventListener("accounting-data-updated", () => {
+    cachedSummary = null;
+    cachedFYId = null;
+    try {
+      const saved = localStorage.getItem("ap_selected_fy");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const fyId = parsed?._id;
+        if (fyId) {
+          prefetchTrialBalanceData(fyId, true);
+        }
+      }
+    } catch (e) {}
+  });
+}
+
 // ── Mini JV Entry Form ─────────────────────────────────────────────────────────
 interface MiniJVRow {
   type: "Db" | "Cr" | "";
@@ -111,12 +141,14 @@ function MiniJVForm({
   selectedFY,
   allLedgers,
   onSaved,
+  onQuickCreate,
 }: {
   ledgerName: string;
   ledgerGroup: string;
   selectedFY: any;
   allLedgers: Ledger[];
   onSaved: () => void;
+  onQuickCreate?: (name: string, callback: (newLedger: Ledger) => void) => void;
 }) {
   const { register, handleSubmit, watch, control, reset, formState: { errors } } = useForm<JournalPayload>({
     defaultValues: {
@@ -182,6 +214,7 @@ function MiniJVForm({
       reset({ date: formData.date, narration: "", status: "Posted" });
       setRows(getDefaultRows());
       onSaved();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e?.response?.data?.message || e?.message || "Failed to save");
     } finally {
@@ -278,7 +311,7 @@ function MiniJVForm({
                             placeholder={isDb ? "Select Debit Account" : "Select Credit Account"}
                             className="w-full border border-slate-300 rounded px-2 py-0.5 text-xs outline-none bg-white focus:border-indigo-400"
                           />
-                          {dropOpen === idx && filteredLedgers.length > 0 && (
+                          {dropOpen === idx && (
                             <div className="absolute left-0 top-full z-50 bg-white border border-slate-200 rounded-lg shadow-xl max-h-40 overflow-y-auto w-full min-w-[200px]">
                               {filteredLedgers.slice(0, 20).map((l) => (
                                 <button
@@ -295,6 +328,25 @@ function MiniJVForm({
                                   <span className="ml-2 text-slate-400 text-[10px]">{l.groupName}</span>
                                 </button>
                               ))}
+                              {search[idx]?.trim() && !allLedgers.some((l) => l.ledgerName.trim().toLowerCase() === search[idx].trim().toLowerCase()) && (
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    onQuickCreate?.(search[idx].trim(), (newLedger) => {
+                                      updateRow(idx, { accountName: newLedger.ledgerName, groupName: newLedger.groupName });
+                                      setSearch((s) => { const n=[...s]; n[idx]=newLedger.ledgerName; return n; });
+                                    });
+                                    setDropOpen(null);
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 border-t border-slate-100 flex items-center gap-1.5 sticky bottom-0 bg-white"
+                                >
+                                  <Plus size={12} /> Create "{search[idx].trim()}"
+                                </button>
+                              )}
+                              {filteredLedgers.length === 0 && !search[idx]?.trim() && (
+                                <div className="px-3 py-2 text-xs text-slate-400 italic text-center">No matching ledgers</div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -373,6 +425,13 @@ export function LedgerStatementModal({
   const [activeJournalEntry, setActiveJournalEntry] = useState<JournalEntry | undefined>(undefined);
   const [accounts, setAccounts] = useState<BankCashAccount[]>([]);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+
+  const [quickCreateName, setQuickCreateName] = useState<string | null>(null);
+  const [quickCreateCallback, setQuickCreateCallback] = useState<((newLedger: Ledger) => void) | null>(null);
+  const handleQuickCreateOpen = (name: string, callback: (newLedger: Ledger) => void) => {
+    setQuickCreateName(name);
+    setQuickCreateCallback(() => callback);
+  };
 
   const handleBulkDelete = async () => {
     const selectedIds = Array.from(selectedRows);
@@ -618,6 +677,7 @@ export function LedgerStatementModal({
             selectedFY={selectedFY}
             allLedgers={allLedgers}
             onSaved={() => { loadStatement(); }}
+            onQuickCreate={handleQuickCreateOpen}
           />
         )}
 
@@ -816,6 +876,22 @@ export function LedgerStatementModal({
         </div>
       )}
 
+      {quickCreateName !== null && (
+        <QuickCreateLedgerModal
+          initialName={quickCreateName}
+          onClose={() => {
+            setQuickCreateName(null);
+            setQuickCreateCallback(null);
+          }}
+          onCreated={(newLedger) => {
+            setAllLedgers((prev) => [newLedger, ...prev]);
+            quickCreateCallback?.(newLedger);
+            setQuickCreateName(null);
+            setQuickCreateCallback(null);
+          }}
+        />
+      )}
+
       <style>{`
         @keyframes slideInRight {
           from { transform: translateX(100%); opacity: 0.5; }
@@ -877,15 +953,26 @@ export default function TrialBalance() {
     load(false, hasCache);
   }, [load, selectedFY?._id]);
 
+  // When data changes, wait for the global background prefetch to finish,
+  // then pull the fresh cache into component state — no double-fetch.
   useEffect(() => {
     const handleUpdate = () => {
-      cachedSummary = null;
-      cachedFYId = null;
-      load(true);
+      const checkCache = () => {
+        if (cachedSummary && cachedFYId === selectedFY?._id) {
+          setSummary(cachedSummary);
+          setLoading(false);
+        } else {
+          // Prefetch still in progress or failed — do a full reload
+          load(true);
+        }
+      };
+      // Give the global background prefetch ~600ms to finish
+      const t = setTimeout(checkCache, 600);
+      return () => clearTimeout(t);
     };
     window.addEventListener("accounting-data-updated", handleUpdate);
     return () => window.removeEventListener("accounting-data-updated", handleUpdate);
-  }, [load]);
+  }, [load, selectedFY?._id]);
 
   const allGroups = useMemo(() => {
     if (!summary) return [];
@@ -1209,6 +1296,115 @@ export default function TrialBalance() {
           onClose={() => setSelectedLedger(null)}
         />
       )}
+    </div>
+  );
+}
+
+// ── Quick Create Ledger Modal ──────────────────────────────────────────────────
+function QuickCreateLedgerModal({
+  initialName,
+  onClose,
+  onCreated,
+}: {
+  initialName: string;
+  onClose: () => void;
+  onCreated: (newLedger: Ledger) => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [group, setGroup] = useState<string>("Sundry Creditors");
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast.error("Ledger name is required");
+      return;
+    }
+    setSaving(true);
+    try {
+      const created = await createLedger({
+        ledgerName: name.trim().toUpperCase(),
+        groupName: group as any,
+      });
+      toast.success(`Ledger "${created.ledgerName}" created!`);
+      onCreated(created);
+      onClose();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to create ledger");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-sans">
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-xs" onClick={onClose} />
+      <div className="relative bg-white border border-slate-300 rounded-xl w-full max-w-md overflow-hidden shadow-2xl font-sans text-xs">
+        <div className="bg-indigo-600 px-4 py-2 flex items-center justify-between">
+          <span className="text-white font-bold text-xs tracking-wide">
+            Create New Account
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-white hover:text-red-200 text-xs font-bold"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          <div>
+            <label className="block text-slate-600 font-semibold mb-1">
+              Account / Ledger Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full border border-slate-300 rounded px-2 py-1.5 outline-none text-xs"
+              placeholder="e.g. ABC Trading Co."
+              required
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-600 font-semibold mb-1">
+              Group Name
+            </label>
+            <select
+              value={group}
+              onChange={(e) => setGroup(e.target.value)}
+              className="w-full border border-slate-300 rounded px-2 py-1.5 outline-none text-xs bg-white"
+            >
+              {LEDGER_GROUPS.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-1.5 border border-slate-300 rounded text-slate-600 hover:bg-slate-50 font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-semibold flex items-center gap-1.5 disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={12} className="animate-spin" /> : null}
+              Create
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

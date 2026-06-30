@@ -806,7 +806,7 @@ function ExcelTable({
     }
   }
 
-  const fields = ["date", "particulars", "withdrawal", "deposit", "contraAccountName", "contraAccountGroup"];
+  const fields = ["date", "particulars", "withdrawal", "deposit"];
 
   function navigateCell(rowId: string, currentField: string, direction: "next" | "prev" | "down" | "up") {
     const rowIndex = rows.findIndex(r => r._id === rowId);
@@ -1535,18 +1535,18 @@ function ExcelTable({
                   {row.balance < 0 && <span className="text-[10px] font-normal ml-1 text-red-400">(Cr)</span>}
                 </td>
 
-                {/* Account name — editable */}
-                <EditableCell row={row} field="contraAccountName" value={row.contraAccountName} inputType="select-ledger" className="text-slate-600">
-                  <span className="block truncate max-w-[160px] cursor-cell">{row.contraAccountName || <span className="text-slate-300 italic">Select Ledger</span>}</span>
-                </EditableCell>
+                {/* Account name — read-only */}
+                <td className={`${COL_CELL} text-slate-600`}>
+                  <span className="block truncate max-w-[160px]">{row.contraAccountName || <span className="text-slate-300 italic">Select Ledger</span>}</span>
+                </td>
 
 
-                {/* Account group name — editable select */}
-                <EditableCell row={row} field="contraAccountGroup" value={row.contraAccountGroup} inputType="select">
-                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium cursor-cell">
+                {/* Account group name — read-only */}
+                <td className={`${COL_CELL}`}>
+                  <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">
                     {row.contraAccountGroup}
                   </span>
-                </EditableCell>
+                </td>
 
                 {/* Permanent Checkmark (Only shown if modified) */}
                 <td className={`${COL_CELL} text-center w-10 bg-emerald-50/10`}>

@@ -1097,7 +1097,7 @@ export default function BalanceSheet() {
                 if (capitalAccounts.length === 1) {
                   allCredits.push({ particulars: "BY OPENING BALANCE", amount: openingRow.amount });
                 } else {
-                  allCredits.push({ particulars: `BY OPENING BALANCE (${account.ledgerName})`, amount: openingRow.amount });
+                  allCredits.push({ particulars: `BY ${account.ledgerName} (OPENING BALANCE)`, amount: openingRow.amount });
                 }
               }
               // Other credits (not opening balance)
@@ -1107,7 +1107,8 @@ export default function BalanceSheet() {
                   if (capitalAccounts.length === 1) {
                     allCredits.push(c);
                   } else {
-                    allCredits.push({ particulars: `${c.particulars} (${account.ledgerName})`, amount: c.amount });
+                    const bankName = c.particulars.replace(/^BY\s+/i, "");
+                    allCredits.push({ particulars: `BY ${account.ledgerName} (${bankName})`, amount: c.amount });
                   }
                 });
               // Debits (not closing balance)
@@ -1117,7 +1118,8 @@ export default function BalanceSheet() {
                   if (capitalAccounts.length === 1) {
                     allDebits.push(d);
                   } else {
-                    allDebits.push({ particulars: `${d.particulars} (${account.ledgerName})`, amount: d.amount });
+                    const bankName = d.particulars.replace(/^TO\s+/i, "");
+                    allDebits.push({ particulars: `TO ${account.ledgerName} (${bankName})`, amount: d.amount });
                   }
                 });
             });

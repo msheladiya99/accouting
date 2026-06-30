@@ -1676,6 +1676,22 @@ export default function BankCashBook() {
     modified: "",
   });
 
+  const clearFilters = useCallback(() => {
+    setSearch("");
+    setColFilters({
+      srNo: "",
+      accountName: "",
+      date: "",
+      particulars: "",
+      withdrawal: "",
+      deposit: "",
+      balance: "",
+      contraAccountName: "",
+      contraAccountGroup: "",
+      modified: "",
+    });
+  }, []);
+
   useEffect(() => {
     setColFilters({
       srNo: "",
@@ -1753,6 +1769,7 @@ export default function BankCashBook() {
         toast.success("Entry added");
       }
       setModal(null);
+      clearFilters();
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
@@ -1760,7 +1777,7 @@ export default function BankCashBook() {
     } finally {
       setSaving(false);
     }
-  }, [modal, accountFilter, loadRows]);
+  }, [modal, accountFilter, loadRows, clearFilters]);
 
   const handleCreateAccountSubmit = useCallback(async (data: { name: string; group: "Bank" | "Cash"; openingBalance: number }) => {
     if (!data.name.trim()) {
@@ -1899,13 +1916,14 @@ export default function BankCashBook() {
     try {
       await updateEntry(id, patch);
       toast.success("Saved", { duration: 1200, icon: "✓" });
+      clearFilters();
       await loadRows(accountFilter, true); // silent background load
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to save");
       await loadRows(accountFilter); // full reload to reset state on error
     }
-  }, [accountFilter, loadRows, ledgers]);
+  }, [accountFilter, loadRows, ledgers, clearFilters]);
 
   // Called when user edits the Opening Balance row
   const handleOpeningBalanceChange = useCallback(async (newBalance: number, targetAccountId?: string) => {
@@ -1944,6 +1962,7 @@ export default function BankCashBook() {
       setSelectedIds(new Set());
       setBulkAccName("");
       setBulkAccGroup("");
+      clearFilters();
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
@@ -1951,7 +1970,7 @@ export default function BankCashBook() {
     } finally {
       setBulkSaving(false);
     }
-  }, [selectedIds, bulkAccName, bulkAccGroup, accountFilter, loadRows]);
+  }, [selectedIds, bulkAccName, bulkAccGroup, accountFilter, loadRows, clearFilters]);
 
   const handleBulkDelete = useCallback(async () => {
     const ids = Array.from(selectedIds);
@@ -1962,6 +1981,7 @@ export default function BankCashBook() {
       await bulkDeleteEntries(ids);
       toast.success(`Successfully deleted ${ids.length} entries`);
       setSelectedIds(new Set());
+      clearFilters();
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
@@ -1969,7 +1989,7 @@ export default function BankCashBook() {
     } finally {
       setBulkSaving(false);
     }
-  }, [selectedIds, accountFilter, loadRows]);
+  }, [selectedIds, accountFilter, loadRows, clearFilters]);
 
   const handleBulkApprove = useCallback(async () => {
     const ids = Array.from(selectedIds);
@@ -1979,6 +1999,7 @@ export default function BankCashBook() {
       await bulkApproveEntries(ids);
       toast.success(`Successfully approved ${ids.length} entries`);
       setSelectedIds(new Set());
+      clearFilters();
       await loadRows(accountFilter);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
@@ -1986,7 +2007,7 @@ export default function BankCashBook() {
     } finally {
       setBulkSaving(false);
     }
-  }, [selectedIds, accountFilter, loadRows]);
+  }, [selectedIds, accountFilter, loadRows, clearFilters]);
 
 
   const filtered = useMemo(() => {

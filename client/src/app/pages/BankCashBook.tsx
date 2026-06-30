@@ -2397,6 +2397,7 @@ export default function BankCashBook() {
                 // Reset filter to "all" so newly imported entries are visible
                 setAccountFilter("all");
                 setGroupTypeFilter("all");
+                clearFilters();
                 // Reload entries
                 await loadRows("all");
                 window.dispatchEvent(new CustomEvent("accounting-data-updated"));

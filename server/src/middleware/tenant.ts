@@ -55,12 +55,15 @@ export const tenantMiddleware = async (req: Request, res: Response, next: NextFu
     }
 
     // Respect the user's selected company/firm if it belongs to the resolved tenant
-    // EXCEPT for authentication (login)
-    const isAuth = req.path.endsWith("/auth/login");
+    // EXCEPT for authentication (login) and tenant-level company listing/creation
+    const isAuthOrCompanyRoot = 
+      req.path.endsWith("/auth/login") || 
+      req.path.endsWith("/company") || 
+      req.path.endsWith("/company/create");
     const headerCompanyId = req.headers["x-company-id"];
     let finalCompanyId = tenantCompany._id.toString();
 
-    if (headerCompanyId && typeof headerCompanyId === "string" && !isAuth) {
+    if (headerCompanyId && typeof headerCompanyId === "string" && !isAuthOrCompanyRoot) {
       try {
         const selectedCompany = await Company.findById(headerCompanyId);
         if (

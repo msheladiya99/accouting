@@ -15,4 +15,7 @@ const bankCashEntrySchema = new Schema(
   { timestamps: true }
 );
 
+bankCashEntrySchema.index({ companyId: 1, date: 1 });
+bankCashEntrySchema.index({ accountId: 1 });
+
 export const BankCashEntry = model("BankCashEntry", bankCashEntrySchema);

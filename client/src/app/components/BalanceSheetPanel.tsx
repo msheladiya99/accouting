@@ -9,10 +9,7 @@ import {
   type BalanceSheetData,
 } from "../api/balanceSheetApi";
 import { computeTrialBalance, type TrialRow } from "../api/trialBalanceApi";
-import { getAllEntries, getAllAccounts } from "../api/bankCashBookApi";
-import { getAllJournalEntries } from "../api/journalVoucherApi";
-import { getAllLedgers } from "../api/ledgerApi";
-import { getAllGroups } from "../api/accountGroupApi";
+import { fetchAccountingRawData } from "../api/accountingDataCache";
 
 const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
   "Capital Account": "Capital",
@@ -485,25 +482,18 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const [ledgers, bankAccounts, bankEntries, journalEntries, groups] = await Promise.all([
-        getAllLedgers(),
-        getAllAccounts(),
-        getAllEntries(),
-        getAllJournalEntries(),
-        getAllGroups()
-      ]);
-
-      const cache = { ledgers, bankAccounts, bankEntries, journalEntries, groups };
+      const raw = await fetchAccountingRawData(selectedFY?._id || "", false);
+      const { ledgers, bankAccounts, bankEntries, journalEntries, groups } = raw;
 
       // Compute balance sheet using cache
-      const result = await computeBalanceSheet(cache);
+      const result = await computeBalanceSheet(raw);
 
       const groupParentsMap: Record<string, string> = {};
       groups.forEach((g) => {
         groupParentsMap[g.groupName.trim().toLowerCase()] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
       });
 
-      const trialSummary = await computeTrialBalance(cache);
+      const trialSummary = await computeTrialBalance(raw);
       const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
 
       const capitalLedgerAccounts = ledgers.filter(l => 

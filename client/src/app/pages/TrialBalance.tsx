@@ -13,6 +13,7 @@ import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeTrialBalance, TrialRow, TrialSummary } from "../api/trialBalanceApi";
+import { fetchAccountingRawData } from "../api/accountingDataCache";
 import { getLedgerStatement, getAllLedgers, LedgerStatement, LedgerStatementRow, Ledger, createLedger, LEDGER_GROUPS } from "../api/ledgerApi";
 import { createJournalEntry, getAllJournalEntries, updateJournalEntry, deleteJournalEntry, type JournalPayload, type JournalEntry } from "../api/journalVoucherApi";
 import { getAllEntries, getAllAccounts, updateEntry, bulkDeleteEntries, type BankCashAccount, type BankCashRow, type EntryPayload } from "../api/bankCashBookApi";
@@ -101,7 +102,8 @@ let cachedFYId: string | null = null;
 export async function prefetchTrialBalanceData(fyId: string, force = false) {
   if (!force && cachedFYId === fyId && cachedSummary) return;
   try {
-    const result = await computeTrialBalance();
+    const raw = await fetchAccountingRawData(fyId, force);
+    const result = await computeTrialBalance(raw);
     cachedSummary = result;
     cachedFYId = fyId;
   } catch (e) {
@@ -926,7 +928,8 @@ export default function TrialBalance() {
     }
     setError(null);
     try {
-      const result = await computeTrialBalance();
+      const raw = await fetchAccountingRawData(selectedFY?._id || "", isRefresh);
+      const result = await computeTrialBalance(raw);
       setSummary(result);
       cachedSummary = result;
       cachedFYId = selectedFY?._id || null;

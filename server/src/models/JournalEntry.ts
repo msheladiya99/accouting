@@ -26,5 +26,6 @@ const journalEntrySchema = new Schema(
 );
 
 journalEntrySchema.index({ companyId: 1, voucherNo: 1 }, { unique: true });
+journalEntrySchema.index({ companyId: 1, date: 1 });
 
 export const JournalEntry = model("JournalEntry", journalEntrySchema);

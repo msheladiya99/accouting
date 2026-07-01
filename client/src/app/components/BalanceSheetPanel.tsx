@@ -537,7 +537,14 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
   useEffect(() => {
     if (open) {
       const hasCache = cachedPanelFYId === selectedFY?._id && cachedPanelData !== null;
-      load(hasCache);
+      if (hasCache) {
+        setData(cachedPanelData);
+        setCapitalAccounts(cachedPanelCapitalAccounts);
+        setTradingPLData(cachedPanelTradingPLData);
+        setLoading(false);
+      } else {
+        load(false);
+      }
     }
   }, [open, load]);
 

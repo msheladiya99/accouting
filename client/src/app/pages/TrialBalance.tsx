@@ -948,9 +948,8 @@ export default function TrialBalance() {
       setLoading(false);
     } else {
       setLoading(true);
+      load(false, false);
     }
-
-    load(false, hasCache);
   }, [load, selectedFY?._id]);
 
   // When data changes, wait for the global background prefetch to finish,

@@ -688,9 +688,8 @@ export default function BalanceSheet() {
       setLoading(false);
     } else {
       setLoading(true);
+      load(false, false);
     }
-
-    load(false, hasCache);
   }, [load, selectedFY?._id]);
 
   // When data changes, wait for the background global listener to finish prefetching,

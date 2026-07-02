@@ -66,65 +66,121 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       return;
     }
 
-    let targetAccountId = accountId;
-    if (accountId === "auto-create" || !accountId) {
-      if (!bankName || !bankName.trim()) {
-        res.status(400).json({ message: "Bank name is required to auto-create a bank account. Please select an existing account or enter a valid name." });
-        return;
-      }
-      const finalBankName = bankName.trim().toUpperCase();
-      // Auto-create BankCashAccount
+    const companyObjId = new Types.ObjectId(req.companyId as string);
+
+    // ── Helper: resolve or auto-create a BankCashAccount by name ────────────
+    const accountCache = new Map<string, string>(); // name.upper -> _id string
+
+    async function resolveAccount(name: string): Promise<string | null> {
+      const key = name.trim().toUpperCase();
+      if (accountCache.has(key)) return accountCache.get(key)!;
+
       let acc = await BankCashAccount.findOne({
-        name: { $regex: new RegExp(`^${finalBankName}$`, "i") },
-        companyId: req.companyId
+        name: { $regex: new RegExp(`^${key}$`, "i") },
+        companyId: req.companyId,
       });
+
       if (!acc) {
         acc = new BankCashAccount({
-          name: finalBankName,
+          name: key,
           group: "Bank",
-          openingBalance: statementOpeningBalance || 0,
-          companyId: req.companyId
+          openingBalance: 0,
+          companyId: req.companyId,
         });
         await acc.save();
-      } else if (statementOpeningBalance !== undefined && acc.openingBalance === 0) {
-        acc.openingBalance = statementOpeningBalance;
-        await acc.save();
       }
-      targetAccountId = acc._id.toString();
-    } else if (targetAccountId && Types.ObjectId.isValid(targetAccountId)) {
-      // Update existing BankCashAccount if its opening balance is 0
-      let acc = await BankCashAccount.findOne({ _id: targetAccountId, companyId: req.companyId });
+
+      const id = acc._id.toString();
+      accountCache.set(key, id);
+      return id;
+    }
+
+    // ── Determine per-row target accountId ───────────────────────────────────
+    // A row with row.bankName uses it to resolve its own account.
+    // Otherwise fall back to the global accountId / bankName.
+    let globalTargetAccountId: string | null = null;
+
+    if (accountId === "direct-import") {
+      // Direct Import mode: each row carries its own bankName — no global account needed
+      globalTargetAccountId = null;
+    } else if (accountId && accountId !== "auto-create" && Types.ObjectId.isValid(accountId)) {
+      // Update opening balance if needed
+      const acc = await BankCashAccount.findOne({ _id: accountId, companyId: req.companyId });
       if (acc && statementOpeningBalance !== undefined && acc.openingBalance === 0) {
         acc.openingBalance = statementOpeningBalance;
         await acc.save();
       }
-    }
-
-    if (!targetAccountId) {
-      res.status(400).json({ message: "accountId or a valid bankName is required to save transactions" });
-      return;
-    }
-
-    const accountObj = await BankCashAccount.findOne({ _id: targetAccountId, companyId: req.companyId });
-    if (!accountObj) {
-      res.status(404).json({ message: "Bank/Cash account not found" });
-      return;
-    }
-
-    // Check if any row's contra account name is the same as the Bank/Cash account name
-    const targetNameClean = accountObj.name.trim().toLowerCase();
-    for (const r of rows) {
-      if (r.aiAccountName && r.aiAccountName.trim().toLowerCase() === targetNameClean) {
-        res.status(400).json({ message: `Contra account cannot be the same as the Bank/Cash account: "${r.aiAccountName}"` });
-        return;
+      globalTargetAccountId = accountId;
+    } else if (accountId === "auto-create" || !accountId) {
+      if (bankName && bankName.trim()) {
+        globalTargetAccountId = await resolveAccount(bankName);
+        // Update opening balance on global account
+        if (globalTargetAccountId && statementOpeningBalance !== undefined) {
+          const acc = await BankCashAccount.findOne({ _id: globalTargetAccountId, companyId: req.companyId });
+          if (acc && acc.openingBalance === 0) {
+            acc.openingBalance = statementOpeningBalance;
+            await acc.save();
+          }
+        }
       }
     }
 
     const now = new Date();
-    const companyObjId = new Types.ObjectId(req.companyId as string);
-    const preparedImport = rows.map((r: any) => {
+
+    // ── Ensure contra ledgers exist ──────────────────────────────────────────
+    const uniqueLedgers = new Map<string, string>();
+    for (const r of rows) {
+      if (r.aiAccountName?.trim() && r.aiAccountGroup?.trim()) {
+        const finalGroup = normalizeAndMapGroup(r.aiAccountGroup);
+        uniqueLedgers.set(r.aiAccountName.trim().toUpperCase(), finalGroup);
+      }
+    }
+
+    for (const [nameUpper, groupName] of uniqueLedgers.entries()) {
+      const exists = await Ledger.findOne({ ledgerName: nameUpper, companyId: req.companyId });
+      if (!exists) {
+        const newLedger = new Ledger({
+          ledgerName: nameUpper,
+          groupName,
+          openingDr: 0,
+          openingCr: 0,
+          companyId: req.companyId,
+        });
+        await newLedger.save();
+        await syncBankCashAccountFromLedger(newLedger);
+      }
+    }
+
+    // ── Prepare entries with per-row accountId resolution ───────────────────
+    const preparedEntries: any[] = [];
+    const preparedImports: any[] = [];
+
+    for (const r of rows) {
+      // Resolve target bank account for this row
+      let rowAccountId: string | null = null;
+      if (r.bankName && r.bankName.trim()) {
+        rowAccountId = await resolveAccount(r.bankName);
+      } else {
+        rowAccountId = globalTargetAccountId;
+      }
+
+      if (!rowAccountId) continue; // Skip rows with no target account
+
+      // Validate: contra account must not be the same as the target bank account
+      const rowAcc = await BankCashAccount.findOne({ _id: rowAccountId, companyId: req.companyId });
+      if (rowAcc && r.aiAccountName && r.aiAccountName.trim().toLowerCase() === rowAcc.name.trim().toLowerCase()) {
+        res.status(400).json({
+          message: `Contra account cannot be the same as the Bank/Cash account: "${r.aiAccountName}" (${rowAcc.name})`,
+        });
+        return;
+      }
+
+      let cleanDate = (r.date || "").toString().trim();
+      if (cleanDate.length > 10) cleanDate = cleanDate.slice(0, 10);
+
       const finalGroup = normalizeAndMapGroup(r.aiAccountGroup);
-      return {
+
+      preparedImports.push({
         date: r.date,
         narration: r.narration,
         withdrawal: r.withdrawal || 0,
@@ -132,11 +188,27 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
         accountName: r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "",
         accountGroup: finalGroup,
         importedAt: now,
-        companyId: companyObjId
-      };
-    });
+        companyId: companyObjId,
+      });
 
-    // Deduplicate ImportedTransaction entries
+      preparedEntries.push({
+        companyId: companyObjId,
+        accountId: rowAccountId,
+        date: cleanDate,
+        particulars: r.narration,
+        withdrawal: r.withdrawal || 0,
+        deposit: r.deposit || 0,
+        contraAccountName: r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "",
+        contraAccountGroup: finalGroup,
+      });
+    }
+
+    if (preparedEntries.length === 0) {
+      res.status(400).json({ message: "No valid rows to import. Each row must have a valid bank/cash account." });
+      return;
+    }
+
+    // ── Deduplicate ImportedTransaction entries ───────────────────────────────
     const existingImports = await ImportedTransaction.find(
       { companyId: { $in: [req.companyId, companyObjId] } },
       { date: 1, narration: 1, withdrawal: 1, deposit: 1, accountName: 1 }
@@ -148,7 +220,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       )
     );
 
-    const newImports = preparedImport.filter((e) => {
+    const newImports = preparedImports.filter((e) => {
       const fp = `${e.date}||${(e.narration || "").trim().toLowerCase()}||${e.withdrawal}||${e.deposit}||${e.accountName}`;
       return !existingImportFingerprints.has(fp);
     });
@@ -157,69 +229,22 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       await ImportedTransaction.insertMany(newImports);
     }
 
-
-    // Ensure all unique ledgers are created in the Ledger master
-    const uniqueLedgers = new Map<string, string>(); // ledgerName (uppercase) -> groupName
-    for (const r of rows) {
-      if (r.aiAccountName?.trim() && r.aiAccountGroup?.trim()) {
-        const finalGroup = normalizeAndMapGroup(r.aiAccountGroup);
-        uniqueLedgers.set(r.aiAccountName.trim().toUpperCase(), finalGroup);
-      }
-    }
-
-    for (const [nameUpper, groupName] of uniqueLedgers.entries()) {
-      const exists = await Ledger.findOne({
-        ledgerName: nameUpper,
-        companyId: req.companyId
-      });
-
-      if (!exists) {
-        const newLedger = new Ledger({
-          ledgerName: nameUpper,
-          groupName,
-          openingDr: 0,
-          openingCr: 0,
-          companyId: req.companyId
-        });
-        await newLedger.save();
-        await syncBankCashAccountFromLedger(newLedger);
-      }
-    }
-
-    const preparedEntries = rows.map((r: any) => {
-      // Ensure date is always a clean "YYYY-MM-DD" string, not an ISO timestamp
-      let cleanDate = (r.date || "").toString().trim();
-      if (cleanDate.length > 10) {
-        cleanDate = cleanDate.slice(0, 10);
-      }
-      const finalGroup = normalizeAndMapGroup(r.aiAccountGroup);
-      return {
-        companyId: companyObjId,
-        accountId: targetAccountId,
-        date: cleanDate,
-        particulars: r.narration,
-        withdrawal: r.withdrawal || 0,
-        deposit: r.deposit || 0,
-        contraAccountName: r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "",
-        contraAccountGroup: finalGroup
-      };
-    });
-
-    // ── Deduplication: only insert entries that don't already exist ────────────
-    // Build a Set of fingerprints from existing entries for this account
+    // ── Deduplicate BankCashEntry entries ────────────────────────────────────
+    // Group entries by accountId for efficient dedup query
+    const accountIds = [...new Set(preparedEntries.map((e) => e.accountId))];
     const existingEntries = await BankCashEntry.find(
-      { accountId: targetAccountId, companyId: { $in: [req.companyId, companyObjId] } },
-      { date: 1, particulars: 1, withdrawal: 1, deposit: 1 }
+      { accountId: { $in: accountIds }, companyId: { $in: [req.companyId, companyObjId] } },
+      { date: 1, particulars: 1, withdrawal: 1, deposit: 1, accountId: 1 }
     ).lean();
 
     const existingFingerprints = new Set(
       existingEntries.map((e: any) =>
-        `${e.date}||${(e.particulars || "").trim().toLowerCase()}||${e.withdrawal}||${e.deposit}`
+        `${e.accountId}||${e.date}||${(e.particulars || "").trim().toLowerCase()}||${e.withdrawal}||${e.deposit}`
       )
     );
 
     const newEntries = preparedEntries.filter((e) => {
-      const fp = `${e.date}||${(e.particulars || "").trim().toLowerCase()}||${e.withdrawal}||${e.deposit}`;
+      const fp = `${e.accountId}||${e.date}||${(e.particulars || "").trim().toLowerCase()}||${e.withdrawal}||${e.deposit}`;
       return !existingFingerprints.has(fp);
     });
 

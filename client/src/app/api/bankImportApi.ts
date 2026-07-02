@@ -14,6 +14,7 @@ export interface ImportRow extends RawTransaction {
   aiAccountGroup: string;
   aiStatus: "idle" | "loading" | "done" | "error";
   balance?: number;
+  bankName?: string;
 }
 
 export interface AIMatch {
@@ -284,6 +285,105 @@ export async function parseExcel(file: File): Promise<RawTransaction[]> {
         const ws  = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" });
         resolve(parseSheetRows(raw));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("File read failed"));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+export async function parseExcelDirect(file: File): Promise<ImportRow[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const buf = new Uint8Array(e.target!.result as ArrayBuffer);
+        const wb  = XLSX.read(buf, { type: "array", cellDates: true });
+        const ws  = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" });
+        
+        if (raw.length < 2) {
+          resolve([]);
+          return;
+        }
+
+        const isOpeningBalRow = (narration: string) =>
+          /opening\s*balance|bal\s*b\/f|balance\s*b\/f|brought\s*forward|closing\s*balance|balance\s*c\/f|carried\s*forward/i.test(narration);
+
+        // Detect header row (first row with "date" or "narration/particulars")
+        let headerIdx = 0;
+        for (let i = 0; i < Math.min(8, raw.length); i++) {
+          const r = (raw[i] || []) as string[];
+          if (r.some((c) => typeof c === "string" && /date|narr|desc|particular/i.test(c))) {
+            headerIdx = i;
+            break;
+          }
+        }
+
+        const headers = (raw[headerIdx] as string[]).map((h) => String(h ?? ""));
+        const dateCol = findDateCol(headers);
+        const narrCol = colIdx(headers, ["narration", "description", "particulars", "particular", "remarks", "details", "cheque", "chq", "transaction narration", "narration/description", "particulars/narrations"]);
+        const drCol   = colIdx(headers, ["debit", "withdrawal", "dr amount", "withdrawl", "dr", "debit amount", "withdrawal amount", "paid out", "withdrawals/payment"]);
+        const crCol   = colIdx(headers, ["credit", "deposit", "cr amount", "cr", "credit amount", "deposit amount", "paid in", "deposit/receipt"]);
+        const amtCol  = colIdx(headers, ["amount", "transaction amount"]);
+        
+        // Custom columns for direct import
+        const contraAccCol   = colIdx(headers, ["account name", "contra account", "contra account name", "account_name"]);
+        const contraGroupCol = colIdx(headers, ["account group name", "contra group", "contra account group", "account_group_name"]);
+        const bankNameCol    = colIdx(headers, ["bank/cash name", "bank name", "bank_name"]);
+
+        const txns: ImportRow[] = [];
+
+        for (let i = headerIdx + 1; i < raw.length; i++) {
+          const row = (raw[i] || []) as unknown[];
+
+          const date = parseDate(dateCol >= 0 ? row[dateCol] : undefined);
+          if (!date) continue;
+
+          let narration = String(narrCol >= 0 ? row[narrCol] ?? "" : "").trim();
+          if (!narration && narrCol < 0) {
+            narration = row
+              .map(c => String(c ?? "").trim())
+              .filter(c => c.length > 3 && isNaN(Number(c.replace(/[,₹$\s]/g, ""))))
+              .sort((a, b) => b.length - a.length)[0] ?? "";
+          }
+          if (isOpeningBalRow(narration)) continue;
+          if (!narration) continue;
+
+          let withdrawal = drCol >= 0 ? toNum(row[drCol]) : 0;
+          let deposit    = crCol >= 0 ? toNum(row[crCol]) : 0;
+
+          if (withdrawal === 0 && deposit === 0 && amtCol >= 0) {
+            const rawVal = parseFloat(String(row[amtCol] ?? "").replace(/[₹$,\s]/g, ""));
+            if (!isNaN(rawVal)) {
+              if (rawVal < 0) withdrawal = Math.abs(rawVal);
+              else deposit = rawVal;
+            }
+          }
+
+          if (withdrawal === 0 && deposit === 0) continue;
+
+          // Parse account name, group, and bankName directly
+          const aiAccountName  = contraAccCol >= 0 ? String(row[contraAccCol] ?? "").trim() : "";
+          const aiAccountGroup = contraGroupCol >= 0 ? String(row[contraGroupCol] ?? "").trim() : "";
+          const bankName       = bankNameCol >= 0 ? String(row[bankNameCol] ?? "").trim() : "";
+
+          txns.push({
+            id: `imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            date,
+            narration,
+            withdrawal,
+            deposit,
+            aiAccountName,
+            aiAccountGroup,
+            aiStatus: "done" as const,
+            bankName,
+          });
+        }
+
+        resolve(txns);
       } catch (err) {
         reject(err);
       }

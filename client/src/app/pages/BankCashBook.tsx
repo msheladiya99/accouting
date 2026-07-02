@@ -24,6 +24,7 @@ import {
 import BankImport from "./BankImport";
 import { getAllGroups } from "../api/accountGroupApi";
 import { getAllLedgers, type Ledger } from "../api/ledgerApi";
+import { exportBankCashBookFiltered } from "../api/exportApi";
 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1595,7 +1596,7 @@ function ExcelTable({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BankCashBook() {
-  const { selectedFY } = useApp();
+  const { selectedFY, company } = useApp();
   const financialYear  = selectedFY?.label ?? "—";
 
   const [accounts,        setAccounts]        = useState<BankCashAccount[]>([]);
@@ -1609,6 +1610,7 @@ export default function BankCashBook() {
   const [search,          setSearch]          = useState("");
   const [modal,           setModal]           = useState<{ entry?: BankCashRow } | null>(null);
   const [showImport,      setShowImport]      = useState(false);
+  const [isDirectImport,  setIsDirectImport]  = useState(false);
   const [showCreateAccModal, setShowCreateAccModal] = useState(false);
   const [creatingAcc, setCreatingAcc]               = useState(false);
   const [groupNames,      setGroupNames]      = useState<string[]>([]);
@@ -1616,6 +1618,7 @@ export default function BankCashBook() {
   const [bulkAccName,     setBulkAccName]     = useState("");
   const [bulkAccGroup,    setBulkAccGroup]    = useState("");
   const [bulkSaving,      setBulkSaving]      = useState(false);
+  const [exporting,       setExporting]       = useState(false);
 
   useEffect(() => {
     if (!bulkAccName.trim() || !ledgers || ledgers.length === 0) return;
@@ -2077,6 +2080,36 @@ export default function BankCashBook() {
   const cashAccounts = accounts.filter((a) => a.group === "Cash");
   const activeAccount = accounts.find((a) => a._id === accountFilter);
 
+  const handleExport = useCallback(async () => {
+    if (filtered.length === 0) {
+      toast.error("No entries to export");
+      return;
+    }
+    setExporting(true);
+    const toastId = toast.loading("Generating Excel file...");
+    try {
+      const accountLabel = activeAccount
+        ? `${activeAccount.name} (${activeAccount.group})`
+        : "All Accounts";
+      
+      await exportBankCashBookFiltered(
+        filtered,
+        summary.openingBalance,
+        {
+          companyName: company?.name || "Acme Corp Ltd.",
+          companyAddress: company?.address || "—",
+          fyLabel: selectedFY?.label || "—",
+          accountLabel,
+        }
+      );
+      toast.success("Excel file downloaded successfully", { id: toastId });
+    } catch (e: any) {
+      toast.error(e.message || "Failed to export entries", { id: toastId });
+    } finally {
+      setExporting(false);
+    }
+  }, [filtered, summary.openingBalance, company, selectedFY, activeAccount]);
+
   return (
     <div className="p-4 lg:p-6 space-y-4">
       <FYBanner />
@@ -2092,9 +2125,24 @@ export default function BankCashBook() {
             className="p-2 border border-slate-200 bg-white rounded-lg text-slate-500 hover:bg-slate-50 transition-colors">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
-          <button onClick={() => setShowImport(true)}
+          <button onClick={() => { setShowImport(true); setIsDirectImport(false); }}
             className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm">
             <Upload size={14} /> Bank Import
+          </button>
+          <button onClick={() => { setShowImport(true); setIsDirectImport(true); }}
+            className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm"
+            title="Import Excel exported entries directly without AI"
+          >
+            <Upload size={14} /> Direct Import
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={exporting || filtered.length === 0}
+            className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Export currently filtered entries to Excel"
+          >
+            {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+            Export to Excel
           </button>
           <button onClick={() => setShowCreateAccModal(true)}
             className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm">
@@ -2390,6 +2438,7 @@ export default function BankCashBook() {
           <div className="overflow-y-auto flex-1 pb-6">
             <BankImport
               onClose={() => setShowImport(false)}
+              isDirectImport={isDirectImport}
               onImportComplete={async () => {
                 setShowImport(false);
                 // Reload accounts first (new account may have been auto-created)

@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { computeTrialBalance } from "./trialBalanceApi";
-import { getAllEntries, getAllAccounts, computeRows } from "./bankCashBookApi";
+import { getAllEntries, getAllAccounts, computeRows, type BankCashRow } from "./bankCashBookApi";
 import { getAllJournalEntries } from "./journalVoucherApi";
 import { computeBalanceSheet } from "./balanceSheetApi";
 import type { FinancialYear } from "./financialYearApi";
@@ -505,4 +505,167 @@ export async function generateExcelExport(
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
   onStep("done");
+}
+
+// ── Export Bank/Cash Book Entries ─────────────────────────────────────────────
+export async function exportBankCashBookFiltered(
+  rows: BankCashRow[],
+  openingBalance: number,
+  params: {
+    companyName: string;
+    companyAddress: string;
+    fyLabel: string;
+    accountLabel: string;
+  }
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator  = params.companyName;
+  workbook.company  = params.companyName;
+  workbook.created  = new Date();
+  workbook.modified = new Date();
+
+  const sheetName = params.accountLabel.length > 30 ? params.accountLabel.slice(0, 30) : params.accountLabel;
+  const sheet = workbook.addWorksheet(sheetName, {
+    pageSetup: { paperSize: 9, orientation: "landscape" },
+  });
+
+  const colCount = 9;
+  const period = `FY ${params.fyLabel}`;
+  const title = `Bank / Cash Book — ${params.accountLabel}`;
+
+  addReportHeader(sheet, params.companyName, params.companyAddress, params.fyLabel, title, period, colCount);
+
+  // Column headers
+  const headers = [
+    "Sr. No.",
+    "Bank/Cash Name",
+    "Date",
+    "Particulars/Narrations",
+    "Withdrawals/Payment",
+    "Deposit/Receipt",
+    "Balance",
+    "Account Name",
+    "Account Group Name"
+  ];
+  const hRow = sheet.addRow(headers);
+  hRow.height = 22;
+  hRow.eachCell((cell) => applyHeaderStyle(cell));
+
+  // Helper date formatter
+  const fmtDateLocal = (dateStr: string): string => {
+    if (!dateStr) return "";
+    try {
+      const [year, month, day] = dateStr.split("T")[0].split("-");
+      if (year && month && day) {
+        return `${day.padStart(2, "0")}/${month.padStart(2, "0")}/${year}`;
+      }
+    } catch (e) {}
+    return dateStr;
+  };
+
+  // Add Opening Balance Row
+  const obRow = sheet.addRow([
+    "—",
+    "Opening Balance",
+    "",
+    "",
+    openingBalance < 0 ? Math.abs(openingBalance) : null,
+    openingBalance >= 0 ? openingBalance : null,
+    openingBalance,
+    "",
+    ""
+  ]);
+
+  obRow.eachCell({ includeEmpty: true }, (cell, colNum) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEAF4FB" } };
+    cell.font = { italic: colNum <= 4, bold: colNum === 7, color: { argb: "FF334155" } };
+    if (colNum === 5 && openingBalance < 0) {
+      cell.font = { bold: true, color: { argb: C.redFg } };
+    }
+    if (colNum === 6 && openingBalance >= 0) {
+      cell.font = { bold: true, color: { argb: C.greenFg } };
+    }
+    cell.border = {
+      bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
+      top: { style: "thin", color: { argb: "FFCBD5E1" } }
+    };
+  });
+  obRow.height = 18;
+
+  // Add Data Rows
+  let rowIdx = 0;
+  for (const r of rows) {
+    const isWithdrawal = r.withdrawal > 0;
+    const isDeposit = r.deposit > 0;
+    const dRow = sheet.addRow([
+      rowIdx + 1,
+      r.accountName,
+      fmtDateLocal(r.date),
+      r.particulars,
+      isWithdrawal ? r.withdrawal : null,
+      isDeposit ? r.deposit : null,
+      r.balance,
+      r.contraAccountName || "",
+      r.contraAccountGroup || ""
+    ]);
+    applyDataRow(dRow, rowIdx);
+
+    if (isWithdrawal) dRow.getCell(5).font = { color: { argb: C.redFg } };
+    if (isDeposit) dRow.getCell(6).font = { color: { argb: C.greenFg } };
+    dRow.getCell(7).font = { bold: true, color: { argb: r.balance < 0 ? C.redFg : "FF000000" } };
+
+    rowIdx++;
+  } 
+
+  // Totals Row
+  const totalWithdrawal = rows.reduce((s, r) => s + r.withdrawal, 0);
+  const totalDeposit = rows.reduce((s, r) => s + r.deposit, 0);
+  const closingBalance = rows.length > 0 ? rows[rows.length - 1].balance : openingBalance;
+
+  const tRow = sheet.addRow([
+    "Σ",
+    `Total (${rows.length} entries)`,
+    "",
+    "",
+    totalWithdrawal || null,
+    totalDeposit || null,
+    closingBalance,
+    "",
+    ""
+  ]);
+  applyTotalRow(tRow);
+  if (totalWithdrawal > 0) tRow.getCell(5).font = { bold: true, color: { argb: C.redFg } };
+  if (totalDeposit > 0) tRow.getCell(6).font = { bold: true, color: { argb: C.greenFg } };
+  tRow.getCell(7).font = { bold: true, color: { argb: closingBalance < 0 ? C.redFg : C.totalFg } };
+
+  for (const c of [5, 6, 7]) {
+    sheet.getColumn(c).numFmt = '#,##0.00';
+  }
+
+  autoWidth(sheet, 7);
+  sheet.getColumn(1).width = 8;
+  sheet.getColumn(2).width = 22;
+  sheet.getColumn(3).width = 12;
+  sheet.getColumn(4).width = 38;
+  sheet.getColumn(5).width = 18;
+  sheet.getColumn(6).width = 18;
+  sheet.getColumn(7).width = 20;
+  sheet.getColumn(8).width = 24;
+  sheet.getColumn(9).width = 18;
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  link.href = url;
+  const safeAccountName = params.accountLabel.replace(/\s+/g, "_");
+  const safeCompanyName = params.companyName.replace(/\s+/g, "_");
+  link.download = `${safeCompanyName}_${safeAccountName}_Book_${dateStr}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }

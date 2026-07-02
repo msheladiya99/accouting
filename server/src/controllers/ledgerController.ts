@@ -631,8 +631,22 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
     });
 
     if (journalEntryCount > 0) {
+      const firstEntry = await JournalEntry.findOne({
+        companyId: companyIdFilter,
+        $or: [
+          { debitAccount:  { $regex: ledgerNamePattern } },
+          { creditAccount: { $regex: ledgerNamePattern } },
+          { "items.accountName": { $regex: ledgerNamePattern } }
+        ]
+      });
+      const fy = firstEntry ? await FinancialYear.findOne({
+        companyId: req.companyId,
+        startDate: { $lte: firstEntry.date },
+        endDate: { $gte: firstEntry.date }
+      }) : null;
+      const fyLabel = fy ? ` (${fy.label})` : "";
       res.status(400).json({
-        message: `Cannot delete "${ledger.ledgerName}" — it has ${journalEntryCount} journal entr${journalEntryCount === 1 ? "y" : "ies"}. Remove all entries before deleting.`
+        message: `Cannot delete "${ledger.ledgerName}" — it has journal entries in${fyLabel}. Remove all entries before deleting.`
       });
       return;
     }
@@ -645,8 +659,18 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
     });
 
     if (bankCashEntryCount > 0) {
+      const firstEntry = await BankCashEntry.findOne({
+        companyId: companyIdFilter,
+        contraAccountName: { $regex: ledgerNamePattern }
+      });
+      const fy = firstEntry ? await FinancialYear.findOne({
+        companyId: req.companyId,
+        startDate: { $lte: firstEntry.date },
+        endDate: { $gte: firstEntry.date }
+      }) : null;
+      const fyLabel = fy ? ` (${fy.label})` : "";
       res.status(400).json({
-        message: `Cannot delete "${ledger.ledgerName}" — it has ${bankCashEntryCount} bank/cash entr${bankCashEntryCount === 1 ? "y" : "ies"}. Remove all entries before deleting.`
+        message: `Cannot delete "${ledger.ledgerName}" — it has bank/cash entries in${fyLabel}. Remove all entries before deleting.`
       });
       return;
     }
@@ -662,8 +686,18 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
         companyId: companyIdFilter
       });
       if (accountEntryCount > 0) {
+        const firstEntry = await BankCashEntry.findOne({
+          accountId: account._id.toString(),
+          companyId: companyIdFilter
+        });
+        const fy = firstEntry ? await FinancialYear.findOne({
+          companyId: req.companyId,
+          startDate: { $lte: firstEntry.date },
+          endDate: { $gte: firstEntry.date }
+        }) : null;
+        const fyLabel = fy ? ` (${fy.label})` : "";
         res.status(400).json({
-          message: `Cannot delete "${ledger.ledgerName}" — it has ${accountEntryCount} bank/cash entr${accountEntryCount === 1 ? "y" : "ies"}. Remove all entries before deleting.`
+          message: `Cannot delete "${ledger.ledgerName}" — it has bank/cash entries in${fyLabel}. Remove all entries before deleting.`
         });
         return;
       }
@@ -703,7 +737,7 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
       const escapedName = escapeRegExp(ledger.ledgerName.trim());
       const namePattern = new RegExp(`^${escapedName}$`, "i");
 
-      const jCount = await JournalEntry.countDocuments({
+      const firstEntry = await JournalEntry.findOne({
         companyId: companyIdFilter,
         $or: [
           { debitAccount:  { $regex: namePattern } },
@@ -712,18 +746,28 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
         ]
       });
 
-      if (jCount > 0) {
-        blockedLedgers.push(ledger.ledgerName);
+      if (firstEntry) {
+        const fy = await FinancialYear.findOne({
+          companyId: req.companyId,
+          startDate: { $lte: firstEntry.date },
+          endDate: { $gte: firstEntry.date }
+        });
+        blockedLedgers.push(`${ledger.ledgerName} (has entries in ${fy ? fy.label : "another year"})`);
         continue;
       }
 
-      const contraCount = await BankCashEntry.countDocuments({
+      const firstBankEntry = await BankCashEntry.findOne({
         companyId: companyIdFilter,
         contraAccountName: { $regex: namePattern }
       });
 
-      if (contraCount > 0) {
-        blockedLedgers.push(ledger.ledgerName);
+      if (firstBankEntry) {
+        const fy = await FinancialYear.findOne({
+          companyId: req.companyId,
+          startDate: { $lte: firstBankEntry.date },
+          endDate: { $gte: firstBankEntry.date }
+        });
+        blockedLedgers.push(`${ledger.ledgerName} (has entries in ${fy ? fy.label : "another year"})`);
         continue;
       }
 
@@ -733,12 +777,17 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
         companyId: req.companyId
       });
       if (account) {
-        const accCount = await BankCashEntry.countDocuments({
+        const firstAccEntry = await BankCashEntry.findOne({
           accountId: account._id.toString(),
           companyId: companyIdFilter
         });
-        if (accCount > 0) {
-          blockedLedgers.push(ledger.ledgerName);
+        if (firstAccEntry) {
+          const fy = await FinancialYear.findOne({
+            companyId: req.companyId,
+            startDate: { $lte: firstAccEntry.date },
+            endDate: { $gte: firstAccEntry.date }
+          });
+          blockedLedgers.push(`${ledger.ledgerName} (has entries in ${fy ? fy.label : "another year"})`);
           continue;
         }
       }

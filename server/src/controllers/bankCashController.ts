@@ -595,7 +595,7 @@ export async function bulkApproveEntries(req: AuthenticatedRequest, res: Respons
     }
     const result = await BankCashEntry.updateMany(
       { _id: { $in: ids }, companyId: req.companyId },
-      { $set: { isChanged: false } }
+      { $set: { isChanged: true } }
     );
     res.json({ message: `Successfully approved ${result.modifiedCount} entries`, approvedCount: result.modifiedCount });
   } catch (error: any) {

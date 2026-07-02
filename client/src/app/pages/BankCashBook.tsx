@@ -1610,6 +1610,7 @@ export default function BankCashBook() {
   const [search,          setSearch]          = useState("");
   const [modal,           setModal]           = useState<{ entry?: BankCashRow } | null>(null);
   const [showImport,      setShowImport]      = useState(false);
+  const [isDirectImport,  setIsDirectImport]  = useState(false);
   const [showCreateAccModal, setShowCreateAccModal] = useState(false);
   const [creatingAcc, setCreatingAcc]               = useState(false);
   const [groupNames,      setGroupNames]      = useState<string[]>([]);
@@ -2124,9 +2125,15 @@ export default function BankCashBook() {
             className="p-2 border border-slate-200 bg-white rounded-lg text-slate-500 hover:bg-slate-50 transition-colors">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
-          <button onClick={() => setShowImport(true)}
+          <button onClick={() => { setShowImport(true); setIsDirectImport(false); }}
             className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm">
             <Upload size={14} /> Bank Import
+          </button>
+          <button onClick={() => { setShowImport(true); setIsDirectImport(true); }}
+            className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm"
+            title="Import Excel exported entries directly without AI"
+          >
+            <Upload size={14} /> Direct Import
           </button>
           <button
             onClick={handleExport}
@@ -2431,6 +2438,7 @@ export default function BankCashBook() {
           <div className="overflow-y-auto flex-1 pb-6">
             <BankImport
               onClose={() => setShowImport(false)}
+              isDirectImport={isDirectImport}
               onImportComplete={async () => {
                 setShowImport(false);
                 // Reload accounts first (new account may have been auto-created)

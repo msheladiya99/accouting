@@ -17,6 +17,7 @@ import {
   detectBankNameFromText, extractPDFText,
   SAMPLE_TRANSACTIONS,
   type ImportRow, type RawTransaction,
+  parseExcelDirect,
 } from "../api/bankImportApi";
 import { LEDGER_GROUPS } from "../api/ledgerApi";
 import { getAllAccounts, createAccount, type BankCashAccount } from "../api/bankCashBookApi";
@@ -117,22 +118,33 @@ const GroupCellEditor = forwardRef(function GroupCellEditor(props: any, ref) {
 // ── Step indicator ────────────────────────────────────────────────────────────
 const STEPS = ["Upload File", "AI Processing", "Preview & Edit", "Import Done"];
 
-function StepBar({ step }: { step: number }) {
+function StepBar({ step, isDirectImport }: { step: number; isDirectImport?: boolean }) {
+  const steps = isDirectImport
+    ? ["Upload File", "Preview & Edit", "Import Done"]
+    : ["Upload File", "AI Processing", "Preview & Edit", "Import Done"];
+
   return (
     <div className="flex items-center gap-1 flex-wrap">
-      {STEPS.map((s, i) => (
-        <div key={s} className="flex items-center gap-1">
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            step === i ? "bg-indigo-600 text-white" :
-            step > i  ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
-            "bg-white text-slate-400 border border-slate-200"
-          }`}>
-            {step > i ? <CheckCircle2 size={12} /> : <span className="w-4 text-center">{i + 1}</span>}
-            {s}
+      {steps.map((s, i) => {
+        const internalStep = isDirectImport
+          ? (i === 0 ? 0 : i === 1 ? 2 : 3)
+          : i;
+        const isActive = step === internalStep;
+        const isCompleted = step > internalStep;
+        return (
+          <div key={s} className="flex items-center gap-1">
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              isActive  ? "bg-indigo-600 text-white" :
+              isCompleted ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
+              "bg-white text-slate-400 border border-slate-200"
+            }`}>
+              {isCompleted ? <CheckCircle2 size={12} /> : <span className="w-4 text-center">{i + 1}</span>}
+              {s}
+            </div>
+            {i < steps.length - 1 && <ChevronRight size={14} className="text-slate-300 flex-shrink-0" />}
           </div>
-          {i < STEPS.length - 1 && <ChevronRight size={14} className="text-slate-300 flex-shrink-0" />}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -140,7 +152,15 @@ function StepBar({ step }: { step: number }) {
 
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-export default function BankImport({ onClose, onImportComplete }: { onClose?: () => void; onImportComplete?: () => void } = {}) {
+export default function BankImport({
+  onClose,
+  onImportComplete,
+  isDirectImport = false,
+}: {
+  onClose?: () => void;
+  onImportComplete?: () => void;
+  isDirectImport?: boolean;
+} = {}) {
   const [step, setStep]         = useState(0);
   const [dragging, setDragging] = useState(false);
   const [file, setFile]         = useState<File | null>(null);
@@ -218,13 +238,20 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
   // ── Accept file ──────────────────────────────────────────────────────────
   const acceptFile = useCallback((f: File) => {
     const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!["xlsx", "xls", "pdf", "png", "jpg", "jpeg", "webp"].includes(ext)) {
-      toast.error("Only Excel (.xlsx/.xls), PDF, or image files (PNG, JPG, JPEG, WebP) are supported");
-      return;
+    if (isDirectImport) {
+      if (!["xlsx", "xls"].includes(ext)) {
+        toast.error("Direct Import only supports Excel (.xlsx / .xls) files");
+        return;
+      }
+    } else {
+      if (!["xlsx", "xls", "pdf", "png", "jpg", "jpeg", "webp"].includes(ext)) {
+        toast.error("Only Excel (.xlsx/.xls), PDF, or image files (PNG, JPG, JPEG, WebP) are supported");
+        return;
+      }
     }
     setFile(f);
     setParseError(null);
-  }, []);
+  }, [isDirectImport]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -293,37 +320,51 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     try {
       const ext  = f.name.split(".").pop()?.toLowerCase() ?? "";
       let txns: RawTransaction[] = [];
+      let directRows: ImportRow[] = [];
       let parsedBankName = "";
 
-      if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
-        const res = await parseStatementWithAI(f);
-        txns = res.transactions;
-        parsedBankName = res.bankName;
-      } else if (ext === "pdf") {
-        // Always use local parser for PDFs — AI hallucinated and duplicated entries.
-        // extractPDFText deduplicates lines across pages, giving correct transaction counts.
-        const rawText = await extractPDFText(f);
-        txns = await parsePDF(f);
-        parsedBankName = detectBankNameFromText(rawText);
+      if (isDirectImport) {
+        directRows = await parseExcelDirect(f);
       } else {
-        txns = await parseExcel(f);
+        if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
+          const res = await parseStatementWithAI(f);
+          txns = res.transactions;
+          parsedBankName = res.bankName;
+        } else if (ext === "pdf") {
+          // Always use local parser for PDFs — AI hallucinated and duplicated entries.
+          // extractPDFText deduplicates lines across pages, giving correct transaction counts.
+          const rawText = await extractPDFText(f);
+          txns = await parsePDF(f);
+          parsedBankName = detectBankNameFromText(rawText);
+        } else {
+          txns = await parseExcel(f);
+        }
       }
 
-      if (txns.length === 0) {
-        setParseError("No transactions found. Check that the statement is clear and has valid headers.");
-        return;
+      if (isDirectImport) {
+        if (directRows.length === 0) {
+          setParseError("No transactions found. Ensure the Excel file contains valid transaction rows with Date, Narration/Particulars, and Withdrawal/Deposit columns.");
+          return;
+        }
+      } else {
+        if (txns.length === 0) {
+          setParseError("No transactions found. Check that the statement is clear and has valid headers.");
+          return;
+        }
       }
 
-      // ── Deduplicate: remove repeated rows (page headers/footers repeated by AI) ──
-      const beforeCount = txns.length;
-      txns = deduplicateTransactions(txns);
-      const dupsRemoved = beforeCount - txns.length;
-      if (dupsRemoved > 0) {
-        console.info(`[BankImport] Removed ${dupsRemoved} duplicate rows (${beforeCount} → ${txns.length})`);
+      if (!isDirectImport) {
+        // ── Deduplicate: remove repeated rows (page headers/footers repeated by AI) ──
+        const beforeCount = txns.length;
+        txns = deduplicateTransactions(txns);
+        const dupsRemoved = beforeCount - txns.length;
+        if (dupsRemoved > 0) {
+          console.info(`[BankImport] Removed ${dupsRemoved} duplicate rows (${beforeCount} → ${txns.length})`);
+        }
       }
 
       let initialBal = 0;
-      if (parsedBankName) {
+      if (!isDirectImport && parsedBankName) {
         setDetectedBankName(parsedBankName);
         const matched = accounts.find(
           (acc) => acc.name.trim().toLowerCase() === parsedBankName.trim().toLowerCase()
@@ -338,8 +379,8 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
         }
       }
 
-      const cleanTxns = txns.filter((t) => !isOpeningBalRow(t.narration));
-      const prepared = toImportRows(cleanTxns);
+      const cleanTxns = isDirectImport ? [] : txns.filter((t) => !isOpeningBalRow(t.narration));
+      const prepared = isDirectImport ? directRows : toImportRows(cleanTxns);
       const firstTxnDate = prepared[0]?.date || new Date().toISOString().slice(0, 10);
       const opRow: ImportRow = {
         id: uid(),
@@ -353,14 +394,20 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       };
       prepared.unshift(opRow);
       setRows(prepared);
-      setStep(1);
-      await runAI(prepared);
+
+      if (isDirectImport) {
+        setStep(2);
+        toast.success(`Successfully parsed ${directRows.length} transactions for direct import`);
+      } else {
+        setStep(1);
+        await runAI(prepared);
+      }
     } catch (err: any) {
       setParseError(err?.message ?? "Failed to parse file");
     } finally {
       setParsing(false);
     }
-  }, [runAI, accounts]);
+  }, [runAI, accounts, isDirectImport]);
 
   // ── Create Account ────────────────────────────────────────────────────────
   const handleCreateAccount = useCallback(async () => {
@@ -427,27 +474,36 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
-    if (!selectedAccountId) {
-      toast.error("Please select a target Bank/Cash account first");
-      return;
-    }
-    if (selectedAccountId === "auto-create" && !detectedBankName.trim()) {
-      toast.error("A bank name is required to auto-create a bank account. Please select an existing bank account or enter a name.");
-      return;
-    }
     const activeTxns = rows.filter((r) => !isOpeningBalRow(r.narration));
+
+    // In Direct Import mode, rows carry their own bankName — no global account needed
+    const allRowsHaveBankName = isDirectImport && activeTxns.every((r) => r.bankName && r.bankName.trim());
+
+    if (!allRowsHaveBankName) {
+      if (!selectedAccountId) {
+        toast.error("Please select a target Bank/Cash account first");
+        return;
+      }
+      if (selectedAccountId === "auto-create" && !detectedBankName.trim()) {
+        toast.error("A bank name is required to auto-create a bank account. Please select an existing bank account or enter a name.");
+        return;
+      }
+    }
+
     const incomplete = activeTxns.filter((r) => !r.aiAccountName.trim() || !r.aiAccountGroup.trim());
     if (incomplete.length > 0) {
       toast.error(`${incomplete.length} rows still need Account Name and Group`);
       return;
     }
 
-    const selectedAccount = accounts.find((a) => a._id === selectedAccountId);
-    const targetAccountName = (selectedAccount ? selectedAccount.name : detectedBankName || "").trim().toLowerCase();
-    const sameAccountRow = activeTxns.find((r) => r.aiAccountName.trim().toLowerCase() === targetAccountName);
-    if (sameAccountRow) {
-      toast.error(`Contra account cannot be the same as the destination Bank/Cash account: "${sameAccountRow.aiAccountName}"`);
-      return;
+    if (!allRowsHaveBankName) {
+      const selectedAccount = accounts.find((a) => a._id === selectedAccountId);
+      const targetAccountName = (selectedAccount ? selectedAccount.name : detectedBankName || "").trim().toLowerCase();
+      const sameAccountRow = activeTxns.find((r) => r.aiAccountName.trim().toLowerCase() === targetAccountName);
+      if (sameAccountRow) {
+        toast.error(`Contra account cannot be the same as the destination Bank/Cash account: "${sameAccountRow.aiAccountName}"`);
+        return;
+      }
     }
 
     setSavingTxns(true);
@@ -457,7 +513,11 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
         ? (firstOpRow.deposit || 0) - (firstOpRow.withdrawal || 0)
         : 0;
 
-      await saveImportedTransactions(activeTxns, selectedAccountId, detectedBankName, opBal);
+      // For Direct Import with per-row bankNames, pass accountId as "direct-import" so the server
+      // knows to rely entirely on row.bankName for each entry
+      const effectiveAccountId = allRowsHaveBankName ? "direct-import" : selectedAccountId;
+
+      await saveImportedTransactions(activeTxns, effectiveAccountId, detectedBankName, opBal);
       setStep(3);
       toast.success(`${activeTxns.length} transactions saved`);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
@@ -466,7 +526,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     } finally {
       setSavingTxns(false);
     }
-  }, [rows, selectedAccountId, detectedBankName]);
+  }, [rows, selectedAccountId, detectedBankName, accounts, isDirectImport]);
 
 
   // ── Delete row ────────────────────────────────────────────────────────────
@@ -605,7 +665,10 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
       colId: "bankName",
       filter: "agTextColumnFilter",
       floatingFilter: true,
-      valueGetter: () => {
+      valueGetter: (p) => {
+        if (p.data?.bankName) {
+          return p.data.bankName;
+        }
         if (selectedAccountId === "auto-create") {
           return detectedBankName || "Auto-detecting...";
         }
@@ -758,13 +821,15 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
     <div className="p-4 lg:p-6 space-y-5">
       {/* Header */}
       <div>
-        <h1 className="text-slate-900">AI Bank Statement Import</h1>
+        <h1 className="text-slate-900">{isDirectImport ? "Direct / Bulk Import" : "AI Bank Statement Import"}</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Upload Excel, PDF, or Images · OpenRouter AI suggests account mapping automatically
+          {isDirectImport
+            ? "Upload an Excel file to import transactions directly with predefined account mapping"
+            : "Upload Excel, PDF, or Images · OpenRouter AI suggests account mapping automatically"}
         </p>
       </div>
 
-      <StepBar step={step} />
+      <StepBar step={step} isDirectImport={isDirectImport} />
 
       {/* ── Step 0: Upload ─────────────────────────────────────────────────── */}
       {step === 0 && (
@@ -883,10 +948,14 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
             <h3 className="text-slate-800">Drop your bank statement here</h3>
             <p className="text-sm text-slate-500 mt-1 mb-5">
               <span className="font-medium text-emerald-700">Excel (.xlsx / .xls)</span>
-              {", "}
-              <span className="font-medium text-red-600">PDF</span>
-              {", or "}
-              <span className="font-medium text-indigo-600">Image (PNG, JPG, WebP)</span>
+              {!isDirectImport && (
+                <>
+                  {", "}
+                  <span className="font-medium text-red-600">PDF</span>
+                  {", or "}
+                  <span className="font-medium text-indigo-600">Image (PNG, JPG, WebP)</span>
+                </>
+              )}
               {" · Max 20 MB"}
             </p>
             <div className="flex items-center justify-center gap-3 flex-wrap">
@@ -894,14 +963,18 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
                 <FileSpreadsheet size={15} /> Choose Excel
                 <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileInput} />
               </label>
-              <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors cursor-pointer">
-                <FileText size={15} /> Choose PDF
-                <input type="file" accept=".pdf" className="hidden" onChange={handleFileInput} />
-              </label>
-              <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
-                <Image size={15} /> Choose Image
-                <input type="file" accept="image/*" className="hidden" onChange={handleFileInput} />
-              </label>
+              {!isDirectImport && (
+                <>
+                  <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors cursor-pointer">
+                    <FileText size={15} /> Choose PDF
+                    <input type="file" accept=".pdf" className="hidden" onChange={handleFileInput} />
+                  </label>
+                  <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
+                    <Image size={15} /> Choose Image
+                    <input type="file" accept="image/*" className="hidden" onChange={handleFileInput} />
+                  </label>
+                </>
+              )}
             </div>
           </div>
 
@@ -914,8 +987,12 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
               {[
                 ["Date",       "date, txn date, value date"],
                 ["Narration",  "narration, description, particulars"],
-                ["Withdrawal", "debit, withdrawal, dr"],
-                ["Deposit",    "credit, deposit, cr"],
+                ["Withdrawal", "debit, withdrawal, dr, withdrawals/payment"],
+                ["Deposit",    "credit, deposit, cr, deposit/receipt"],
+                ...(isDirectImport ? [
+                  ["Account Name", "account name, contra account"],
+                  ["Account Group", "account group name, contra group"]
+                ] : [])
               ].map(([f, s]) => (
                 <p key={f} className="text-xs">
                   <span className="font-medium text-slate-700">{f}</span>
@@ -940,8 +1017,8 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
                 disabled={parsing}
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors disabled:opacity-60"
               >
-                {parsing ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                {parsing ? "Parsing…" : "Parse & Analyse"}
+                {parsing ? <RefreshCw size={14} className="animate-spin" /> : isDirectImport ? <FileSpreadsheet size={14} /> : <Sparkles size={14} />}
+                {parsing ? "Parsing…" : isDirectImport ? "Parse Excel" : "Parse & Analyse"}
               </button>
             </div>
           )}
@@ -954,15 +1031,19 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
           )}
 
           {/* Sample data */}
-          <div className="flex items-center gap-3 text-sm text-slate-400">
-            <div className="flex-1 h-px bg-slate-200" /> or try sample <div className="flex-1 h-px bg-slate-200" />
-          </div>
-          <button
-            onClick={loadSample}
-            className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
-          >
-            <Eye size={15} /> Use Sample HDFC Statement (18 transactions)
-          </button>
+          {!isDirectImport && (
+            <>
+              <div className="flex items-center gap-3 text-sm text-slate-400">
+                <div className="flex-1 h-px bg-slate-200" /> or try sample <div className="flex-1 h-px bg-slate-200" />
+              </div>
+              <button
+                onClick={loadSample}
+                className="w-full py-3 border-2 border-dashed border-slate-300 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
+              >
+                <Eye size={15} /> Use Sample HDFC Statement (18 transactions)
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -1324,7 +1405,7 @@ export default function BankImport({ onClose, onImportComplete }: { onClose?: ()
             </div>
             <h2 className="text-slate-900">Import Successful!</h2>
             <p className="text-slate-500 text-sm mt-2">
-              <span className="font-semibold text-slate-700">{rows.length} transactions</span> saved with AI-suggested account mappings.
+              <span className="font-semibold text-slate-700">{rows.length} transactions</span> {isDirectImport ? "saved successfully." : "saved with AI-suggested account mappings."}
             </p>
             <div className="grid grid-cols-2 gap-3 mt-6 mb-6">
               <div className="bg-emerald-50 rounded-xl p-4">

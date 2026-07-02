@@ -1678,7 +1678,7 @@ export default function BankCashBook() {
 
   const clearFilters = useCallback(() => {
     setSearch("");
-    setColFilters({
+    setColFilters((prev) => ({
       srNo: "",
       accountName: "",
       date: "",
@@ -1688,8 +1688,8 @@ export default function BankCashBook() {
       balance: "",
       contraAccountName: "",
       contraAccountGroup: "",
-      modified: "",
-    });
+      modified: prev.modified,
+    }));
   }, []);
 
   useEffect(() => {

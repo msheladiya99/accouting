@@ -1693,6 +1693,7 @@ export default function BankCashBook() {
   }, []);
 
   useEffect(() => {
+    setSelectedIds(new Set());
     setColFilters({
       srNo: "",
       accountName: "",

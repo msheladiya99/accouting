@@ -108,7 +108,7 @@ async function runMigration() {
           "Fixed Assets", "Investments", "Current Assets", "Cash Ledger A/C.", "Stock-in-hand",
           "Suspense Account", "Misc. Expenses (Asset)", "Sales Account", "Purchase Account",
           "Income (Trading)", "Income", "Income (Other Then Sales)", "Expenses (Direct)",
-          "Expense Account", "Partner Interest", "Partner Remuneration"
+          "Expense Account", "Partner Interest", "Partner Remuneration", "Trading Account"
         ];
         const matchedSuper = standardSuperGroups.find(
           (s) => s.toLowerCase() === (oldSuper || "").trim().toLowerCase()

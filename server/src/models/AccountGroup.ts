@@ -27,7 +27,8 @@ const accountGroupSchema = new Schema(
         "Expenses (Direct)",
         "Expense Account",
         "Partner Interest",
-        "Partner Remuneration"
+        "Partner Remuneration",
+        "Trading Account"
       ]
     }
   },

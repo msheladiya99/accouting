@@ -32,7 +32,8 @@ const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" |
   "Expenses (Direct)": "Expense",
   "Expense Account": "Expense",
   "Partner Interest": "Expense",
-  "Partner Remuneration": "Expense"
+  "Partner Remuneration": "Expense",
+  "Trading Account": "Income"
 };
 
 async function getCalculatedLedgerBalances(

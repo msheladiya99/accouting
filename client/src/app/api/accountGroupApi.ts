@@ -20,7 +20,8 @@ export const SUPER_GROUPS = [
   "Expenses (Direct)",
   "Expense Account",
   "Partner Interest",
-  "Partner Remuneration"
+  "Partner Remuneration",
+  "Trading Account"
 ] as const;
 
 export type SuperGroup = typeof SUPER_GROUPS[number];

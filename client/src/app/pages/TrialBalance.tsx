@@ -21,7 +21,7 @@ import { EntryModal } from "./BankCashBook";
 import { JournalModal } from "./JournalVoucher";
 import { SmartDateInput } from "../components/ui/SmartDateInput";
 import { parseSmartDate } from "../utils/dateUtils";
-import { exportTrialBalanceDirect } from "../api/exportApi";
+import { exportTrialBalanceDirect, exportLedgerStatementDirect } from "../api/exportApi";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -413,13 +413,16 @@ export function LedgerStatementModal({
   ledgerName: string;
   onClose: () => void;
 }) {
-  const { selectedFY, sidebarCollapsed } = useApp();
+  const { selectedFY, sidebarCollapsed, company } = useApp();
   const [statement, setStatement] = useState<LedgerStatement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showJVForm, setShowJVForm] = useState(false);
   const [allLedgers, setAllLedgers] = useState<Ledger[]>([]);
+  const [exporting, setExporting] = useState(false);
+
+
 
   // Editing and selection states
   const [editingRow, setEditingRow] = useState<LedgerStatementRow | null>(null);
@@ -582,6 +585,145 @@ export function LedgerStatementModal({
   const totalCredit = useMemo(() => filtered.reduce((s, r) => s + r.credit, 0), [filtered]);
   const c = GROUP_COLORS[statement?.groupName ?? ""] ?? { bg: "bg-slate-100", text: "text-slate-600" };
 
+  const triggerPrint = useCallback((saveAsPDF = false) => {
+    if (!statement) {
+      toast.error("No data to print.");
+      return;
+    }
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Failed to open print window. Please allow popups.");
+      return;
+    }
+
+    const rowsHtml = filtered.map((r, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${fmtMiracleDate(r.date)}</td>
+        <td>${r.voucherType}</td>
+        <td>${r.voucherNo || "—"}</td>
+        <td class="font-bold">
+          <div>${r.accountName || "—"}</div>
+          ${r.particulars && r.particulars !== r.accountName ? `<div style="font-size: 9px; color: #64748b; margin-top: 2px;">${r.particulars}</div>` : ""}
+        </td>
+        <td class="text-right" style="color: #059669;">${r.debit > 0 ? `₹${r.debit.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right" style="color: #dc2626;">${r.credit > 0 ? `₹${r.credit.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right font-bold">${r.balance === 0 ? "NIL" : `₹${Math.abs(r.balance).toLocaleString("en-IN")} ${r.balance >= 0 ? "DB" : "CR"}`}</td>
+      </tr>
+    `).join("");
+
+    const totalsHtml = `
+      <tr class="font-bold bg-slate-100" style="background-color: #f1f5f9; border-top: 2px solid #94a3b8;">
+        <td colspan="5">TOTAL</td>
+        <td class="text-right" style="color: #059669;">${totalDebit > 0 ? `₹${totalDebit.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right" style="color: #dc2626;">${totalCredit > 0 ? `₹${totalCredit.toLocaleString("en-IN")}` : "—"}</td>
+        <td></td>
+      </tr>
+    `;
+
+    const closingBal = statement.openingBalance + totalDebit - totalCredit;
+    const closingHtml = `
+      <tr class="font-bold bg-slate-100" style="background-color: #e2e8f0; border-top: 2px solid #94a3b8; border-bottom: 2px solid #94a3b8;">
+        <td colspan="7">CLOSING BALANCE</td>
+        <td class="text-right font-bold" style="color: ${closingBal >= 0 ? '#059669' : '#dc2626'}">${closingBal === 0 ? "NIL" : `₹${Math.abs(closingBal).toLocaleString("en-IN")} ${closingBal >= 0 ? "DB" : "CR"}`}</td>
+      </tr>
+    `;
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${ledgerName} Statement</title>
+          <style>
+            @page { size: A4 portrait; margin: 10mm; }
+            body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; color: #1e293b; }
+            h1 { font-size: 20px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px; }
+            .address { font-size: 11px; color: #64748b; margin-bottom: 12px; text-transform: uppercase; }
+            .title { font-size: 13px; font-weight: bold; margin-bottom: 20px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px 12px; font-size: 11px; text-align: left; }
+            th { background-color: #f8fafc; font-weight: bold; }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: bold; }
+            .bg-slate-100 { background-color: #f1f5f9; }
+          </style>
+        </head>
+        <body>
+          <h1>${company?.name || "XYZ COMPANY"}</h1>
+          <div class="address">${company?.address || "Company Address"}</div>
+          <div class="title">ACCOUNT STATEMENT · LEDGER: ${ledgerName.toUpperCase()} (${statement.groupName}) · FY ${selectedFY?.label || "FY"}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Vou/Doc No.</th>
+                <th>Account Name / Particulars</th>
+                <th class="text-right">Debit</th>
+                <th class="text-right">Credit</th>
+                <th class="text-right">Closing Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Opening Balance Row -->
+              <tr>
+                <td>—</td>
+                <td>—</td>
+                <td>—</td>
+                <td>—</td>
+                <td class="font-bold">Opening Balance</td>
+                <td class="text-right">${statement.openingBalance > 0 ? `₹${statement.openingBalance.toLocaleString("en-IN")}` : "NIL"}</td>
+                <td class="text-right">${statement.openingBalance < 0 ? `₹${Math.abs(statement.openingBalance).toLocaleString("en-IN")}` : "NIL"}</td>
+                <td class="text-right font-bold">${fmtMiracleSigned(statement.openingBalance)}</td>
+              </tr>
+              ${rowsHtml}
+              ${totalsHtml}
+              ${closingHtml}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+
+    if (saveAsPDF) {
+      toast("In the print dialog, choose \"Save as PDF\" as the destination.", {
+        icon: "📄",
+        duration: 5000,
+      });
+    }
+
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 350);
+  }, [statement, filtered, totalDebit, totalCredit, company, selectedFY, ledgerName]);
+
+  const triggerExport = useCallback(async () => {
+    if (!statement) {
+      toast.error("No data to export.");
+      return;
+    }
+    setExporting(true);
+    try {
+      await exportLedgerStatementDirect(ledgerName, statement.groupName, statement.openingBalance, filtered, {
+        companyName: company?.name || "Company",
+        companyAddress: company?.address || "",
+        fyLabel: selectedFY?.label || "FY",
+        dateFrom: selectedFY?.startDate || "",
+        dateTo: selectedFY?.endDate || "",
+      });
+      toast.success(`${ledgerName} Statement exported to Excel!`);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to export Excel.");
+    } finally {
+      setExporting(false);
+    }
+  }, [statement, filtered, company, selectedFY, ledgerName]);
+
   return (
     /* Overlay */
     <div
@@ -661,15 +803,39 @@ export function LedgerStatementModal({
               className="bg-transparent text-xs outline-none text-slate-700 placeholder-slate-400 w-full"
             />
           </div>
-          {selectedRows.size > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {selectedRows.size > 0 && (
+              <button
+                onClick={handleBulkDelete}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer mr-2"
+              >
+                <Trash2 size={13} />
+                Delete Selected ({selectedRows.size})
+              </button>
+            )}
             <button
-              onClick={handleBulkDelete}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg transition-colors shadow-sm cursor-pointer"
+              onClick={() => triggerPrint(false)}
+              disabled={!statement || loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer disabled:opacity-40"
             >
-              <Trash2 size={13} />
-              Delete Selected ({selectedRows.size})
+              <Printer size={13} /> Print
             </button>
-          )}
+            <button
+              onClick={() => triggerPrint(true)}
+              disabled={!statement || loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer disabled:opacity-40"
+            >
+              <Download size={13} /> Export PDF
+            </button>
+            <button
+              onClick={triggerExport}
+              disabled={!statement || loading || exporting}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-bold rounded-lg shadow-sm transition-all cursor-pointer disabled:opacity-40"
+            >
+              {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+              Export Excel
+            </button>
+          </div>
         </div>
 
         {/* ── JV Entry Form ── */}

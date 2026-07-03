@@ -1,14 +1,17 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Download, Printer, TrendingUp, TrendingDown, Scale, RefreshCw,
-  CheckCircle2, AlertTriangle, BookOpen, ArrowLeftRight, FileText, X
+  CheckCircle2, AlertTriangle, BookOpen, ArrowLeftRight, FileText, X,
+  Loader2,
 } from "lucide-react";
+import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeBalanceSheet, BalanceSheetData, BSGroup, BSLedger } from "../api/balanceSheetApi";
 import { computeTrialBalance, TrialRow } from "../api/trialBalanceApi";
 import { fetchAccountingRawData } from "../api/accountingDataCache";
 import { LedgerStatementModal } from "./TrialBalance";
+import { exportBalanceSheetDirect } from "../api/exportApi";
 
 const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
   "Capital Account": "Capital",
@@ -594,6 +597,42 @@ export default function BalanceSheet() {
   const [error, setError]     = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedLedger, setSelectedLedger] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const printAreaRef = useRef<HTMLDivElement>(null);
+
+  const triggerExport = useCallback(async () => {
+    if (!data) {
+      toast.error("No data to export.");
+      return;
+    }
+    setExporting(true);
+    try {
+      await exportBalanceSheetDirect(data, {
+        companyName: company?.name || "Company",
+        companyAddress: company?.address || "",
+        fyLabel: financialYear,
+        dateFrom: selectedFY?.startDate || "",
+        dateTo: selectedFY?.endDate || "",
+      });
+      toast.success("Balance Sheet exported to Excel!");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to export Excel.");
+    } finally {
+      setExporting(false);
+    }
+  }, [data, company, financialYear, selectedFY]);
+
+  // ── Print / Export PDF ────────────────────────────────────────────────────
+  const triggerPrint = useCallback((saveAsPDF = false) => {
+    if (!data) {
+      toast.error("No data to print — please wait for the report to load.");
+      return;
+    }
+    // Import dynamically or use imported printElement helper
+    import("../utils/printUtils").then(({ printElement }) => {
+      printElement(printAreaRef.current, `${company?.name || "Company"} - Balance Sheet`, saveAsPDF);
+    });
+  }, [data, company]);
 
   const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>(
     cachedFYId === resolvedFYId ? cachedCapitalAccounts : []
@@ -750,11 +789,27 @@ export default function BalanceSheet() {
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
             {refreshing ? "Refreshing..." : "Refresh"}
           </button>
-          <button className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+          <button
+            onClick={() => triggerPrint(false)}
+            disabled={!data}
+            className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
+          >
             <Printer size={14} /> Print
           </button>
-          <button className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors">
+          <button
+            onClick={() => triggerPrint(true)}
+            disabled={!data || loading}
+            className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
+          >
             <Download size={14} /> Export PDF
+          </button>
+          <button
+            onClick={triggerExport}
+            disabled={!data || loading || exporting}
+            className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors disabled:opacity-40"
+          >
+            {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+            Export Excel
           </button>
         </div>
       </div>
@@ -777,8 +832,11 @@ export default function BalanceSheet() {
 
       {!loading && !error && data && (
         <>
-          {/* Balance banner */}
-          <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
+          {/* ── printable report wrapper ── */}
+          <div id="bs-print-area" ref={printAreaRef} className="space-y-5">
+
+          {/* Balance banner - hidden when printing */}
+          <div className={`no-print flex items-center gap-3 px-4 py-3 rounded-xl border ${
             displayedIsBalanced
               ? "bg-emerald-50 border-emerald-200 text-emerald-800"
               : "bg-red-50 border-red-200 text-red-800"
@@ -798,8 +856,8 @@ export default function BalanceSheet() {
             </span>
           </div>
 
-          {/* Summary cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Summary cards - hidden when printing */}
+          <div className="no-print grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-center gap-3">
               <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center shrink-0">
                 <TrendingUp size={18} className="text-blue-600" />
@@ -835,8 +893,8 @@ export default function BalanceSheet() {
             </div>
           </div>
 
-          {/* Source stats */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* Source stats - hidden when printing */}
+          <div className="no-print grid grid-cols-3 gap-3">
             {[
               { icon: BookOpen,       label: "Opening Ledgers",   value: data.stats.openingLedgers,  color: "text-blue-600",   bg: "bg-blue-50"   },
               { icon: ArrowLeftRight, label: "Bank/Cash Entries", value: data.stats.bankCashEntries, color: "text-sky-600",    bg: "bg-sky-50"    },
@@ -1430,6 +1488,7 @@ export default function BalanceSheet() {
               </span>
             </div>
           </div>
+          </div>{/* end bs-print-area */}
         </>
       )}
 

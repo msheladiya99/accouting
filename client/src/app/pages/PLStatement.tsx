@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   TrendingUp, TrendingDown, RefreshCw, Download, Printer,
   ChevronDown, ChevronRight, CheckCircle2, AlertTriangle,
-  ArrowLeftRight, FileText, Calendar, Banknote,
+  ArrowLeftRight, FileText, Calendar, Banknote, Loader2,
 } from "lucide-react";
+import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computePL, buildPresets, PLData, PLSection, DatePreset } from "../api/plStatementApi";
 import type { FinancialYear } from "../api/financialYearApi";
+import { exportPLDirect } from "../api/exportApi";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (v: number) =>
@@ -120,7 +122,7 @@ function ProfitLine({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function PLStatement() {
-  const { selectedFY, setSelectedFY, availableFYs } = useApp();
+  const { selectedFY, setSelectedFY, availableFYs, company } = useApp();
 
   const [activeFY, setActiveFY]   = useState<FinancialYear | undefined>(undefined);
   const [presets, setPresets]     = useState<DatePreset[]>([]);
@@ -133,6 +135,40 @@ export default function PLStatement() {
   const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError]         = useState<string | null>(null);
+  const printAreaRef              = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+
+  const triggerExport = useCallback(async () => {
+    if (!data) {
+      toast.error("No data to export.");
+      return;
+    }
+    setExporting(true);
+    try {
+      await exportPLDirect(data, {
+        companyName: company?.name || "Company",
+        companyAddress: company?.address || "",
+        fyLabel: selectedFY?.label || "FY",
+        dateFrom: dateFrom || "",
+        dateTo: dateTo || "",
+      });
+      toast.success("Profit & Loss Statement exported to Excel!");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to export Excel.");
+    } finally {
+      setExporting(false);
+    }
+  }, [data, company, selectedFY, dateFrom, dateTo]);
+
+  const triggerPrint = useCallback((saveAsPDF = false) => {
+    if (!data) {
+      toast.error("No data to print.");
+      return;
+    }
+    import("../utils/printUtils").then(({ printElement }) => {
+      printElement(printAreaRef.current, `${company?.name || "Company"} - P&L Statement`, saveAsPDF);
+    });
+  }, [data, company]);
 
   // Synchronize activeFY with global selectedFY
   useEffect(() => {
@@ -219,11 +255,27 @@ export default function PLStatement() {
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
-          <button className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+          <button
+            onClick={() => triggerPrint(false)}
+            disabled={!data || loading}
+            className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
+          >
             <Printer size={14} /> Print
           </button>
-          <button className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors">
-            <Download size={14} /> Export
+          <button
+            onClick={() => triggerPrint(true)}
+            disabled={!data || loading}
+            className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
+          >
+            <Download size={14} /> Export PDF
+          </button>
+          <button
+            onClick={triggerExport}
+            disabled={!data || loading || exporting}
+            className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors disabled:opacity-40"
+          >
+            {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+            Export Excel
           </button>
         </div>
       </div>
@@ -367,7 +419,7 @@ export default function PLStatement() {
           </div>
 
           {/* ── P&L Statement body ── */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+          <div ref={printAreaRef} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
             {/* Statement header */}
             <div className="bg-slate-800 text-white px-5 py-4 text-center">
               <p className="text-xs text-slate-400 uppercase tracking-widest">Profit & Loss Statement</p>

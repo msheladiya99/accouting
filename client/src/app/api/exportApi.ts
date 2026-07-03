@@ -997,3 +997,168 @@ export async function parseJVImportFile(file: File): Promise<JVImportVoucher[]> 
 
   return vouchers;
 }
+
+export async function exportTrialBalanceDirect(
+  data: Awaited<ReturnType<typeof computeTrialBalance>>,
+  params: ExportParams
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator  = params.companyName;
+  workbook.company  = params.companyName;
+  workbook.created  = new Date();
+  workbook.modified = new Date();
+
+  buildTrialBalance(workbook, data, params);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const link   = document.createElement("a");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  link.href     = url;
+  link.download = `${params.companyName.replace(/\s+/g, "_")}_Trial_Balance_${params.fyLabel.replace(/\s+/g, "_")}_${dateStr}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export async function exportBalanceSheetDirect(
+  data: Awaited<ReturnType<typeof computeBalanceSheet>>,
+  params: ExportParams
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator  = params.companyName;
+  workbook.company  = params.companyName;
+  workbook.created  = new Date();
+  workbook.modified = new Date();
+
+  buildBalanceSheetSheet(workbook, data, params);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const link   = document.createElement("a");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  link.href     = url;
+  link.download = `${params.companyName.replace(/\s+/g, "_")}_Balance_Sheet_${params.fyLabel.replace(/\s+/g, "_")}_${dateStr}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function buildPLSheet(
+  workbook: ExcelJS.Workbook,
+  data: any,
+  params: ExportParams
+) {
+  const sheet = workbook.addWorksheet("Profit & Loss", {
+    pageSetup: { paperSize: 9, orientation: "portrait" },
+  });
+  const colCount = 3;
+  const period = `${params.dateFrom} to ${params.dateTo}`;
+
+  addReportHeader(sheet, params.companyName, params.companyAddress, params.fyLabel, "Profit & Loss Statement", period, colCount);
+
+  const addHeader = (label: string, bg = C.sectionBg, fg = C.sectionFg) => {
+    const r = sheet.addRow([label, "", ""]);
+    sheet.mergeCells(`A${r.number}:C${r.number}`);
+    r.getCell(1).font = { bold: true, size: 11, color: { argb: fg } };
+    r.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+    r.height = 22;
+  };
+
+  const addRow = (ledgerName: string, amount: number, isSubtotal = false) => {
+    const r = sheet.addRow([ledgerName, "", amount]);
+    sheet.mergeCells(`A${r.number}:B${r.number}`);
+    if (isSubtotal) {
+      r.getCell(1).font = { bold: true, color: { argb: "FF374151" } };
+      r.getCell(3).font = { bold: true, color: { argb: "FF374151" } };
+      r.getCell(1).fill = r.getCell(3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } };
+    } else {
+      r.getCell(1).font = { color: { argb: "FF475569" } };
+      r.getCell(3).font = { color: { argb: amount >= 0 ? C.greenFg : C.redFg } };
+    }
+    r.getCell(3).alignment = { horizontal: "right" };
+    r.height = 18;
+  };
+
+  const addTotalLine = (label: string, amount: number, bg = C.totalBg, fg = C.totalFg) => {
+    const r = sheet.addRow([label, "", amount]);
+    sheet.mergeCells(`A${r.number}:B${r.number}`);
+    r.getCell(1).font = { bold: true, color: { argb: fg } };
+    r.getCell(3).font = { bold: true, color: { argb: fg } };
+    r.getCell(1).fill = r.getCell(3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+    r.getCell(3).alignment = { horizontal: "right" };
+    r.getCell(1).border = r.getCell(3).border = { top: { style: "medium", color: { argb: "FF818CF8" } } };
+    r.height = 24;
+  };
+
+  // 1. Income Section
+  addHeader("INCOME", "FF065F46", "FFFFFFFF");
+  sheet.addRow(["Sales Revenue (Direct)", "", ""]).getCell(1).font = { italic: true, color: { argb: C.grayFg } };
+  data.sales.entries.forEach((e: any) => addRow(e.ledgerName, e.amount));
+  addRow("Total Sales Revenue", data.sales.total, true);
+
+  sheet.addRow([]);
+
+  sheet.addRow(["Other Income (Indirect)", "", ""]).getCell(1).font = { italic: true, color: { argb: C.grayFg } };
+  data.otherIncome.entries.forEach((e: any) => addRow(e.ledgerName, e.amount));
+  addRow("Total Other Income", data.otherIncome.total, true);
+
+  sheet.addRow([]);
+  addTotalLine("TOTAL REVENUE (A)", data.totalIncome, "FFE6F4EA", "FF137333");
+
+  sheet.addRow([]);
+
+  // 2. Expenses Section
+  addHeader("EXPENSES", "FFB06000", "FFFFFFFF");
+  sheet.addRow(["Direct Expenses (Cost of Goods Sold)", "", ""]).getCell(1).font = { italic: true, color: { argb: C.grayFg } };
+  data.directExpenses.entries.forEach((e: any) => addRow(e.ledgerName, e.amount));
+  addRow("Total Direct Expenses", data.directExpenses.total, true);
+
+  sheet.addRow([]);
+  addTotalLine("GROSS PROFIT / LOSS (Sales - Direct Expenses)", data.grossProfit, data.grossProfit >= 0 ? "FFE6F4EA" : "FCE8E6", data.grossProfit >= 0 ? "FF137333" : "FFC5221F");
+
+  sheet.addRow([]);
+  sheet.addRow(["Indirect Expenses (Salaries, Rent & Admin)", "", ""]).getCell(1).font = { italic: true, color: { argb: C.grayFg } };
+  data.indirectExpenses.entries.forEach((e: any) => addRow(e.ledgerName, e.amount));
+  addRow("Total Indirect Expenses", data.indirectExpenses.total, true);
+
+  sheet.addRow([]);
+  addTotalLine("TOTAL EXPENSES (B)", data.totalExpenses, "FCE8E6", "FFC5221F");
+
+  sheet.addRow([]);
+  addTotalLine(data.isProfit ? "NET PROFIT (A - B + Other Income)" : "NET LOSS (A - B + Other Income)", data.netProfit, data.isProfit ? "FFD1FAE5" : "FFFEE2E2", data.isProfit ? C.greenFg : C.redFg);
+
+  sheet.getColumn(1).width = 45;
+  sheet.getColumn(2).width = 12;
+  sheet.getColumn(3).width = 22;
+  sheet.getColumn(3).numFmt = '₹#,##0.00';
+}
+
+export async function exportPLDirect(
+  data: any,
+  params: ExportParams
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator  = params.companyName;
+  workbook.company  = params.companyName;
+  workbook.created  = new Date();
+  workbook.modified = new Date();
+
+  buildPLSheet(workbook, data, params);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const link   = document.createElement("a");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  link.href     = url;
+  link.download = `${params.companyName.replace(/\s+/g, "_")}_PL_Statement_${params.fyLabel.replace(/\s+/g, "_")}_${dateStr}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}

@@ -5,7 +5,7 @@ import { useForm, Controller } from "react-hook-form";
 import {
   Plus, RefreshCw, Trash2, X, Save, Search,
   FileText, CheckCircle2, AlertTriangle, Loader2, Scale,
-  TrendingUp, TrendingDown, Hash, Download,
+  TrendingUp, TrendingDown, Hash, Download, Upload, FileSpreadsheet,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
@@ -18,6 +18,10 @@ import { getAllLedgers, type Ledger, LEDGER_GROUPS, createLedger } from "../api/
 import { SmartDateInput } from "../components/ui/SmartDateInput";
 import { parseSmartDate, formatToUIDate } from "../utils/dateUtils";
 import type { FinancialYear } from "../api/financialYearApi";
+import {
+  exportJVEntriesToExcel, downloadJVImportTemplate, parseJVImportFile,
+  type JVImportVoucher,
+} from "../api/exportApi";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtAmt = (n: number) =>
@@ -1177,9 +1181,336 @@ function JournalExcelTable({
   );
 }
 
+// ── JV Import Modal ───────────────────────────────────────────────────────────
+function JVImportModal({
+  onClose,
+  onImported,
+  selectedFY,
+}: {
+  onClose: () => void;
+  onImported: (created: JournalEntry[]) => void;
+  selectedFY: FinancialYear | null;
+}) {
+  const [dragging, setDragging]     = useState(false);
+  const [file, setFile]             = useState<File | null>(null);
+  const [parsing, setParsing]       = useState(false);
+  const [vouchers, setVouchers]     = useState<JVImportVoucher[]>([]);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [importing, setImporting]   = useState(false);
+  const [progress, setProgress]     = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const validVouchers   = vouchers.filter(v => v.errors.length === 0);
+  const invalidVouchers = vouchers.filter(v => v.errors.length > 0);
+
+  const acceptFile = async (f: File) => {
+    const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!["xlsx", "xls"].includes(ext)) {
+      toast.error("Only Excel (.xlsx / .xls) files are supported");
+      return;
+    }
+    setFile(f);
+    setParseError(null);
+    setVouchers([]);
+    setParsing(true);
+    try {
+      const parsed = await parseJVImportFile(f);
+      setVouchers(parsed);
+    } catch (err: any) {
+      setParseError(err?.message ?? "Failed to parse file");
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const f = e.dataTransfer.files[0];
+    if (f) acceptFile(f);
+  };
+
+  const handleImport = async () => {
+    if (validVouchers.length === 0) {
+      toast.error("No valid vouchers to import");
+      return;
+    }
+    setImporting(true);
+    setProgress(0);
+    const created: JournalEntry[] = [];
+    let failed = 0;
+    for (let i = 0; i < validVouchers.length; i++) {
+      const v = validVouchers[i];
+      try {
+        const payload: JournalPayload = {
+          date: v.date,
+          narration: v.narration,
+          status: v.status,
+          items: v.items,
+        };
+        const entry = await createJournalEntry(payload);
+        created.push(entry);
+      } catch (err: any) {
+        failed++;
+        console.error("Import failed for voucher:", v, err?.response?.data?.message || err?.message);
+      }
+      setProgress(Math.round(((i + 1) / validVouchers.length) * 100));
+    }
+    setImporting(false);
+    if (created.length > 0) {
+      toast.success(`Imported ${created.length} voucher${created.length > 1 ? "s" : ""}${failed > 0 ? ` (${failed} failed)` : ""}`);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      onImported(created);
+    } else {
+      toast.error(`All ${failed} vouchers failed to import. Check dates are within the active financial year.`);
+    }
+  };
+
+  const fmtAmt = (n: number) =>
+    "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2 });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden font-sans">
+
+        {/* Header */}
+        <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-6 py-4 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center">
+              <Upload size={16} className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-white font-bold text-sm">Import Journal Vouchers</h2>
+              <p className="text-indigo-200 text-xs mt-0.5">
+                Upload an Excel file to bulk-import journal entries
+                {selectedFY && <span className="ml-1">· {selectedFY.label}</span>}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-white/70 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-grow overflow-y-auto">
+          {/* Drop Zone */}
+          {vouchers.length === 0 && !parsing && (
+            <div className="p-6 space-y-4">
+              {/* Template download */}
+              <div className="flex items-center justify-between p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
+                <div className="flex items-center gap-2 text-sm text-indigo-700">
+                  <FileSpreadsheet size={15} className="text-indigo-500" />
+                  <span>Download the template to see the correct format</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => downloadJVImportTemplate().catch(e => toast.error(e?.message || "Template download failed"))}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors"
+                >
+                  <Download size={12} />
+                  Download Template
+                </button>
+              </div>
+
+              {/* Drop zone */}
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
+                  dragging
+                    ? "border-indigo-400 bg-indigo-50"
+                    : "border-slate-200 bg-slate-50 hover:border-indigo-300 hover:bg-indigo-50/50"
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) acceptFile(f); }}
+                />
+                <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <FileSpreadsheet size={26} className="text-indigo-500" />
+                </div>
+                <p className="text-slate-700 font-semibold">Drag & drop your Excel file here</p>
+                <p className="text-slate-400 text-sm mt-1">or click to browse — .xlsx / .xls supported</p>
+              </div>
+
+              {parseError && (
+                <div className="flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-xl">
+                  <AlertTriangle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-700">{parseError}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Parsing spinner */}
+          {parsing && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <Loader2 size={28} className="animate-spin text-indigo-500" />
+              <p className="text-slate-600 text-sm">Parsing {file?.name}…</p>
+            </div>
+          )}
+
+          {/* Preview table */}
+          {vouchers.length > 0 && !parsing && (
+            <div className="p-6 space-y-4">
+              {/* Summary bar */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                  <FileText size={14} className="text-slate-500" />
+                  <span className="text-slate-600">File: <strong>{file?.name}</strong></span>
+                </div>
+                <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-sm">
+                  <CheckCircle2 size={14} className="text-emerald-600" />
+                  <span className="text-emerald-700"><strong>{validVouchers.length}</strong> valid voucher{validVouchers.length !== 1 ? "s" : ""}</span>
+                </div>
+                {invalidVouchers.length > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl text-sm">
+                    <AlertTriangle size={14} className="text-red-500" />
+                    <span className="text-red-700"><strong>{invalidVouchers.length}</strong> with errors</span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { setFile(null); setVouchers([]); setParseError(null); }}
+                  className="ml-auto flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  <RefreshCw size={12} /> Change File
+                </button>
+              </div>
+
+              {/* Import progress */}
+              {importing && (
+                <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Loader2 size={14} className="animate-spin text-indigo-600" />
+                    <span className="text-sm font-medium text-indigo-800">Importing vouchers… {progress}%</span>
+                  </div>
+                  <div className="h-2 bg-indigo-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-indigo-500 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Voucher preview table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-600 font-semibold">
+                      <th className="px-3 py-2 text-left border-b border-slate-200 w-10">#</th>
+                      <th className="px-3 py-2 text-left border-b border-slate-200">Date</th>
+                      <th className="px-3 py-2 text-left border-b border-slate-200">Narration</th>
+                      <th className="px-3 py-2 text-center border-b border-slate-200 w-16">Status</th>
+                      <th className="px-3 py-2 text-left border-b border-slate-200">Debit Leg(s)</th>
+                      <th className="px-3 py-2 text-right border-b border-slate-200 w-24">Dr Total</th>
+                      <th className="px-3 py-2 text-left border-b border-slate-200">Credit Leg(s)</th>
+                      <th className="px-3 py-2 text-right border-b border-slate-200 w-24">Cr Total</th>
+                      <th className="px-3 py-2 text-center border-b border-slate-200 w-16">Valid</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vouchers.map((v, idx) => {
+                      const dbItems = v.items.filter(it => it.type === "Db");
+                      const crItems = v.items.filter(it => it.type === "Cr");
+                      const hasErrors = v.errors.length > 0;
+                      return (
+                        <tr key={idx} className={`border-b border-slate-100 ${hasErrors ? "bg-red-50" : idx % 2 === 0 ? "bg-white" : "bg-slate-50"}`}>
+                          <td className="px-3 py-2 text-slate-400">{idx + 1}</td>
+                          <td className="px-3 py-2 font-mono text-slate-600">{v.date}</td>
+                          <td className="px-3 py-2 text-slate-700 max-w-[160px] truncate" title={v.narration}>{v.narration || <span className="text-slate-300 italic">—</span>}</td>
+                          <td className="px-3 py-2 text-center">
+                            <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              v.status === "Posted" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                            }`}>{v.status}</span>
+                          </td>
+                          <td className="px-3 py-2 text-slate-700">
+                            {dbItems.map((it, i) => (
+                              <div key={i} className="text-indigo-700 font-medium truncate max-w-[150px]" title={it.accountName}>{it.accountName}</div>
+                            ))}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono font-semibold text-indigo-700">{fmtAmt(v.totalDr)}</td>
+                          <td className="px-3 py-2 text-slate-700">
+                            {crItems.map((it, i) => (
+                              <div key={i} className="text-emerald-700 font-medium truncate max-w-[150px]" title={it.accountName}>{it.accountName}</div>
+                            ))}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono font-semibold text-emerald-700">{fmtAmt(v.totalCr)}</td>
+                          <td className="px-3 py-2 text-center">
+                            {hasErrors ? (
+                              <span title={v.errors.join("; ")}>
+                                <AlertTriangle size={14} className="text-red-500 inline" />
+                              </span>
+                            ) : (
+                              <CheckCircle2 size={14} className="text-emerald-500 inline" />
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Error details */}
+              {invalidVouchers.length > 0 && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-1.5">
+                  <p className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
+                    <AlertTriangle size={13} /> Errors detected ({invalidVouchers.length} vouchers will be skipped)
+                  </p>
+                  {invalidVouchers.map((v, i) => (
+                    <div key={i} className="text-xs text-red-600 ml-5">
+                      <span className="font-semibold">{v.date} {v.narration && `· ${v.narration}`}</span>: {v.errors.join("; ")}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-slate-100 px-6 py-4 flex items-center justify-between gap-3 flex-shrink-0 bg-slate-50">
+          <button
+            type="button"
+            onClick={() => downloadJVImportTemplate().catch(e => toast.error(e?.message || "Failed"))}
+            className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-semibold hover:underline"
+          >
+            <Download size={12} /> Download Template
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-100 font-medium transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleImport}
+              disabled={importing || validVouchers.length === 0}
+              className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-colors"
+            >
+              {importing
+                ? <><Loader2 size={14} className="animate-spin" /> Importing…</>
+                : <><Upload size={14} /> Import {validVouchers.length} Voucher{validVouchers.length !== 1 ? "s" : ""}</>
+              }
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function JournalVoucher() {
-  const { selectedFY } = useApp();
+  const { selectedFY, company } = useApp();
   const financialYear  = selectedFY?.label ?? "—";
 
   const [entries,      setEntries]      = useState<JournalEntry[]>([]);
@@ -1189,6 +1520,8 @@ export default function JournalVoucher() {
   const [search,       setSearch]       = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | "Draft" | "Posted">("All");
   const [modal,        setModal]        = useState<{ entry?: JournalEntry } | null>(null);
+  const [showImport,   setShowImport]   = useState(false);
+  const [exporting,    setExporting]    = useState(false);
   const [quickCreateName, setQuickCreateName] = useState<string | null>(null);
   const [quickCreateCallback, setQuickCreateCallback] = useState<((newLedger: Ledger) => void) | null>(null);
 
@@ -1321,6 +1654,40 @@ export default function JournalVoucher() {
           <p className="text-sm text-slate-500 mt-0.5">{financialYear} · Click any cell to edit inline or use the form below</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Import button */}
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 px-3 py-2 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-medium transition-colors"
+            title="Import JV entries from Excel"
+          >
+            <Upload size={14} />
+            Import
+          </button>
+          {/* Export button */}
+          <button
+            onClick={async () => {
+              if (filtered.length === 0) { toast.error("No entries to export"); return; }
+              setExporting(true);
+              try {
+                await exportJVEntriesToExcel(filtered, {
+                  companyName:    company?.name ?? "Company",
+                  companyAddress: company?.address ?? "",
+                  fyLabel:        financialYear,
+                });
+                toast.success(`Exported ${filtered.length} entries`);
+              } catch (e: any) {
+                toast.error(e?.message || "Export failed");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            disabled={exporting || filtered.length === 0}
+            className="flex items-center gap-2 px-3 py-2 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-700 rounded-lg text-sm font-medium transition-colors"
+            title="Export JV entries to Excel"
+          >
+            {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+            Export
+          </button>
           <button onClick={load} title="Refresh"
             className="p-2 border border-slate-200 bg-white rounded-lg text-slate-500 hover:bg-slate-50 transition-colors">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
@@ -1440,6 +1807,17 @@ export default function JournalVoucher() {
           onSubmit={handleSubmit}
           selectedFY={selectedFY}
           onQuickCreate={handleQuickCreateOpen}
+        />
+      )}
+
+      {showImport && (
+        <JVImportModal
+          selectedFY={selectedFY}
+          onClose={() => setShowImport(false)}
+          onImported={(created) => {
+            setEntries(prev => [...created, ...prev]);
+            setShowImport(false);
+          }}
         />
       )}
 

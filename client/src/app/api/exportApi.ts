@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import * as XLSX from "xlsx";
 import { computeTrialBalance } from "./trialBalanceApi";
 import { getAllEntries, getAllAccounts, computeRows, type BankCashRow } from "./bankCashBookApi";
 import { getAllJournalEntries } from "./journalVoucherApi";
@@ -664,6 +665,498 @@ export async function exportBankCashBookFiltered(
   const safeAccountName = params.accountLabel.replace(/\s+/g, "_");
   const safeCompanyName = params.companyName.replace(/\s+/g, "_");
   link.download = `${safeCompanyName}_${safeAccountName}_Book_${dateStr}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+// ── JV Export ─────────────────────────────────────────────────────────────────
+export async function exportJVEntriesToExcel(
+  entries: Awaited<ReturnType<typeof getAllJournalEntries>>,
+  params: {
+    companyName: string;
+    companyAddress: string;
+    fyLabel: string;
+  }
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator  = params.companyName;
+  workbook.company  = params.companyName;
+  workbook.created  = new Date();
+  workbook.modified = new Date();
+
+  const sheet = workbook.addWorksheet("Journal Voucher", {
+    pageSetup: { paperSize: 9, orientation: "landscape" },
+  });
+
+  const colCount = 11;
+  const period   = `FY ${params.fyLabel}`;
+
+  addReportHeader(sheet, params.companyName, params.companyAddress, params.fyLabel, "Journal Voucher Register", period, colCount);
+
+  const headers = ["Sr#", "Voucher No.", "Date", "Status", "Narration", "Debit Account", "Debit Group", "Debit (Dr)", "Credit Account", "Credit Group", "Credit (Cr)"];
+  const hRow = sheet.addRow(headers);
+  hRow.height = 22;
+  hRow.eachCell((cell) => applyHeaderStyle(cell));
+
+  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+  let rowIdx = 0;
+  let sr = 1;
+
+  const fmtDateLocal = (d: string) => {
+    if (!d) return "";
+    try {
+      const p = d.slice(0, 10).split("-");
+      if (p.length === 3) return `${p[2]}/${p[1]}/${p[0]}`;
+    } catch {}
+    return d;
+  };
+
+  for (const e of sorted) {
+    const isMultiLeg = e.items && e.items.length > 0;
+    const debitAccount  = isMultiLeg ? e.items!.filter(it => it.type === "Db").map(it => it.accountName).join(", ") : e.debitAccount;
+    const debitGroup    = isMultiLeg ? e.items!.filter(it => it.type === "Db").map(it => it.groupName).join(", ") : e.debitGroup;
+    const debitAmount   = isMultiLeg ? e.items!.filter(it => it.type === "Db").reduce((s, it) => s + it.amount, 0) : e.debitAmount;
+    const creditAccount = isMultiLeg ? e.items!.filter(it => it.type === "Cr").map(it => it.accountName).join(", ") : e.creditAccount;
+    const creditGroup   = isMultiLeg ? e.items!.filter(it => it.type === "Cr").map(it => it.groupName).join(", ") : e.creditGroup;
+    const creditAmount  = isMultiLeg ? e.items!.filter(it => it.type === "Cr").reduce((s, it) => s + it.amount, 0) : e.creditAmount;
+
+    const dRow = sheet.addRow([
+      sr++, e.voucherNo, fmtDateLocal(e.date), e.status, e.narration,
+      debitAccount, debitGroup, debitAmount || null,
+      creditAccount, creditGroup, creditAmount || null,
+    ]);
+    applyDataRow(dRow, rowIdx++);
+    if ((dRow.getCell(8).value ?? 0) > 0) dRow.getCell(8).font  = { color: { argb: C.redFg   } };
+    if ((dRow.getCell(11).value ?? 0) > 0) dRow.getCell(11).font = { color: { argb: C.greenFg } };
+
+    const statusCell = dRow.getCell(4);
+    statusCell.fill = {
+      type: "pattern", pattern: "solid",
+      fgColor: { argb: e.status === "Posted" ? "FFD1FAE5" : "FFFEF3C7" },
+    };
+    statusCell.font = { bold: true, color: { argb: e.status === "Posted" ? C.greenFg : "FFB45309" } };
+  }
+
+  // Totals row
+  const totDr = entries.reduce((s, e) => s + (e.items && e.items.length > 0 ? e.items.filter(it => it.type === "Db").reduce((sum, it) => sum + it.amount, 0) : e.debitAmount),  0);
+  const totCr = entries.reduce((s, e) => s + (e.items && e.items.length > 0 ? e.items.filter(it => it.type === "Cr").reduce((sum, it) => sum + it.amount, 0) : e.creditAmount), 0);
+  const tRow  = sheet.addRow(["", `TOTALS (${entries.length})`, "", "", "", "", "", totDr || null, "", "", totCr || null]);
+  applyTotalRow(tRow);
+  if (totDr > 0) { tRow.getCell(8).font  = { bold: true, color: { argb: C.redFg } }; }
+  if (totCr > 0) { tRow.getCell(11).font = { bold: true, color: { argb: C.greenFg } }; }
+
+  for (const c of [8, 11]) sheet.getColumn(c).numFmt = '#,##0.00';
+
+  autoWidth(sheet, 7);
+  sheet.getColumn(1).width  = 6;
+  sheet.getColumn(2).width  = 16;
+  sheet.getColumn(3).width  = 13;
+  sheet.getColumn(4).width  = 10;
+  sheet.getColumn(5).width  = 36;
+  sheet.getColumn(6).width  = 26;
+  sheet.getColumn(7).width  = 20;
+  sheet.getColumn(9).width  = 26;
+  sheet.getColumn(10).width = 20;
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const link   = document.createElement("a");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  link.href     = url;
+  link.download = `${params.companyName.replace(/\s+/g, "_")}_JV_Register_${params.fyLabel.replace(/\s+/g, "_")}_${dateStr}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+// ── JV Import Template ────────────────────────────────────────────────────────
+export async function downloadJVImportTemplate(): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+
+  // ── Data sheet ──────────────────────────────────────────────────────────────
+  const sheet = workbook.addWorksheet("JV Import");
+
+  // Headers
+  const headers = ["Date", "Narration", "Status", "Cr/Db", "Account Name", "Group Name", "Amount"];
+  const hRow = sheet.addRow(headers);
+  hRow.height = 22;
+  hRow.eachCell((cell) => {
+    cell.font  = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
+    cell.fill  = { type: "pattern", pattern: "solid", fgColor: { argb: C.colHeaderBg } };
+    cell.alignment = { horizontal: "center", vertical: "middle" };
+    cell.border = { bottom: { style: "medium", color: { argb: "FF818CF8" } } };
+  });
+
+  // Sample data rows (one voucher = two rows)
+  const sample1 = sheet.addRow(["01/04/2025", "Purchase from ABC", "Posted", "Db", "PURCHASE ACCOUNT", "PURCHASE ACCOUNT", 5000]);
+  const sample2 = sheet.addRow(["01/04/2025", "Purchase from ABC", "Posted", "Cr", "SUNDRY CREDITORS", "SUNDRY CREDITORS", 5000]);
+
+  [sample1, sample2].forEach((r, i) => {
+    r.eachCell({ includeEmpty: true }, (cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: i === 0 ? "FFFFFDE7" : "FFF0FFF4" } };
+      cell.font = { italic: true, color: { argb: "FF475569" } };
+    });
+    r.height = 18;
+  });
+
+  // Add 30 blank data rows
+  for (let i = 0; i < 30; i++) {
+    const r = sheet.addRow([]);
+    r.height = 18;
+  }
+
+  // Column widths
+  sheet.getColumn(1).width = 14;  // Date
+  sheet.getColumn(2).width = 36;  // Narration
+  sheet.getColumn(3).width = 10;  // Status
+  sheet.getColumn(4).width = 8;   // Cr/Db
+  sheet.getColumn(5).width = 28;  // Account Name
+  sheet.getColumn(6).width = 28;  // Group Name
+  sheet.getColumn(7).width = 14;  // Amount
+
+  // ── Instructions sheet ──────────────────────────────────────────────────────
+  const instructions = workbook.addWorksheet("Instructions");
+  const instData = [
+    ["Column",       "Required", "Format / Accepted Values", "Notes"],
+    ["Date",         "Yes",      "DD/MM/YYYY  or  YYYY-MM-DD", "Must be within the active financial year"],
+    ["Narration",    "No",       "Free text",                 "Rows with same Date+Narration+Status = one voucher"],
+    ["Status",       "Yes",      "Posted  or  Draft",          ""],
+    ["Cr/Db",        "Yes",      "Db  or  Cr",                 "Db = Debit leg, Cr = Credit leg"],
+    ["Account Name", "Yes",      "Exact ledger name (UPPERCASE)", "Must exist in Ledger Master"],
+    ["Group Name",   "Yes",      "Exact group name",           "Must match the ledger's group"],
+    ["Amount",       "Yes",      "Positive number",            "Sum of Db must = Sum of Cr per voucher"],
+    ["", "", "", ""],
+    ["RULES", "", "", ""],
+    ["1. Each voucher occupies one or more rows. Group rows for the same entry by matching Date + Narration + Status.", "", "", ""],
+    ["2. Every voucher must balance: total Debit amount must equal total Credit amount.", "", "", ""],
+    ["3. Delete the two sample rows before importing.", "", "", ""],
+    ["4. Do NOT modify the header row.", "", "", ""],
+  ];
+
+  instData.forEach((row, i) => {
+    const r = instructions.addRow(row);
+    r.height = i === 0 ? 22 : 20;
+    if (i === 0) {
+      r.eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.colHeaderBg } };
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+      });
+    } else if (i === 9) {
+      r.getCell(1).font = { bold: true, color: { argb: C.navyFg } };
+    } else if (i >= 10) {
+      r.getCell(1).font = { color: { argb: C.grayFg } };
+    } else {
+      r.eachCell({ includeEmpty: true }, (cell, ci) => {
+        const bg = i % 2 === 0 ? "FFF8FAFC" : "FFFFFFFF";
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+        if (ci === 1) cell.font = { bold: true, color: { argb: C.indigoFg } };
+      });
+    }
+  });
+
+  instructions.getColumn(1).width = 70;
+  instructions.getColumn(2).width = 10;
+  instructions.getColumn(3).width = 32;
+  instructions.getColumn(4).width = 44;
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const link   = document.createElement("a");
+  link.href     = url;
+  link.download = "JV_Import_Template.xlsx";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+// ── JV Import Parser ──────────────────────────────────────────────────────────
+export interface JVImportRow {
+  date: string;
+  narration: string;
+  status: "Posted" | "Draft";
+  type: "Db" | "Cr";
+  accountName: string;
+  groupName: string;
+  amount: number;
+}
+
+export interface JVImportVoucher {
+  date: string;
+  narration: string;
+  status: "Posted" | "Draft";
+  items: { type: "Db" | "Cr"; accountName: string; groupName: string; amount: number }[];
+  totalDr: number;
+  totalCr: number;
+  balanced: boolean;
+  errors: string[];
+}
+
+export async function parseJVImportFile(file: File): Promise<JVImportVoucher[]> {
+  const buffer = await file.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: "array", cellDates: false });
+
+  // Try "JV Import" sheet first, then fall back to first sheet
+  const sheetName = wb.SheetNames.includes("JV Import") ? "JV Import" : wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+  const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+
+  if (raw.length < 2) throw new Error("No data rows found in the file.");
+
+  // Find header row (first row that contains "Date")
+  const headerIdx = raw.findIndex((row) => row.some((cell: any) => String(cell).trim().toLowerCase() === "date"));
+  if (headerIdx < 0) throw new Error("Could not find header row. Make sure the file has 'Date' in the header.");
+
+  const headers = raw[headerIdx].map((h: any) => String(h).trim().toLowerCase());
+  const col = {
+    date:        headers.indexOf("date"),
+    narration:   headers.indexOf("narration"),
+    status:      headers.indexOf("status"),
+    type:        Math.max(headers.indexOf("cr/db"), headers.indexOf("crdb"), headers.indexOf("type")),
+    accountName: Math.max(headers.indexOf("account name"), headers.indexOf("accountname")),
+    groupName:   Math.max(headers.indexOf("group name"), headers.indexOf("groupname")),
+    amount:      headers.indexOf("amount"),
+  };
+
+  const missingCols = Object.entries(col).filter(([, v]) => v < 0).map(([k]) => k);
+  if (missingCols.length > 0) throw new Error(`Missing required columns: ${missingCols.join(", ")}`);
+
+  // Parse rows
+  const dataRows: JVImportRow[] = [];
+  for (let i = headerIdx + 1; i < raw.length; i++) {
+    const row = raw[i];
+    const dateRaw   = String(row[col.date]   ?? "").trim();
+    const accName   = String(row[col.accountName] ?? "").trim();
+    const amtRaw    = row[col.amount];
+    if (!dateRaw && !accName) continue;  // skip blank rows
+
+    // Normalise date: accept DD/MM/YYYY, YYYY-MM-DD, or serial number
+    let date = "";
+    if (typeof amtRaw === "number" && dateRaw === "") continue;
+    if (/^\d{5,}$/.test(dateRaw)) {
+      // Excel serial date
+      const jsDate = XLSX.SSF.parse_date_code(Number(dateRaw));
+      date = `${jsDate.y}-${String(jsDate.m).padStart(2, "0")}-${String(jsDate.d).padStart(2, "0")}`;
+    } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateRaw)) {
+      const [d, m, y] = dateRaw.split("/");
+      date = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    } else if (/^\d{4}-\d{2}-\d{2}/.test(dateRaw)) {
+      date = dateRaw.slice(0, 10);
+    } else {
+      date = dateRaw;
+    }
+
+    const narration  = String(row[col.narration]  ?? "").trim();
+    const statusRaw  = String(row[col.status]     ?? "Posted").trim();
+    const status: "Posted" | "Draft" = statusRaw.toLowerCase() === "draft" ? "Draft" : "Posted";
+    const typeRaw    = String(row[col.type]       ?? "").trim();
+    const type: "Db" | "Cr" = typeRaw.toLowerCase() === "cr" ? "Cr" : "Db";
+    const groupName  = String(row[col.groupName]  ?? "").trim();
+    const amount     = parseFloat(String(amtRaw ?? "0").replace(/,/g, "")) || 0;
+
+    dataRows.push({ date, narration, status, type, accountName: accName.toUpperCase(), groupName: groupName.toUpperCase(), amount });
+  }
+
+  if (dataRows.length === 0) throw new Error("No valid data rows found. Make sure the template is filled in correctly.");
+
+  // Group rows into vouchers by Date + Narration + Status
+  const voucherMap = new Map<string, JVImportRow[]>();
+  for (const r of dataRows) {
+    const key = `${r.date}||${r.narration}||${r.status}`;
+    if (!voucherMap.has(key)) voucherMap.set(key, []);
+    voucherMap.get(key)!.push(r);
+  }
+
+  const vouchers: JVImportVoucher[] = [];
+  for (const [key, rows] of voucherMap) {
+    const [date, narration, status] = key.split("||");
+    let totalDr = 0;
+    let totalCr = 0;
+    const errors: string[] = [];
+    const items = rows.map((r) => {
+      if (r.type === "Db") totalDr += r.amount;
+      else totalCr += r.amount;
+      if (!r.accountName) errors.push(`Row missing Account Name`);
+      if (r.amount <= 0) errors.push(`Amount must be > 0 for '${r.accountName || "?"}'`);
+      return { type: r.type, accountName: r.accountName, groupName: r.groupName, amount: r.amount };
+    });
+    const balanced = Math.abs(totalDr - totalCr) < 0.01;
+    if (!balanced) errors.push(`Unbalanced: Dr ${totalDr.toFixed(2)} ≠ Cr ${totalCr.toFixed(2)}`);
+    if (!items.some(it => it.type === "Db")) errors.push("No Debit leg found");
+    if (!items.some(it => it.type === "Cr")) errors.push("No Credit leg found");
+    if (!date || date === "undefined") errors.push("Invalid date");
+
+    vouchers.push({ date: date ?? "", narration: narration ?? "", status: (status as "Posted" | "Draft") ?? "Posted", items, totalDr, totalCr, balanced, errors });
+  }
+
+  return vouchers;
+}
+
+export async function exportTrialBalanceDirect(
+  data: Awaited<ReturnType<typeof computeTrialBalance>>,
+  params: ExportParams
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator  = params.companyName;
+  workbook.company  = params.companyName;
+  workbook.created  = new Date();
+  workbook.modified = new Date();
+
+  buildTrialBalance(workbook, data, params);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const link   = document.createElement("a");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  link.href     = url;
+  link.download = `${params.companyName.replace(/\s+/g, "_")}_Trial_Balance_${params.fyLabel.replace(/\s+/g, "_")}_${dateStr}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export async function exportBalanceSheetDirect(
+  data: Awaited<ReturnType<typeof computeBalanceSheet>>,
+  params: ExportParams
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator  = params.companyName;
+  workbook.company  = params.companyName;
+  workbook.created  = new Date();
+  workbook.modified = new Date();
+
+  buildBalanceSheetSheet(workbook, data, params);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const link   = document.createElement("a");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  link.href     = url;
+  link.download = `${params.companyName.replace(/\s+/g, "_")}_Balance_Sheet_${params.fyLabel.replace(/\s+/g, "_")}_${dateStr}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function buildPLSheet(
+  workbook: ExcelJS.Workbook,
+  data: any,
+  params: ExportParams
+) {
+  const sheet = workbook.addWorksheet("Profit & Loss", {
+    pageSetup: { paperSize: 9, orientation: "portrait" },
+  });
+  const colCount = 3;
+  const period = `${params.dateFrom} to ${params.dateTo}`;
+
+  addReportHeader(sheet, params.companyName, params.companyAddress, params.fyLabel, "Profit & Loss Statement", period, colCount);
+
+  const addHeader = (label: string, bg = C.sectionBg, fg = C.sectionFg) => {
+    const r = sheet.addRow([label, "", ""]);
+    sheet.mergeCells(`A${r.number}:C${r.number}`);
+    r.getCell(1).font = { bold: true, size: 11, color: { argb: fg } };
+    r.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+    r.height = 22;
+  };
+
+  const addRow = (ledgerName: string, amount: number, isSubtotal = false) => {
+    const r = sheet.addRow([ledgerName, "", amount]);
+    sheet.mergeCells(`A${r.number}:B${r.number}`);
+    if (isSubtotal) {
+      r.getCell(1).font = { bold: true, color: { argb: "FF374151" } };
+      r.getCell(3).font = { bold: true, color: { argb: "FF374151" } };
+      r.getCell(1).fill = r.getCell(3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } };
+    } else {
+      r.getCell(1).font = { color: { argb: "FF475569" } };
+      r.getCell(3).font = { color: { argb: amount >= 0 ? C.greenFg : C.redFg } };
+    }
+    r.getCell(3).alignment = { horizontal: "right" };
+    r.height = 18;
+  };
+
+  const addTotalLine = (label: string, amount: number, bg = C.totalBg, fg = C.totalFg) => {
+    const r = sheet.addRow([label, "", amount]);
+    sheet.mergeCells(`A${r.number}:B${r.number}`);
+    r.getCell(1).font = { bold: true, color: { argb: fg } };
+    r.getCell(3).font = { bold: true, color: { argb: fg } };
+    r.getCell(1).fill = r.getCell(3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+    r.getCell(3).alignment = { horizontal: "right" };
+    r.getCell(1).border = r.getCell(3).border = { top: { style: "medium", color: { argb: "FF818CF8" } } };
+    r.height = 24;
+  };
+
+  // 1. Income Section
+  addHeader("INCOME", "FF065F46", "FFFFFFFF");
+  sheet.addRow(["Sales Revenue (Direct)", "", ""]).getCell(1).font = { italic: true, color: { argb: C.grayFg } };
+  data.sales.entries.forEach((e: any) => addRow(e.ledgerName, e.amount));
+  addRow("Total Sales Revenue", data.sales.total, true);
+
+  sheet.addRow([]);
+
+  sheet.addRow(["Other Income (Indirect)", "", ""]).getCell(1).font = { italic: true, color: { argb: C.grayFg } };
+  data.otherIncome.entries.forEach((e: any) => addRow(e.ledgerName, e.amount));
+  addRow("Total Other Income", data.otherIncome.total, true);
+
+  sheet.addRow([]);
+  addTotalLine("TOTAL REVENUE (A)", data.totalIncome, "FFE6F4EA", "FF137333");
+
+  sheet.addRow([]);
+
+  // 2. Expenses Section
+  addHeader("EXPENSES", "FFB06000", "FFFFFFFF");
+  sheet.addRow(["Direct Expenses (Cost of Goods Sold)", "", ""]).getCell(1).font = { italic: true, color: { argb: C.grayFg } };
+  data.directExpenses.entries.forEach((e: any) => addRow(e.ledgerName, e.amount));
+  addRow("Total Direct Expenses", data.directExpenses.total, true);
+
+  sheet.addRow([]);
+  addTotalLine("GROSS PROFIT / LOSS (Sales - Direct Expenses)", data.grossProfit, data.grossProfit >= 0 ? "FFE6F4EA" : "FCE8E6", data.grossProfit >= 0 ? "FF137333" : "FFC5221F");
+
+  sheet.addRow([]);
+  sheet.addRow(["Indirect Expenses (Salaries, Rent & Admin)", "", ""]).getCell(1).font = { italic: true, color: { argb: C.grayFg } };
+  data.indirectExpenses.entries.forEach((e: any) => addRow(e.ledgerName, e.amount));
+  addRow("Total Indirect Expenses", data.indirectExpenses.total, true);
+
+  sheet.addRow([]);
+  addTotalLine("TOTAL EXPENSES (B)", data.totalExpenses, "FCE8E6", "FFC5221F");
+
+  sheet.addRow([]);
+  addTotalLine(data.isProfit ? "NET PROFIT (A - B + Other Income)" : "NET LOSS (A - B + Other Income)", data.netProfit, data.isProfit ? "FFD1FAE5" : "FFFEE2E2", data.isProfit ? C.greenFg : C.redFg);
+
+  sheet.getColumn(1).width = 45;
+  sheet.getColumn(2).width = 12;
+  sheet.getColumn(3).width = 22;
+  sheet.getColumn(3).numFmt = '₹#,##0.00';
+}
+
+export async function exportPLDirect(
+  data: any,
+  params: ExportParams
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator  = params.companyName;
+  workbook.company  = params.companyName;
+  workbook.created  = new Date();
+  workbook.modified = new Date();
+
+  buildPLSheet(workbook, data, params);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const link   = document.createElement("a");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  link.href     = url;
+  link.download = `${params.companyName.replace(/\s+/g, "_")}_PL_Statement_${params.fyLabel.replace(/\s+/g, "_")}_${dateStr}.xlsx`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

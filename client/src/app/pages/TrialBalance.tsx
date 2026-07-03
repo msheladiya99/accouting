@@ -21,6 +21,7 @@ import { EntryModal } from "./BankCashBook";
 import { JournalModal } from "./JournalVoucher";
 import { SmartDateInput } from "../components/ui/SmartDateInput";
 import { parseSmartDate } from "../utils/dateUtils";
+import { exportTrialBalanceDirect } from "../api/exportApi";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -906,7 +907,7 @@ export function LedgerStatementModal({
 
 // ── Main Trial Balance Page ────────────────────────────────────────────────────
 export default function TrialBalance() {
-  const { selectedFY } = useApp();
+  const { selectedFY, company } = useApp();
   const financialYear = selectedFY?.label ?? "—";
 
   const [summary, setSummary] = useState<TrialSummary | null>(
@@ -919,6 +920,130 @@ export default function TrialBalance() {
   const [search, setSearch]    = useState("");
   const [groupFilter, setGroupFilter] = useState<string>("All");
   const [selectedLedger, setSelectedLedger] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+
+
+  const triggerPrint = useCallback((saveAsPDF = false) => {
+    if (!summary) {
+      toast.error("No data to print.");
+      return;
+    }
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Failed to open print window. Please allow popups.");
+      return;
+    }
+
+    const rowsHtml = filtered.map((r, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td class="font-bold">${r.ledgerName}</td>
+        <td>${r.group}</td>
+        <td class="text-right">${r.openingDr > 0 ? `₹${r.openingDr.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right">${r.openingCr > 0 ? `₹${r.openingCr.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right">${r.transactionDr > 0 ? `₹${r.transactionDr.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right">${r.transactionCr > 0 ? `₹${r.transactionCr.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right font-bold" style="color: #059669;">${r.closingDr > 0 ? `₹${r.closingDr.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right font-bold" style="color: #dc2626;">${r.closingCr > 0 ? `₹${r.closingCr.toLocaleString("en-IN")}` : "—"}</td>
+      </tr>
+    `).join("");
+
+    const totalsHtml = `
+      <tr class="font-bold bg-slate-100" style="background-color: #f1f5f9; border-top: 2px solid #94a3b8;">
+        <td colspan="3">TOTALS</td>
+        <td class="text-right">${totals.openDr > 0 ? `₹${totals.openDr.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right">${totals.openCr > 0 ? `₹${totals.openCr.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right">${totals.txnDr > 0 ? `₹${totals.txnDr.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right">${totals.txnCr > 0 ? `₹${totals.txnCr.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right">${totals.closeDr > 0 ? `₹${totals.closeDr.toLocaleString("en-IN")}` : "—"}</td>
+        <td class="text-right">${totals.closeCr > 0 ? `₹${totals.closeCr.toLocaleString("en-IN")}` : "—"}</td>
+      </tr>
+    `;
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Trial Balance</title>
+          <style>
+            @page { size: A4 landscape; margin: 10mm; }
+            body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; color: #1e293b; }
+            h1 { font-size: 22px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px; }
+            .address { font-size: 11px; color: #64748b; margin-bottom: 12px; text-transform: uppercase; }
+            .title { font-size: 14px; font-weight: bold; margin-bottom: 20px; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px 12px; font-size: 11px; text-align: left; }
+            th { background-color: #f8fafc; font-weight: bold; }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: bold; }
+            .bg-slate-100 { background-color: #f1f5f9; }
+          </style>
+        </head>
+        <body>
+          <h1>${company?.name || "XYZ COMPANY"}</h1>
+          <div class="address">${company?.address || "Company Address"}</div>
+          <div class="title">TRIAL BALANCE · FY ${financialYear}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Ledger Name</th>
+                <th>Group</th>
+                <th class="text-right">Opening Dr</th>
+                <th class="text-right">Opening Cr</th>
+                <th class="text-right">Transaction Dr</th>
+                <th class="text-right">Transaction Cr</th>
+                <th class="text-right">Closing Dr</th>
+                <th class="text-right">Closing Cr</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+              ${totalsHtml}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+
+    if (saveAsPDF) {
+      toast("In the print dialog, choose \"Save as PDF\" as the destination.", {
+        icon: "📄",
+        duration: 5000,
+      });
+    }
+
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 350);
+  }, [summary, filtered, totals, company, financialYear]);
+
+  const triggerExport = useCallback(async () => {
+    if (!summary) {
+      toast.error("No data to export.");
+      return;
+    }
+    setExporting(true);
+    try {
+      await exportTrialBalanceDirect(summary, {
+        companyName: company?.name || "Company",
+        companyAddress: company?.address || "",
+        fyLabel: financialYear,
+        dateFrom: selectedFY?.startDate || "",
+        dateTo: selectedFY?.endDate || "",
+      });
+      toast.success("Trial Balance exported to Excel!");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to export Excel.");
+    } finally {
+      setExporting(false);
+    }
+  }, [summary, company, financialYear, selectedFY]);
 
   const load = useCallback(async (isRefresh = false, silent = false) => {
     if (isRefresh) {
@@ -1160,11 +1285,27 @@ export default function TrialBalance() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+          <button
+            onClick={() => triggerPrint(false)}
+            disabled={!summary || loading}
+            className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
+          >
             <Printer size={14} /> Print
           </button>
-          <button className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors">
-            <Download size={14} /> Export Excel
+          <button
+            onClick={() => triggerPrint(true)}
+            disabled={!summary || loading}
+            className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-40"
+          >
+            <Download size={14} /> Export PDF
+          </button>
+          <button
+            onClick={triggerExport}
+            disabled={!summary || loading || exporting}
+            className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors disabled:opacity-40"
+          >
+            {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+            Export Excel
           </button>
         </div>
       </div>

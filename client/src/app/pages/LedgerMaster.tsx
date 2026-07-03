@@ -13,11 +13,14 @@ import { useForm } from "react-hook-form";
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, X,
   Save, BookMarked, Layers, Filter, CheckCircle2, Loader2, GitMerge,
+  Download, Upload, FileSpreadsheet,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import toast from "react-hot-toast";
 import {
   type Ledger, type LedgerPayload, LEDGER_GROUPS,
   getAllLedgers, createLedger, updateLedger, deleteLedger, bulkDeleteLedgers, mergeLedgers,
+  saveBulkOpeningBalances,
 } from "../api/ledgerApi";
 import {
   getAllGroups, createGroup, SUPER_GROUPS, type AccountGroup
@@ -743,6 +746,153 @@ export default function LedgerMaster() {
     }
   }, []);
 
+  // ── File Import ─────────────────────────────────────────────────────────────
+  const handleImportFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const buf = new Uint8Array(evt.target!.result as ArrayBuffer);
+        const wb = XLSX.read(buf, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" });
+
+        if (raw.length < 2) {
+          toast.error("No valid rows found in sheet.");
+          return;
+        }
+
+        // Find header index
+        let headerIdx = 0;
+        for (let i = 0; i < Math.min(8, raw.length); i++) {
+          const r = (raw[i] || []) as string[];
+          if (r.some((c) => typeof c === "string" && /ledger|account|group|debit|credit|dr|cr/i.test(c))) {
+            headerIdx = i;
+            break;
+          }
+        }
+
+        const headers = (raw[headerIdx] as string[]).map((h) => String(h ?? "").trim().toLowerCase());
+        const findColIdx = (keywords: string[]) =>
+          headers.findIndex((h) => keywords.some((k) => h.includes(k)));
+
+        const ledgerCol = findColIdx(["ledger", "account", "name"]);
+        const groupCol  = findColIdx(["group", "type"]);
+        const drCol     = findColIdx(["debit", "dr", "amount dr", "debit amount"]);
+        const crCol     = findColIdx(["credit", "cr", "amount cr", "credit amount"]);
+
+        if (ledgerCol < 0 || groupCol < 0) {
+          toast.error("Invalid template headers. Make sure headers contain: Ledger Name, Group Name");
+          return;
+        }
+
+        const groupsList = groups.map((g) => g.groupName);
+        const findBestGroupMatchLocal = (excelGroup: string) => {
+          const clean = (s: string) => s.toLowerCase().trim();
+          const excelClean = clean(excelGroup);
+          if (!excelClean) return groupsList[0] || "Assets";
+
+          let match = groupsList.find((g) => clean(g) === excelClean);
+          if (match) return match;
+
+          const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/s$/, "");
+          const excelNorm = norm(excelGroup);
+
+          match = groupsList.find((g) => norm(g) === excelNorm);
+          if (match) return match;
+
+          match = groupsList.find((g) => {
+            const gNorm = norm(g);
+            return gNorm.includes(excelNorm) || excelNorm.includes(gNorm);
+          });
+          if (match) return match;
+
+          return groupsList[0] || "Assets";
+        };
+
+        const toNum = (val: unknown) => {
+          if (val === null || val === undefined || val === "") return 0;
+          const n = parseFloat(String(val).replace(/[₹$,\s]/g, ""));
+          return isNaN(n) ? 0 : Math.abs(n);
+        };
+
+        const payload: any[] = [];
+        for (let i = headerIdx + 1; i < raw.length; i++) {
+          const row = (raw[i] || []) as unknown[];
+          if (row.length === 0) continue;
+
+          const ledgerName = String(row[ledgerCol] ?? "").trim().toUpperCase();
+          if (!ledgerName) continue;
+
+          const excelGroup = String(row[groupCol] ?? "").trim().toUpperCase();
+          const finalGroup = findBestGroupMatchLocal(excelGroup);
+
+          const amountDr = drCol >= 0 ? toNum(row[drCol]) : 0;
+          const amountCr = crCol >= 0 ? toNum(row[crCol]) : 0;
+
+          payload.push({
+            ledgerName,
+            groupName: finalGroup,
+            openingDr: amountDr,
+            openingCr: amountCr,
+          });
+        }
+
+        if (payload.length === 0) {
+          toast.error("No valid ledger rows parsed.");
+          return;
+        }
+
+        setLoading(true);
+        const result = await saveBulkOpeningBalances(payload);
+        toast.success(`Imported ${result.count} ledgers successfully!`);
+        await load();
+        window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      } catch (err: any) {
+        toast.error("Failed to parse/import file: " + (err.response?.data?.message || err.message));
+        setLoading(false);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = "";
+  }, [groups, load]);
+
+  // ── Template & Data Export ──────────────────────────────────────────────────
+  const handleExportTemplate = useCallback(() => {
+    const headers = [["Sr No", "Ledger Name", "Group Name", "Amount Dr", "Amount Cr"]];
+    const templateData = [
+      [1, "WAGON R CNG", "CAPITAL ACCOUNT", 0, 0],
+      [2, "RAJUBHAI RABARI", "LOANS & ADVANCES (ASSET)", 0, 0],
+      [3, "INSURANCE EXPENSE", "EXPENSE ACCOUNT", 0, 0],
+      [4, "HDFC BANK A/C", "BANK ACCOUNTS (BANKS)", 0, 0],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet([...headers, ...templateData]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Ledger Master Template");
+    XLSX.writeFile(wb, "Ledger_Master_Template.xlsx");
+    toast.success("Ledger import template downloaded!");
+  }, []);
+
+  const handleExportData = useCallback(() => {
+    const headers = [["Sr No", "Ledger Name", "Group Name", "Amount Dr", "Amount Cr", "Created", "Last Modified"]];
+    const data = rows.map((r, i) => [
+      i + 1,
+      r.ledgerName,
+      r.groupName,
+      r.openingDr || 0,
+      r.openingCr || 0,
+      new Date(r.createdAt).toLocaleDateString("en-IN"),
+      new Date(r.updatedAt).toLocaleDateString("en-IN"),
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([...headers, ...data]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Ledger Master Data");
+    XLSX.writeFile(wb, "Ledgers_Export.xlsx");
+    toast.success("Ledger master data exported!");
+  }, [rows]);
+
   // ── Filtered rows ───────────────────────────────────────────────────────────
   const filtered = useMemo(() =>
     rows.filter((r) => {
@@ -910,6 +1060,32 @@ export default function LedgerMaster() {
               <Trash2 size={15} /> Delete Selected ({selectedIds.length})
             </button>
           )}
+          {/* Import Excel */}
+          <label className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer shadow-sm">
+            <Upload size={15} /> Import Excel / CSV
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleImportFile}
+            />
+          </label>
+          {/* Download Template */}
+          <button
+            onClick={handleExportTemplate}
+            title="Download Excel Template"
+            className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+          >
+            <FileSpreadsheet size={15} /> Template
+          </button>
+          {/* Export Data */}
+          <button
+            onClick={handleExportData}
+            title="Export Current Ledgers"
+            className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+          >
+            <Download size={15} /> Export
+          </button>
           <button
             onClick={() => setGroupModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors"

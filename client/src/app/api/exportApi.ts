@@ -1162,3 +1162,140 @@ export async function exportPLDirect(
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+
+export async function exportLedgerStatementDirect(
+  ledgerName: string,
+  groupName: string,
+  openingBalance: number,
+  rows: any[],
+  params: ExportParams
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator  = params.companyName;
+  workbook.company  = params.companyName;
+  workbook.created  = new Date();
+  workbook.modified = new Date();
+
+  const sheet = workbook.addWorksheet("Ledger Statement", {
+    pageSetup: { paperSize: 9, orientation: "portrait" },
+  });
+  const colCount = 7;
+  const period = `${params.dateFrom} to ${params.dateTo}`;
+
+  addReportHeader(sheet, params.companyName, params.companyAddress, params.fyLabel, `Ledger Statement - ${ledgerName.toUpperCase()}`, `Group: ${groupName} · Period: ${period}`, colCount);
+
+  // Column headers
+  const headers = ["Date", "Type", "Vou/Doc No.", "Account Name / Particulars", "Debit", "Credit", "Closing Balance"];
+  const hRow = sheet.addRow(headers);
+  hRow.height = 22;
+  hRow.eachCell((cell) => applyHeaderStyle(cell));
+
+  // 1. Opening Balance Row
+  const opRow = sheet.addRow([
+    "—", "—", "—", "Opening Balance",
+    openingBalance > 0 ? openingBalance : "",
+    openingBalance < 0 ? Math.abs(openingBalance) : "",
+    openingBalance === 0 ? "NIL" : `${Math.abs(openingBalance).toLocaleString("en-IN")} ${openingBalance >= 0 ? "DB" : "CR"}`
+  ]);
+  opRow.getCell(4).font = { bold: true, color: { argb: "FF374151" } };
+  opRow.getCell(7).font = { bold: true };
+  opRow.getCell(5).alignment = { horizontal: "right" };
+  opRow.getCell(6).alignment = { horizontal: "right" };
+  opRow.getCell(7).alignment = { horizontal: "right" };
+  opRow.height = 18;
+
+  // 2. Transaction Rows
+  let totalDebit = 0;
+  let totalCredit = 0;
+  
+  rows.forEach((r, idx) => {
+    totalDebit += r.debit;
+    totalCredit += r.credit;
+    
+    let dateStr = r.date;
+    const parts = dateStr.split("-");
+    if (parts.length === 3) {
+      dateStr = `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+
+    const row = sheet.addRow([
+      dateStr,
+      r.voucherType,
+      r.voucherNo || "—",
+      r.accountName || "—",
+      r.debit > 0 ? r.debit : "",
+      r.credit > 0 ? r.credit : "",
+      r.balance === 0 ? "NIL" : `${Math.abs(r.balance).toLocaleString("en-IN")} ${r.balance >= 0 ? "DB" : "CR"}`
+    ]);
+    
+    const bg = idx % 2 === 0 ? C.evenRowBg : "FFFFFFFF";
+    row.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+    });
+
+    row.getCell(5).font = { color: { argb: r.debit > 0 ? C.greenFg : "FF475569" } };
+    row.getCell(6).font = { color: { argb: r.credit > 0 ? C.redFg : "FF475569" } };
+    row.getCell(7).font = { bold: true };
+
+    row.getCell(5).alignment = { horizontal: "right" };
+    row.getCell(6).alignment = { horizontal: "right" };
+    row.getCell(7).alignment = { horizontal: "right" };
+    row.height = 18;
+  });
+
+  // 3. Totals Row
+  const totRow = sheet.addRow([
+    "TOTAL", "", "", "",
+    totalDebit > 0 ? totalDebit : "",
+    totalCredit > 0 ? totalCredit : "",
+    ""
+  ]);
+  totRow.getCell(1).font = { bold: true, color: { argb: C.totalFg } };
+  totRow.getCell(5).font = { bold: true, color: { argb: C.greenFg } };
+  totRow.getCell(6).font = { bold: true, color: { argb: C.redFg } };
+  totRow.getCell(1).fill = totRow.getCell(2).fill = totRow.getCell(3).fill = totRow.getCell(4).fill = totRow.getCell(5).fill = totRow.getCell(6).fill = totRow.getCell(7).fill = {
+    type: "pattern", pattern: "solid", fgColor: { argb: C.totalBg }
+  };
+  totRow.getCell(5).alignment = { horizontal: "right" };
+  totRow.getCell(6).alignment = { horizontal: "right" };
+  totRow.height = 22;
+
+  // 4. Closing Balance Row
+  const finalBal = openingBalance + totalDebit - totalCredit;
+  const closRow = sheet.addRow([
+    "CLOSING BALANCE", "", "", "",
+    "", "",
+    finalBal === 0 ? "NIL" : `${Math.abs(finalBal).toLocaleString("en-IN")} ${finalBal >= 0 ? "DB" : "CR"}`
+  ]);
+  closRow.getCell(1).font = { bold: true, color: { argb: C.totalFg } };
+  closRow.getCell(7).font = { bold: true, color: { argb: finalBal >= 0 ? C.greenFg : C.redFg } };
+  closRow.getCell(1).fill = closRow.getCell(2).fill = closRow.getCell(3).fill = closRow.getCell(4).fill = closRow.getCell(5).fill = closRow.getCell(6).fill = closRow.getCell(7).fill = {
+    type: "pattern", pattern: "solid", fgColor: { argb: C.totalBg }
+  };
+  closRow.getCell(7).alignment = { horizontal: "right" };
+  closRow.height = 22;
+
+  // Set widths
+  sheet.getColumn(1).width = 13;
+  sheet.getColumn(2).width = 8;
+  sheet.getColumn(3).width = 15;
+  sheet.getColumn(4).width = 32;
+  sheet.getColumn(5).width = 15;
+  sheet.getColumn(6).width = 15;
+  sheet.getColumn(7).width = 20;
+
+  sheet.getColumn(5).numFmt = '₹#,##0.00';
+  sheet.getColumn(6).numFmt = '₹#,##0.00';
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url    = URL.createObjectURL(blob);
+  const link   = document.createElement("a");
+  const dStr   = new Date().toISOString().slice(0, 10);
+  link.href     = url;
+  link.download = `Ledger_${ledgerName.replace(/\s+/g, "_")}_Statement_${params.fyLabel.replace(/\s+/g, "_")}_${dStr}.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}

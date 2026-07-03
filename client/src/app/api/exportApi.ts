@@ -458,53 +458,117 @@ function buildBalanceSheetSheet(
 // ── Main export function ───────────────────────────────────────────────────────
 export async function generateExcelExport(
   params: ExportParams,
+  steps: ExportStep[],
+  exportFormat: "single" | "separate",
   onStep: (step: ExportStep) => void,
 ): Promise<void> {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator  = params.companyName;
-  workbook.company  = params.companyName;
-  workbook.created  = new Date();
-  workbook.modified = new Date();
-
-  // 1. Trial Balance
-  onStep("trial-balance");
-  const trialData = await computeTrialBalance();
-  buildTrialBalance(workbook, trialData, params);
-
-  // 2. Cash Book
-  onStep("cash-book");
-  const [accounts, allEntries] = await Promise.all([getAllAccounts(), getAllEntries()]);
-  buildBookSheet(workbook, "Cash Book", "Cash", allEntries, accounts, params);
-
-  // 3. Bank Book
-  onStep("bank-book");
-  buildBookSheet(workbook, "Bank Book", "Bank", allEntries, accounts, params);
-
-  // 4. Journal Voucher
-  onStep("journal");
-  const journalEntries = await getAllJournalEntries();
-  buildJournalSheet(workbook, journalEntries, params);
-
-  // 5. Balance Sheet
-  onStep("balance-sheet");
-  const bsData = await computeBalanceSheet();
-  buildBalanceSheetSheet(workbook, bsData, params);
-
-  // Build & download
-  onStep("building");
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob   = new Blob([buffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
-  const url  = URL.createObjectURL(blob);
-  const link = document.createElement("a");
   const date = new Date().toISOString().slice(0, 10);
-  link.href     = url;
-  link.download = `${params.companyName.replace(/\s+/g, "_")}_Financial_Report_${date}.xlsx`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+
+  if (exportFormat === "single") {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator  = params.companyName;
+    workbook.company  = params.companyName;
+    workbook.created  = new Date();
+    workbook.modified = new Date();
+
+    if (steps.includes("trial-balance")) {
+      onStep("trial-balance");
+      const trialData = await computeTrialBalance();
+      buildTrialBalance(workbook, trialData, params);
+    }
+
+    if (steps.includes("cash-book")) {
+      onStep("cash-book");
+      const [accounts, allEntries] = await Promise.all([getAllAccounts(), getAllEntries()]);
+      buildBookSheet(workbook, "Cash Book", "Cash", allEntries, accounts, params);
+    }
+
+    if (steps.includes("bank-book")) {
+      onStep("bank-book");
+      const [accounts, allEntries] = await Promise.all([getAllAccounts(), getAllEntries()]);
+      buildBookSheet(workbook, "Bank Book", "Bank", allEntries, accounts, params);
+    }
+
+    if (steps.includes("journal")) {
+      onStep("journal");
+      const journalEntries = await getAllJournalEntries();
+      buildJournalSheet(workbook, journalEntries, params);
+    }
+
+    if (steps.includes("balance-sheet")) {
+      onStep("balance-sheet");
+      const bsData = await computeBalanceSheet();
+      buildBalanceSheetSheet(workbook, bsData, params);
+    }
+
+    onStep("building");
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob   = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url  = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href     = url;
+    link.download = `${params.companyName.replace(/\s+/g, "_")}_Financial_Report_${date}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+  } else {
+    for (const stepKey of steps) {
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator  = params.companyName;
+      workbook.company  = params.companyName;
+      workbook.created  = new Date();
+      workbook.modified = new Date();
+      let filename = "";
+
+      if (stepKey === "trial-balance") {
+        onStep("trial-balance");
+        const trialData = await computeTrialBalance();
+        buildTrialBalance(workbook, trialData, params);
+        filename = `${params.companyName.replace(/\s+/g, "_")}_Trial_Balance_${date}.xlsx`;
+      } else if (stepKey === "cash-book") {
+        onStep("cash-book");
+        const [accounts, allEntries] = await Promise.all([getAllAccounts(), getAllEntries()]);
+        buildBookSheet(workbook, "Cash Book", "Cash", allEntries, accounts, params);
+        filename = `${params.companyName.replace(/\s+/g, "_")}_Cash_Book_${date}.xlsx`;
+      } else if (stepKey === "bank-book") {
+        onStep("bank-book");
+        const [accounts, allEntries] = await Promise.all([getAllAccounts(), getAllEntries()]);
+        buildBookSheet(workbook, "Bank Book", "Bank", allEntries, accounts, params);
+        filename = `${params.companyName.replace(/\s+/g, "_")}_Bank_Book_${date}.xlsx`;
+      } else if (stepKey === "journal") {
+        onStep("journal");
+        const journalEntries = await getAllJournalEntries();
+        buildJournalSheet(workbook, journalEntries, params);
+        filename = `${params.companyName.replace(/\s+/g, "_")}_Journal_Vouchers_${date}.xlsx`;
+      } else if (stepKey === "balance-sheet") {
+        onStep("balance-sheet");
+        const bsData = await computeBalanceSheet();
+        buildBalanceSheetSheet(workbook, bsData, params);
+        filename = `${params.companyName.replace(/\s+/g, "_")}_Balance_Sheet_${date}.xlsx`;
+      }
+
+      if (filename) {
+        onStep("building");
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob   = new Blob([buffer], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+        const url  = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href     = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    }
+  }
+
   onStep("done");
 }
 

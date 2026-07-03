@@ -8,6 +8,7 @@ import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import type { FinancialYear } from "../api/financialYearApi";
 import { generateExcelExport, type ExportStep } from "../api/exportApi";
+import toast from "react-hot-toast";
 
 // ── Sheet meta ─────────────────────────────────────────────────────────────────
 const SHEETS = [
@@ -42,6 +43,15 @@ export default function Export() {
   const [step, setStep]           = useState<ExportStep>("idle");
   const [error, setError]         = useState<string | null>(null);
 
+  const [checkedSteps, setCheckedSteps] = useState<ExportStep[]>([
+    "trial-balance",
+    "cash-book",
+    "bank-book",
+    "journal",
+    "balance-sheet"
+  ]);
+  const [exportFormat, setExportFormat] = useState<"single" | "separate">("single");
+
   const isRunning = !["idle","done","error"].includes(step);
   const isDone    = step === "done";
   const isError   = step === "error";
@@ -63,6 +73,10 @@ export default function Export() {
   };
 
   const handleExport = async () => {
+    if (checkedSteps.length === 0) {
+      toast.error("Please select at least one sheet to export.");
+      return;
+    }
     setError(null);
     setStep("idle");
     try {
@@ -74,6 +88,8 @@ export default function Export() {
           dateFrom,
           dateTo,
         },
+        checkedSteps,
+        exportFormat,
         (s) => setStep(s),
       );
     } catch (e: any) {
@@ -147,23 +163,98 @@ export default function Export() {
         </div>
       </div>
 
-      {/* ── Sheets included ───────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-        <p className="text-sm font-semibold text-slate-700 mb-4">Sheets included in workbook</p>
+      {/* ── Sheets included & Format ── */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-4">
+        {/* Export Format Options */}
+        <div>
+          <p className="text-sm font-semibold text-slate-700 mb-3">Export Format</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              onClick={() => setExportFormat("single")}
+              disabled={isRunning}
+              type="button"
+              className={`flex flex-col items-start p-4 rounded-xl border text-left transition-all ${
+                exportFormat === "single"
+                  ? "border-indigo-600 bg-indigo-50/50 shadow-xs font-semibold"
+                  : "border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50"
+              }`}
+            >
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-1">Option A</span>
+              <span className="text-sm font-bold text-slate-800">Single Multi-Sheet Workbook</span>
+              <span className="text-xs text-slate-500 mt-1">All selected reports are compiled as separate sheets in one `.xlsx` file.</span>
+            </button>
+
+            <button
+              onClick={() => setExportFormat("separate")}
+              disabled={isRunning}
+              type="button"
+              className={`flex flex-col items-start p-4 rounded-xl border text-left transition-all ${
+                exportFormat === "separate"
+                  ? "border-indigo-600 bg-indigo-50/50 shadow-xs font-semibold"
+                  : "border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50"
+              }`}
+            >
+              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-1">Option B</span>
+              <span className="text-sm font-bold text-slate-800">Separate Excel Files</span>
+              <span className="text-xs text-slate-500 mt-1">Download each selected report as an independent `.xlsx` file.</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Sheets Checklist header with select all toggle */}
+        <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
+          <p className="text-sm font-semibold text-slate-700">Select Sheets to Include</p>
+          <label className="flex items-center gap-1.5 text-xs text-indigo-600 font-bold hover:underline cursor-pointer select-none">
+            <input
+              type="checkbox"
+              disabled={isRunning}
+              checked={checkedSteps.length === SHEETS.length}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setCheckedSteps(SHEETS.map(s => s.step));
+                } else {
+                  setCheckedSteps([]);
+                }
+              }}
+              className="w-3.5 h-3.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+            />
+            {checkedSteps.length === SHEETS.length ? "Deselect All" : "Select All"}
+          </label>
+        </div>
+
+        {/* Sheets Checklist list */}
         <div className="space-y-2">
           {SHEETS.map(({ step: s, icon: Icon, color, label, desc }) => {
             const sheetIdx = STEP_ORDER.indexOf(s);
             const done     = isDone || (isRunning && sheetIdx < completedIdx);
             const active   = step === s;
+            const isChecked = checkedSteps.includes(s);
+
             return (
-              <div
+              <label
                 key={s}
-                className={`flex items-center gap-4 p-3.5 rounded-xl border transition-all ${
-                  active  ? "border-indigo-300 bg-indigo-50" :
-                  done    ? "border-emerald-200 bg-emerald-50/40" :
-                            "border-slate-100 bg-slate-50/50"
+                className={`flex items-center gap-4 p-3.5 rounded-xl border transition-all select-none cursor-pointer ${
+                  active    ? "border-indigo-300 bg-indigo-50" :
+                  done      ? "border-emerald-200 bg-emerald-50/40" :
+                  isChecked ? "border-slate-200 bg-white" :
+                              "border-slate-100 bg-slate-50/20 opacity-60 hover:opacity-100"
                 }`}
               >
+                {/* Checkbox for checking */}
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  disabled={isRunning}
+                  onChange={() => {
+                    setCheckedSteps((prev) =>
+                      prev.includes(s)
+                        ? prev.filter((x) => x !== s)
+                        : [...prev, s]
+                    );
+                  }}
+                  className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer flex-shrink-0"
+                />
+
                 <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${done ? "bg-emerald-100" : color}`}>
                   {done
                     ? <CheckCircle2 size={16} className="text-emerald-600" />
@@ -171,19 +262,20 @@ export default function Export() {
                     ? <Loader2 size={16} className="animate-spin text-indigo-600" />
                     : <Icon size={16} />}
                 </div>
+
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-semibold ${done ? "text-emerald-700" : active ? "text-indigo-700" : "text-slate-700"}`}>{label}</p>
                   <p className="text-xs text-slate-500 mt-0.5 truncate">{desc}</p>
                 </div>
                 {done   && <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />}
                 {!done && !active && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
-              </div>
+              </label>
             );
           })}
         </div>
 
         {/* Extra features note */}
-        <div className="mt-4 grid grid-cols-3 gap-2">
+        <div className="mt-4 border-t border-slate-100 pt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
           {[
             "Company & Address Header",
             "Financial Year Label",
@@ -244,13 +336,15 @@ export default function Export() {
             <p className="text-indigo-200 text-sm mt-1">
               {activeFY?.label ?? "—"} · {dateFrom} to {dateTo}
             </p>
-            <p className="text-indigo-300 text-xs mt-0.5">5 sheets · Company header · Auto column width · Color-coded</p>
+            <p className="text-indigo-300 text-xs mt-0.5">
+              {checkedSteps.length} sheets selected · {exportFormat === "single" ? "Single Workbook" : "Separate Files"} · Company header
+            </p>
           </div>
           <button
             onClick={isDone || isError ? () => { setStep("idle"); setError(null); } : handleExport}
-            disabled={isRunning}
+            disabled={isRunning || checkedSteps.length === 0}
             className={`flex items-center gap-2.5 px-6 py-3 rounded-xl font-semibold text-sm transition-all shadow-lg ${
-              isRunning
+              isRunning || checkedSteps.length === 0
                 ? "bg-white/20 text-white/60 cursor-not-allowed"
                 : "bg-white text-indigo-700 hover:bg-indigo-50 hover:shadow-xl"
             }`}

@@ -1090,6 +1090,107 @@ export default function TrialBalance() {
 
 
 
+
+
+  const load = useCallback(async (isRefresh = false, silent = false) => {
+    if (isRefresh) {
+      setLoading(true);
+    } else if (!silent) {
+      setLoading(true);
+    }
+    setError(null);
+    try {
+      const raw = await fetchAccountingRawData(selectedFY?._id || "", isRefresh);
+      const result = await computeTrialBalance(raw);
+      setSummary(result);
+      cachedSummary = result;
+      cachedFYId = selectedFY?._id || null;
+    } catch (e: any) {
+      if (!silent) {
+        setError(e?.message ?? "Failed to compute trial balance");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedFY?._id]);
+
+  useEffect(() => {
+    if (!selectedFY?._id) return;
+
+    const hasCache = cachedFYId === selectedFY._id && cachedSummary !== null;
+    if (hasCache) {
+      setSummary(cachedSummary);
+      setLoading(false);
+    } else {
+      setLoading(true);
+      load(false, false);
+    }
+  }, [load, selectedFY?._id]);
+
+  // When data changes, wait for the global background prefetch to finish,
+  // then pull the fresh cache into component state — no double-fetch.
+  useEffect(() => {
+    const handleUpdate = () => {
+      const checkCache = () => {
+        if (cachedSummary && cachedFYId === selectedFY?._id) {
+          setSummary(cachedSummary);
+          setLoading(false);
+        } else {
+          // Prefetch still in progress or failed — do a full reload
+          load(true);
+        }
+      };
+      // Give the global background prefetch ~600ms to finish
+      const t = setTimeout(checkCache, 600);
+      return () => clearTimeout(t);
+    };
+    window.addEventListener("accounting-data-updated", handleUpdate);
+    return () => window.removeEventListener("accounting-data-updated", handleUpdate);
+  }, [load, selectedFY?._id]);
+
+  const allGroups = useMemo(() => {
+    if (!summary) return [];
+    return ["All", ...Array.from(new Set(summary.rows.map((r) => r.group)))];
+  }, [summary]);
+
+  const filtered = useMemo<TrialRow[]>(() => {
+    if (!summary) return [];
+    return summary.rows.filter((r) => {
+      const matchGroup = groupFilter === "All" || r.group === groupFilter;
+      const q = search.toLowerCase();
+      const matchSearch =
+        !q ||
+        r.ledgerName.toLowerCase().includes(q) ||
+        r.group.toLowerCase().includes(q);
+      return matchGroup && matchSearch;
+    });
+  }, [summary, search, groupFilter]);
+
+  const totals = useMemo(() => {
+    return filtered.reduce(
+      (s, r) => ({
+        openDr:  s.openDr  + r.openingDr,
+        openCr:  s.openCr  + r.openingCr,
+        txnDr:   s.txnDr   + r.transactionDr,
+        txnCr:   s.txnCr   + r.transactionCr,
+        closeDr: s.closeDr + r.closingDr,
+        closeCr: s.closeCr + r.closingCr,
+      }),
+      { openDr: 0, openCr: 0, txnDr: 0, txnCr: 0, closeDr: 0, closeCr: 0 },
+    );
+  }, [filtered]);
+
+  const globalTotals = useMemo(() => {
+    if (!summary) return { closeDr: 0, closeCr: 0 };
+    return summary.rows.reduce(
+      (s, r) => ({ closeDr: s.closeDr + r.closingDr, closeCr: s.closeCr + r.closingCr }),
+      { closeDr: 0, closeCr: 0 },
+    );
+  }, [summary]);
+
+  const difference = Math.abs(globalTotals.closeDr - globalTotals.closeCr);
+  const isBalanced = difference < 0.01;
+
   const triggerPrint = useCallback((saveAsPDF = false) => {
     if (!summary) {
       toast.error("No data to print.");
@@ -1210,105 +1311,6 @@ export default function TrialBalance() {
       setExporting(false);
     }
   }, [summary, company, financialYear, selectedFY]);
-
-  const load = useCallback(async (isRefresh = false, silent = false) => {
-    if (isRefresh) {
-      setLoading(true);
-    } else if (!silent) {
-      setLoading(true);
-    }
-    setError(null);
-    try {
-      const raw = await fetchAccountingRawData(selectedFY?._id || "", isRefresh);
-      const result = await computeTrialBalance(raw);
-      setSummary(result);
-      cachedSummary = result;
-      cachedFYId = selectedFY?._id || null;
-    } catch (e: any) {
-      if (!silent) {
-        setError(e?.message ?? "Failed to compute trial balance");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedFY?._id]);
-
-  useEffect(() => {
-    if (!selectedFY?._id) return;
-
-    const hasCache = cachedFYId === selectedFY._id && cachedSummary !== null;
-    if (hasCache) {
-      setSummary(cachedSummary);
-      setLoading(false);
-    } else {
-      setLoading(true);
-      load(false, false);
-    }
-  }, [load, selectedFY?._id]);
-
-  // When data changes, wait for the global background prefetch to finish,
-  // then pull the fresh cache into component state — no double-fetch.
-  useEffect(() => {
-    const handleUpdate = () => {
-      const checkCache = () => {
-        if (cachedSummary && cachedFYId === selectedFY?._id) {
-          setSummary(cachedSummary);
-          setLoading(false);
-        } else {
-          // Prefetch still in progress or failed — do a full reload
-          load(true);
-        }
-      };
-      // Give the global background prefetch ~600ms to finish
-      const t = setTimeout(checkCache, 600);
-      return () => clearTimeout(t);
-    };
-    window.addEventListener("accounting-data-updated", handleUpdate);
-    return () => window.removeEventListener("accounting-data-updated", handleUpdate);
-  }, [load, selectedFY?._id]);
-
-  const allGroups = useMemo(() => {
-    if (!summary) return [];
-    return ["All", ...Array.from(new Set(summary.rows.map((r) => r.group)))];
-  }, [summary]);
-
-  const filtered = useMemo<TrialRow[]>(() => {
-    if (!summary) return [];
-    return summary.rows.filter((r) => {
-      const matchGroup = groupFilter === "All" || r.group === groupFilter;
-      const q = search.toLowerCase();
-      const matchSearch =
-        !q ||
-        r.ledgerName.toLowerCase().includes(q) ||
-        r.group.toLowerCase().includes(q);
-      return matchGroup && matchSearch;
-    });
-  }, [summary, search, groupFilter]);
-
-  const totals = useMemo(() => {
-    return filtered.reduce(
-      (s, r) => ({
-        openDr:  s.openDr  + r.openingDr,
-        openCr:  s.openCr  + r.openingCr,
-        txnDr:   s.txnDr   + r.transactionDr,
-        txnCr:   s.txnCr   + r.transactionCr,
-        closeDr: s.closeDr + r.closingDr,
-        closeCr: s.closeCr + r.closingCr,
-      }),
-      { openDr: 0, openCr: 0, txnDr: 0, txnCr: 0, closeDr: 0, closeCr: 0 },
-    );
-  }, [filtered]);
-
-  const globalTotals = useMemo(() => {
-    if (!summary) return { closeDr: 0, closeCr: 0 };
-    return summary.rows.reduce(
-      (s, r) => ({ closeDr: s.closeDr + r.closingDr, closeCr: s.closeCr + r.closingCr }),
-      { closeDr: 0, closeCr: 0 },
-    );
-  }, [summary]);
-
-  const difference = Math.abs(globalTotals.closeDr - globalTotals.closeCr);
-  const isBalanced = difference < 0.01;
 
   const columnDefs = useMemo<(ColDef<TrialRow> | ColGroupDef<TrialRow>)[]>(() => [
     {

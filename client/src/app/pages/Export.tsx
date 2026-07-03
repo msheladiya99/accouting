@@ -9,6 +9,7 @@ import { FYBanner } from "../components/FYBanner";
 import type { FinancialYear } from "../api/financialYearApi";
 import { generateExcelExport, type ExportStep } from "../api/exportApi";
 import toast from "react-hot-toast";
+import { getAllAccounts, type BankCashAccount } from "../api/bankCashBookApi";
 
 // ── Sheet meta ─────────────────────────────────────────────────────────────────
 const SHEETS = [
@@ -52,9 +53,25 @@ export default function Export() {
   ]);
   const [exportFormat, setExportFormat] = useState<"single" | "separate">("single");
 
+  // Bank-specific filtering options
+  const [accounts, setAccounts] = useState<BankCashAccount[]>([]);
+  const [bankFilterMode, setBankFilterMode] = useState<"all" | "selected">("all");
+  const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
+
   const isRunning = !["idle","done","error"].includes(step);
   const isDone    = step === "done";
   const isError   = step === "error";
+
+  // Load all accounts on mount
+  useEffect(() => {
+    getAllAccounts()
+      .then((accs) => {
+        setAccounts(accs);
+        const bankAccs = accs.filter(a => a.group === "Bank");
+        setSelectedBankIds(bankAccs.map(b => b._id));
+      })
+      .catch(() => {});
+  }, []);
 
   // Synchronize activeFY with global selectedFY
   useEffect(() => {
@@ -77,6 +94,10 @@ export default function Export() {
       toast.error("Please select at least one sheet to export.");
       return;
     }
+    if (checkedSteps.includes("bank-book") && bankFilterMode === "selected" && selectedBankIds.length === 0) {
+      toast.error("Please select at least one bank account to export.");
+      return;
+    }
     setError(null);
     setStep("idle");
     try {
@@ -90,6 +111,7 @@ export default function Export() {
         },
         checkedSteps,
         exportFormat,
+        checkedSteps.includes("bank-book") && bankFilterMode === "selected" ? selectedBankIds : null,
         (s) => setStep(s),
       );
     } catch (e: any) {
@@ -231,45 +253,109 @@ export default function Export() {
             const isChecked = checkedSteps.includes(s);
 
             return (
-              <label
+              <div
                 key={s}
-                className={`flex items-center gap-4 p-3.5 rounded-xl border transition-all select-none cursor-pointer ${
+                className={`p-3.5 rounded-xl border transition-all ${
                   active    ? "border-indigo-300 bg-indigo-50" :
                   done      ? "border-emerald-200 bg-emerald-50/40" :
                   isChecked ? "border-slate-200 bg-white" :
                               "border-slate-100 bg-slate-50/20 opacity-60 hover:opacity-100"
                 }`}
               >
-                {/* Checkbox for checking */}
-                <input
-                  type="checkbox"
-                  checked={isChecked}
-                  disabled={isRunning}
-                  onChange={() => {
+                <div
+                  className="flex items-center gap-4 cursor-pointer"
+                  onClick={() => {
+                    if (isRunning) return;
                     setCheckedSteps((prev) =>
                       prev.includes(s)
                         ? prev.filter((x) => x !== s)
                         : [...prev, s]
                     );
                   }}
-                  className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer flex-shrink-0"
-                />
+                >
+                  {/* Checkbox for checking */}
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    disabled={isRunning}
+                    onChange={() => {}} // click handler does the toggle
+                    className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer flex-shrink-0"
+                  />
 
-                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${done ? "bg-emerald-100" : color}`}>
-                  {done
-                    ? <CheckCircle2 size={16} className="text-emerald-600" />
-                    : active
-                    ? <Loader2 size={16} className="animate-spin text-indigo-600" />
-                    : <Icon size={16} />}
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${done ? "bg-emerald-100" : color}`}>
+                    {done
+                      ? <CheckCircle2 size={16} className="text-emerald-600" />
+                      : active
+                      ? <Loader2 size={16} className="animate-spin text-indigo-600" />
+                      : <Icon size={16} />}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-semibold ${done ? "text-emerald-700" : active ? "text-indigo-700" : "text-slate-700"}`}>{label}</p>
+                    <p className="text-xs text-slate-500 mt-0.5 truncate">{desc}</p>
+                  </div>
+                  {done   && <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />}
+                  {!done && !active && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
                 </div>
 
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold ${done ? "text-emerald-700" : active ? "text-indigo-700" : "text-slate-700"}`}>{label}</p>
-                  <p className="text-xs text-slate-500 mt-0.5 truncate">{desc}</p>
-                </div>
-                {done   && <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />}
-                {!done && !active && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
-              </label>
+                {s === "bank-book" && isChecked && (
+                  <div
+                    className="mt-3 ml-8 p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-1.5 text-xs text-slate-700 font-semibold cursor-pointer select-none">
+                        <input
+                          type="radio"
+                          name="bankFilterMode"
+                          checked={bankFilterMode === "all"}
+                          onChange={() => setBankFilterMode("all")}
+                          className="w-3.5 h-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                        />
+                        All Banks
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs text-slate-700 font-semibold cursor-pointer select-none">
+                        <input
+                          type="radio"
+                          name="bankFilterMode"
+                          checked={bankFilterMode === "selected"}
+                          onChange={() => setBankFilterMode("selected")}
+                          className="w-3.5 h-3.5 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                        />
+                        Select Specific Banks
+                      </label>
+                    </div>
+
+                    {bankFilterMode === "selected" && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-slate-200 pt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                        {accounts.filter(a => a.group === "Bank").map((acc) => {
+                          const isAccChecked = selectedBankIds.includes(acc._id);
+                          return (
+                            <label
+                              key={acc._id}
+                              className="flex items-center gap-2 text-xs text-slate-600 hover:text-slate-800 cursor-pointer select-none"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isAccChecked}
+                                onChange={() => {
+                                  setSelectedBankIds(prev =>
+                                    isAccChecked
+                                      ? prev.filter(id => id !== acc._id)
+                                      : [...prev, acc._id]
+                                  );
+                                }}
+                                className="w-3.5 h-3.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                              />
+                              {acc.name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>

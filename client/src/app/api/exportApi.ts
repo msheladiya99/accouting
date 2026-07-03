@@ -460,6 +460,7 @@ export async function generateExcelExport(
   params: ExportParams,
   steps: ExportStep[],
   exportFormat: "single" | "separate",
+  selectedBankIds: string[] | null,
   onStep: (step: ExportStep) => void,
 ): Promise<void> {
   const date = new Date().toISOString().slice(0, 10);
@@ -486,7 +487,10 @@ export async function generateExcelExport(
     if (steps.includes("bank-book")) {
       onStep("bank-book");
       const [accounts, allEntries] = await Promise.all([getAllAccounts(), getAllEntries()]);
-      buildBookSheet(workbook, "Bank Book", "Bank", allEntries, accounts, params);
+      const targetAccounts = selectedBankIds
+        ? accounts.filter(a => selectedBankIds.includes(a._id))
+        : accounts;
+      buildBookSheet(workbook, "Bank Book", "Bank", allEntries, targetAccounts, params);
     }
 
     if (steps.includes("journal")) {
@@ -537,7 +541,10 @@ export async function generateExcelExport(
       } else if (stepKey === "bank-book") {
         onStep("bank-book");
         const [accounts, allEntries] = await Promise.all([getAllAccounts(), getAllEntries()]);
-        buildBookSheet(workbook, "Bank Book", "Bank", allEntries, accounts, params);
+        const targetAccounts = selectedBankIds
+          ? accounts.filter(a => selectedBankIds.includes(a._id))
+          : accounts;
+        buildBookSheet(workbook, "Bank Book", "Bank", allEntries, targetAccounts, params);
         filename = `${params.companyName.replace(/\s+/g, "_")}_Bank_Book_${date}.xlsx`;
       } else if (stepKey === "journal") {
         onStep("journal");

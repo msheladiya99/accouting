@@ -351,7 +351,8 @@ function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, stri
 function computePartnerCapital(
   ledger: any,
   bankEntries: any[],
-  journalEntries: any[]
+  journalEntries: any[],
+  capitalLedgerNames: Set<string>
 ): PartnerCapitalAccount {
   const name = ledger.ledgerName;
   const openingBalance = ledger.openingCr - ledger.openingDr;
@@ -372,6 +373,12 @@ function computePartnerCapital(
 
   journalEntries.forEach((e) => {
     if (e.items && e.items.length > 0) {
+      // If all legs of this journal entry are capital accounts, it's an internal transfer. Skip it.
+      const hasNonCapitalLeg = e.items.some((item: any) => 
+        !capitalLedgerNames.has((item.accountName || "").toLowerCase())
+      );
+      if (!hasNonCapitalLeg) return;
+
       e.items.forEach((item: any) => {
         if (item.accountName === name) {
           if (item.type === "Db") {
@@ -382,6 +389,13 @@ function computePartnerCapital(
         }
       });
     } else {
+      const isDbCapital = capitalLedgerNames.has((e.debitAccount || "").toLowerCase());
+      const isCrCapital = capitalLedgerNames.has((e.creditAccount || "").toLowerCase());
+      if (isDbCapital && isCrCapital) {
+        // Internal capital transfer, skip!
+        return;
+      }
+
       if (e.debitAccount === name) {
         debits.push({ particulars: e.narration || "WITHDRAWAL", amount: e.debitAmount });
       }
@@ -503,8 +517,10 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
         l.groupName.toLowerCase() === 'capital & reserves'
       );
 
+      const capitalLedgerNames = new Set(capitalLedgerAccounts.map(l => l.ledgerName.toLowerCase()));
+
       const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
-        computePartnerCapital(ledger, bankEntries, journalEntries)
+        computePartnerCapital(ledger, bankEntries, journalEntries, capitalLedgerNames)
       ));
 
       setTradingPLData(tpl);

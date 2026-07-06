@@ -371,7 +371,8 @@ function computePartnerCapital(
   ledger: any,
   bankEntries: any[],
   journalEntries: any[],
-  bankAccounts: any[]
+  bankAccounts: any[],
+  capitalLedgerNames: Set<string>
 ): PartnerCapitalAccount {
   const name = ledger.ledgerName;
   const openingBalance = ledger.openingCr - ledger.openingDr;
@@ -416,6 +417,13 @@ function computePartnerCapital(
         .filter((it: any) => it.accountName !== name)
         .map((it: any) => it.accountName as string)
         .filter(Boolean);
+
+      // If all contra accounts are capital accounts, this is an internal transfer. Skip it.
+      const isInternalCapitalTransfer = contraNames.length > 0 && contraNames.every(cName => 
+        capitalLedgerNames.has(cName.toLowerCase())
+      );
+      if (isInternalCapitalTransfer) return;
+
       const contraLabel = contraNames.length > 0 ? contraNames.join(", ") : (e.narration || "JOURNAL");
 
       const amt = Number(leg.amount || 0);
@@ -519,8 +527,10 @@ export async function prefetchBalanceSheetData(fyId: string, force = false) {
       l.groupName.toLowerCase() === 'capital & reserves'
     );
 
+    const capitalLedgerNames = new Set(capitalLedgerAccounts.map(l => l.ledgerName.toLowerCase()));
+
     const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
-      computePartnerCapital(ledger, bankEntries, journalEntries, bankAccounts)
+      computePartnerCapital(ledger, bankEntries, journalEntries, bankAccounts, capitalLedgerNames)
     ));
 
     cachedData = result;
@@ -666,8 +676,10 @@ export default function BalanceSheet() {
         l.groupName.toLowerCase() === 'capital & reserves'
       );
 
+      const capitalLedgerNames = new Set(capitalLedgerAccounts.map(l => l.ledgerName.toLowerCase()));
+
       const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
-        computePartnerCapital(ledger, bankEntries, journalEntries, bankAccounts)
+        computePartnerCapital(ledger, bankEntries, journalEntries, bankAccounts, capitalLedgerNames)
       ));
 
       setTradingPLData(tpl);

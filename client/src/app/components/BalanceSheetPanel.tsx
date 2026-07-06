@@ -351,8 +351,7 @@ function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, stri
 function computePartnerCapital(
   ledger: any,
   bankEntries: any[],
-  journalEntries: any[],
-  capitalLedgerNames: Set<string>
+  journalEntries: any[]
 ): PartnerCapitalAccount {
   const name = ledger.ledgerName;
   const openingBalance = ledger.openingCr - ledger.openingDr;
@@ -373,12 +372,6 @@ function computePartnerCapital(
 
   journalEntries.forEach((e) => {
     if (e.items && e.items.length > 0) {
-      // If all legs of this journal entry are capital accounts, it's an internal transfer. Skip it.
-      const hasNonCapitalLeg = e.items.some((item: any) => 
-        !capitalLedgerNames.has((item.accountName || "").toLowerCase())
-      );
-      if (!hasNonCapitalLeg) return;
-
       e.items.forEach((item: any) => {
         if (item.accountName === name) {
           if (item.type === "Db") {
@@ -389,13 +382,6 @@ function computePartnerCapital(
         }
       });
     } else {
-      const isDbCapital = capitalLedgerNames.has((e.debitAccount || "").toLowerCase());
-      const isCrCapital = capitalLedgerNames.has((e.creditAccount || "").toLowerCase());
-      if (isDbCapital && isCrCapital) {
-        // Internal capital transfer, skip!
-        return;
-      }
-
       if (e.debitAccount === name) {
         debits.push({ particulars: e.narration || "WITHDRAWAL", amount: e.debitAmount });
       }
@@ -511,16 +497,23 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
       const trialSummary = await computeTrialBalance(raw);
       const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
 
-      const capitalLedgerAccounts = ledgers.filter(l => 
+      const allCapitalLedgers = ledgers.filter(l => 
         l.groupName.toLowerCase() === 'capital' || 
         l.groupName.toLowerCase() === 'capital account' || 
         l.groupName.toLowerCase() === 'capital & reserves'
       );
 
-      const capitalLedgerNames = new Set(capitalLedgerAccounts.map(l => l.ledgerName.toLowerCase()));
+      const capitalLedgerAccounts = allCapitalLedgers.filter(l => {
+        const tbRow = trialSummary.rows.find(r => r.ledgerName.toLowerCase() === l.ledgerName.toLowerCase());
+        if (tbRow) {
+          const closingBalance = tbRow.closingDr + tbRow.closingCr;
+          if (closingBalance === 0) return false;
+        }
+        return true;
+      });
 
       const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
-        computePartnerCapital(ledger, bankEntries, journalEntries, capitalLedgerNames)
+        computePartnerCapital(ledger, bankEntries, journalEntries)
       ));
 
       setTradingPLData(tpl);

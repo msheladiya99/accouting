@@ -497,11 +497,20 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
       const trialSummary = await computeTrialBalance(raw);
       const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
 
-      const capitalLedgerAccounts = ledgers.filter(l => 
+      const allCapitalLedgers = ledgers.filter(l => 
         l.groupName.toLowerCase() === 'capital' || 
         l.groupName.toLowerCase() === 'capital account' || 
         l.groupName.toLowerCase() === 'capital & reserves'
       );
+
+      const capitalLedgerAccounts = allCapitalLedgers.filter(l => {
+        const tbRow = trialSummary.rows.find(r => r.ledgerName.toLowerCase() === l.ledgerName.toLowerCase());
+        if (tbRow) {
+          const closingBalance = tbRow.closingDr + tbRow.closingCr;
+          if (closingBalance === 0) return false;
+        }
+        return true;
+      });
 
       const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
         computePartnerCapital(ledger, bankEntries, journalEntries)

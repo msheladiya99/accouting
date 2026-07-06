@@ -371,7 +371,8 @@ function computePartnerCapital(
   ledger: any,
   bankEntries: any[],
   journalEntries: any[],
-  bankAccounts: any[]
+  bankAccounts: any[],
+  capitalLedgerNames: Set<string>
 ): PartnerCapitalAccount {
   const name = ledger.ledgerName;
   const openingBalance = ledger.openingCr - ledger.openingDr;
@@ -416,7 +417,15 @@ function computePartnerCapital(
         .filter((it: any) => it.accountName !== name)
         .map((it: any) => it.accountName as string)
         .filter(Boolean);
-      const contraLabel = contraNames.length > 0 ? contraNames.join(", ") : (e.narration || "JOURNAL");
+
+      // If all contra accounts are capital accounts, this is an internal transfer.
+      // Group it under the ledger's own name to merge the transfer into the main capital account line.
+      const isInternalCapitalTransfer = contraNames.length > 0 && contraNames.every(cName => 
+        capitalLedgerNames.has(cName.toLowerCase())
+      );
+      const contraLabel = isInternalCapitalTransfer 
+        ? name 
+        : (contraNames.length > 0 ? contraNames.join(", ") : (e.narration || "JOURNAL"));
 
       const amt = Number(leg.amount || 0);
       if (leg.type === "Db") {
@@ -470,7 +479,7 @@ let cachedTradingPLData: any = null;
 let cachedFYId: string | null = null;
 
 // Load initial cache from sessionStorage if available to survive browser refreshes (F5)
-const CACHE_VERSION = "v2"; // bump when Capital Account logic changes
+const CACHE_VERSION = "v3"; // bump when Capital Account logic changes
 try {
   const sData = sessionStorage.getItem("ap_cached_bs_data");
   const sCapital = sessionStorage.getItem("ap_cached_bs_capital");
@@ -513,14 +522,25 @@ export async function prefetchBalanceSheetData(fyId: string, force = false) {
     const trialSummary = await computeTrialBalance(raw);
     const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
 
-    const capitalLedgerAccounts = ledgers.filter(l => 
+    const allCapitalLedgers = ledgers.filter(l => 
       l.groupName.toLowerCase() === 'capital' || 
       l.groupName.toLowerCase() === 'capital account' || 
       l.groupName.toLowerCase() === 'capital & reserves'
     );
 
+    const capitalLedgerNames = new Set(allCapitalLedgers.map(l => l.ledgerName.toLowerCase()));
+
+    const capitalLedgerAccounts = allCapitalLedgers.filter(l => {
+      const tbRow = trialSummary.rows.find(r => r.ledgerName.toLowerCase() === l.ledgerName.toLowerCase());
+      if (tbRow) {
+        const closingBalance = tbRow.closingDr + tbRow.closingCr;
+        if (closingBalance === 0) return false;
+      }
+      return true;
+    });
+
     const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
-      computePartnerCapital(ledger, bankEntries, journalEntries, bankAccounts)
+      computePartnerCapital(ledger, bankEntries, journalEntries, bankAccounts, capitalLedgerNames)
     ));
 
     cachedData = result;
@@ -660,14 +680,25 @@ export default function BalanceSheet() {
       const trialSummary = await computeTrialBalance(raw);
       const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
 
-      const capitalLedgerAccounts = ledgers.filter(l => 
+      const allCapitalLedgers = ledgers.filter(l => 
         l.groupName.toLowerCase() === 'capital' || 
         l.groupName.toLowerCase() === 'capital account' || 
         l.groupName.toLowerCase() === 'capital & reserves'
       );
 
+      const capitalLedgerNames = new Set(allCapitalLedgers.map(l => l.ledgerName.toLowerCase()));
+
+      const capitalLedgerAccounts = allCapitalLedgers.filter(l => {
+        const tbRow = trialSummary.rows.find(r => r.ledgerName.toLowerCase() === l.ledgerName.toLowerCase());
+        if (tbRow) {
+          const closingBalance = tbRow.closingDr + tbRow.closingCr;
+          if (closingBalance === 0) return false;
+        }
+        return true;
+      });
+
       const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
-        computePartnerCapital(ledger, bankEntries, journalEntries, bankAccounts)
+        computePartnerCapital(ledger, bankEntries, journalEntries, bankAccounts, capitalLedgerNames)
       ));
 
       setTradingPLData(tpl);

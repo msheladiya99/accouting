@@ -37,6 +37,7 @@ apiRouter.get("/company/:id", companyController.getCompanyById);
 apiRouter.post("/company/create", companyController.createCompany);
 apiRouter.put("/company/:id", companyController.updateCompany);
 apiRouter.delete("/company/:id", companyController.deleteCompany);
+apiRouter.post("/company/:id/test-email", companyController.sendTestEmail);
 
 // Enforce company scoping for data routes
 apiRouter.use([

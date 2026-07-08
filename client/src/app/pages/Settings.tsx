@@ -10,6 +10,8 @@ import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { useTheme, type ThemeMode, type AccentColor } from "../context/ThemeContext";
 import { type FinancialYear } from "../api/financialYearApi";
+import { updateCompany, sendTestEmail } from "../api/companyApi";
+import { fetchAccountingRawData } from "../api/accountingDataCache";
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 const TABS = [
@@ -66,14 +68,53 @@ function CompanyTab() {
   const [form, setForm] = useState({ ...company });
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    setForm({ ...company });
+  }, [company]);
+
   const dirty = JSON.stringify(form) !== JSON.stringify(company);
 
   const handleSave = async () => {
+    if (!form.id) {
+      toast.error("Company context is missing");
+      return;
+    }
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 500));
-    setCompany(form);
-    toast.success("Company settings saved");
-    setSaving(false);
+    try {
+      const payload = {
+        companyName: form.name,
+        panNumber: form.taxId,
+        address: form.address,
+        mobileNumber: form.phone,
+        email: form.email,
+        currency: form.currency
+      };
+      const updated = await updateCompany(form.id, payload);
+      setCompany({
+        id: updated._id,
+        name: updated.companyName,
+        address: (updated as any).address || "",
+        phone: (updated as any).mobileNumber || "",
+        email: (updated as any).email || "",
+        taxId: updated.panNumber,
+        currency: (updated as any).currency || "INR",
+        emailNotificationsEnabled: (updated as any).emailNotificationsEnabled,
+        smtpHost: (updated as any).smtpHost,
+        smtpPort: (updated as any).smtpPort,
+        smtpUsername: (updated as any).smtpUsername,
+        smtpPassword: (updated as any).smtpPassword,
+        smtpFromName: (updated as any).smtpFromName,
+        smtpFromEmail: (updated as any).smtpFromEmail,
+        notifyOnExport: (updated as any).notifyOnExport,
+        notifyOnBackup: (updated as any).notifyOnBackup,
+        notifyOnLogin: (updated as any).notifyOnLogin,
+      });
+      toast.success("Company settings saved");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to save company settings");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -335,7 +376,7 @@ const DEFAULT_BACKUP: BackupSettings = {
 };
 
 function BackupTab() {
-  const { company } = useApp();
+  const { company, selectedFY } = useApp();
   const [settings, setSettings] = useState<BackupSettings>(() => {
     try { return JSON.parse(localStorage.getItem(BACKUP_STORE_KEY) ?? "null") ?? DEFAULT_BACKUP; }
     catch { return DEFAULT_BACKUP; }
@@ -349,33 +390,44 @@ function BackupTab() {
 
   const handleDownload = async () => {
     setDownloading(true);
-    await new Promise((r) => setTimeout(r, 1200));
+    try {
+      const raw = await fetchAccountingRawData(selectedFY?._id || "", true);
+      
+      const backup = {
+        meta: {
+          app:        "AccountPro",
+          company:    company.name,
+          companyId:  company.id,
+          exportedAt: new Date().toISOString(),
+          version:    "1.0.0",
+        },
+        data: {
+          company,
+          ledgers:        settings.includeLedger ? raw.ledgers : [],
+          bankAccounts:   settings.includeLedger ? raw.bankAccounts : [],
+          groups:         settings.includeLedger ? raw.groups : [],
+          bankEntries:    settings.includeJournal ? raw.bankEntries : [],
+          journalEntries: settings.includeJournal ? raw.journalEntries : [],
+        },
+      };
 
-    const backup = {
-      meta: {
-        app:        "AccountPro",
-        company:    company.name,
-        exportedAt: new Date().toISOString(),
-        version:    "1.0.0",
-      },
-      data: {
-        company,
-        note: "Full transactional data exported from in-memory store",
-      },
-    };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `${company.name.replace(/\s+/g, "_")}_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
 
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = `${company.name.replace(/\s+/g, "_")}_Backup_${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    const next = { ...settings, lastBackup: new Date().toISOString() };
-    save(next);
-    toast.success("Backup downloaded successfully");
-    setDownloading(false);
+      const next = { ...settings, lastBackup: new Date().toISOString() };
+      save(next);
+      toast.success("Backup downloaded successfully");
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Failed to generate backup data");
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const fmt = (iso?: string) => {
@@ -526,28 +578,112 @@ const DEFAULT_EMAIL: EmailSettings = {
 };
 
 function EmailTab() {
-  const [settings, setSettings] = useState<EmailSettings>(() => {
-    try { return JSON.parse(localStorage.getItem(EMAIL_STORE_KEY) ?? "null") ?? DEFAULT_EMAIL; }
-    catch { return DEFAULT_EMAIL; }
+  const { company, setCompany } = useApp();
+  const [settings, setSettings] = useState<EmailSettings>({
+    enabled:        company.emailNotificationsEnabled || false,
+    smtpHost:       company.smtpHost || "",
+    smtpPort:       company.smtpPort || "587",
+    username:       company.smtpUsername || "",
+    password:       company.smtpPassword || "",
+    fromName:       company.smtpFromName || "AccountPro",
+    fromEmail:      company.smtpFromEmail || "",
+    notifyOnExport: company.notifyOnExport !== false,
+    notifyOnBackup: company.notifyOnBackup || false,
+    notifyOnLogin:  company.notifyOnLogin || false,
   });
+
   const [showPass, setShowPass] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
 
+  useEffect(() => {
+    setSettings({
+      enabled:        company.emailNotificationsEnabled || false,
+      smtpHost:       company.smtpHost || "",
+      smtpPort:       company.smtpPort || "587",
+      username:       company.smtpUsername || "",
+      password:       company.smtpPassword || "",
+      fromName:       company.smtpFromName || "AccountPro",
+      fromEmail:      company.smtpFromEmail || "",
+      notifyOnExport: company.notifyOnExport !== false,
+      notifyOnBackup: company.notifyOnBackup || false,
+      notifyOnLogin:  company.notifyOnLogin || false,
+    });
+  }, [company]);
+
   const save = async () => {
+    if (!company.id) {
+      toast.error("Company context is missing");
+      return;
+    }
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 600));
-    localStorage.setItem(EMAIL_STORE_KEY, JSON.stringify(settings));
-    toast.success("Email settings saved");
-    setSaving(false);
+    try {
+      const payload = {
+        emailNotificationsEnabled: settings.enabled,
+        smtpHost: settings.smtpHost,
+        smtpPort: settings.smtpPort,
+        smtpUsername: settings.username,
+        smtpPassword: settings.password,
+        smtpFromName: settings.fromName,
+        smtpFromEmail: settings.fromEmail,
+        notifyOnExport: settings.notifyOnExport,
+        notifyOnBackup: settings.notifyOnBackup,
+        notifyOnLogin: settings.notifyOnLogin,
+      };
+      const updated = await updateCompany(company.id, payload);
+      setCompany({
+        id: updated._id,
+        name: updated.companyName,
+        address: (updated as any).address || "",
+        phone: (updated as any).mobileNumber || "",
+        email: (updated as any).email || "",
+        taxId: updated.panNumber,
+        currency: (updated as any).currency || "INR",
+        emailNotificationsEnabled: (updated as any).emailNotificationsEnabled,
+        smtpHost: (updated as any).smtpHost,
+        smtpPort: (updated as any).smtpPort,
+        smtpUsername: (updated as any).smtpUsername,
+        smtpPassword: (updated as any).smtpPassword,
+        smtpFromName: (updated as any).smtpFromName,
+        smtpFromEmail: (updated as any).smtpFromEmail,
+        notifyOnExport: (updated as any).notifyOnExport,
+        notifyOnBackup: (updated as any).notifyOnBackup,
+        notifyOnLogin: (updated as any).notifyOnLogin,
+      });
+      toast.success("Email settings saved successfully");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to save email settings");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const testEmail = async () => {
-    if (!settings.fromEmail) { toast.error("Enter a From Email first"); return; }
+    if (!company.id) {
+      toast.error("Company context is missing");
+      return;
+    }
+    if (!settings.smtpHost || !settings.username || !settings.password || !settings.fromEmail) {
+      toast.error("All SMTP fields (Host, Username, Password, From Email) are required to test");
+      return;
+    }
     setTesting(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    setTesting(false);
-    toast.success(`Test email sent to ${settings.fromEmail}`);
+    try {
+      const payload = {
+        smtpHost: settings.smtpHost,
+        smtpPort: settings.smtpPort,
+        smtpUsername: settings.username,
+        smtpPassword: settings.password,
+        smtpFromName: settings.fromName,
+        smtpFromEmail: settings.fromEmail
+      };
+      await sendTestEmail(company.id, payload);
+      toast.success(`Test email sent successfully to ${settings.fromEmail}`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Connection failed. Check your SMTP settings.");
+    } finally {
+      setTesting(false);
+    }
   };
 
   return (

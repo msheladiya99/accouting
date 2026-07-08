@@ -1,4 +1,5 @@
 import { Response } from "express";
+import nodemailer from "nodemailer";
 import { Company } from "../models/Company";
 import { Ledger } from "../models/Ledger";
 import { AccountGroup } from "../models/AccountGroup";
@@ -131,7 +132,24 @@ export async function createCompany(req: AuthenticatedRequest, res: Response): P
 
 export async function updateCompany(req: AuthenticatedRequest, res: Response): Promise<void> {
   const { id } = req.params;
-  const { companyName, panNumber } = req.body;
+  const { 
+    companyName, 
+    panNumber,
+    address,
+    mobileNumber,
+    email,
+    currency,
+    emailNotificationsEnabled,
+    smtpHost,
+    smtpPort,
+    smtpUsername,
+    smtpPassword,
+    smtpFromName,
+    smtpFromEmail,
+    notifyOnExport,
+    notifyOnBackup,
+    notifyOnLogin
+  } = req.body;
   try {
     const company = await Company.findById(id);
     if (!company) {
@@ -141,6 +159,22 @@ export async function updateCompany(req: AuthenticatedRequest, res: Response): P
 
     if (companyName) company.companyName = companyName;
     if (panNumber) company.panNumber = panNumber.toUpperCase();
+    if (address !== undefined) company.address = address;
+    if (mobileNumber !== undefined) company.mobileNumber = mobileNumber;
+    if (email !== undefined) company.email = email;
+    if (currency !== undefined) company.currency = currency;
+    
+    // SMTP fields
+    if (emailNotificationsEnabled !== undefined) company.emailNotificationsEnabled = emailNotificationsEnabled;
+    if (smtpHost !== undefined) company.smtpHost = smtpHost;
+    if (smtpPort !== undefined) company.smtpPort = smtpPort;
+    if (smtpUsername !== undefined) company.smtpUsername = smtpUsername;
+    if (smtpPassword !== undefined) company.smtpPassword = smtpPassword;
+    if (smtpFromName !== undefined) company.smtpFromName = smtpFromName;
+    if (smtpFromEmail !== undefined) company.smtpFromEmail = smtpFromEmail;
+    if (notifyOnExport !== undefined) company.notifyOnExport = notifyOnExport;
+    if (notifyOnBackup !== undefined) company.notifyOnBackup = notifyOnBackup;
+    if (notifyOnLogin !== undefined) company.notifyOnLogin = notifyOnLogin;
 
     await company.save();
     res.json(company);
@@ -180,5 +214,52 @@ export async function getCurrentCompany(req: AuthenticatedRequest, res: Response
     res.json(company);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to retrieve current company details" });
+  }
+}
+
+export async function sendTestEmail(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { id } = req.params;
+  const { smtpHost, smtpPort, smtpUsername, smtpPassword, smtpFromName, smtpFromEmail } = req.body;
+  try {
+    const company = await Company.findById(id);
+    if (!company) {
+      res.status(404).json({ message: "Company not found" });
+      return;
+    }
+
+    if (!smtpHost || !smtpUsername || !smtpPassword || !smtpFromEmail) {
+      res.status(400).json({ message: "SMTP parameters (host, username, password, from email) are required to test" });
+      return;
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: Number(smtpPort || 587),
+      secure: Number(smtpPort) === 465,
+      auth: {
+        user: smtpUsername,
+        pass: smtpPassword
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    });
+
+    const info = await transporter.sendMail({
+      from: `"${smtpFromName || "AccountPro"}" <${smtpFromEmail}>`,
+      to: smtpFromEmail,
+      subject: "AccountPro SMTP Test Connection",
+      text: "Hello! This is a test email from AccountPro confirming that your SMTP connection settings are correct.",
+      html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 12px; max-width: 500px; margin: 0 auto;">
+        <h2 style="color: #4f46e5; margin-bottom: 10px;">Connection Successful!</h2>
+        <p style="font-size: 14px; color: #333; line-height: 1.5;">Your SMTP settings have been validated successfully. AccountPro can now send automatic alerts and notification emails using this address.</p>
+        <p style="font-size: 11px; color: #999; margin-top: 30px; border-t: 1px solid #f0f0f0; padding-top: 10px;">Sent via AccountPro on ${new Date().toLocaleString()}</p>
+      </div>`
+    });
+
+    res.json({ message: "Test email sent successfully", messageId: info.messageId });
+  } catch (error: any) {
+    console.error("SMTP Test Error:", error);
+    res.status(500).json({ message: error.message || "Failed to send test email" });
   }
 }

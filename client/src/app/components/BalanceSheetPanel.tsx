@@ -11,7 +11,7 @@ import {
 import { computeTrialBalance, type TrialRow } from "../api/trialBalanceApi";
 import { fetchAccountingRawData } from "../api/accountingDataCache";
 
-const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
+const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense" | "Profit & Loss A/c"> = {
   "Capital Account": "Capital",
   "Profit & Loss A/c": "Capital",
   "Current Liabilities": "Liabilities",
@@ -33,7 +33,7 @@ const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" |
   "Partner Interest": "Expense",
   "Partner Remuneration": "Expense",
   "Trading Account": "Income",
-  "Reserve & surplus": "Capital",
+  "Reserve & surplus": "Profit & Loss A/c",
 };
 
 const fmt = (v: number) =>
@@ -51,7 +51,11 @@ const fmtReport = (v: number) => {
 const LIABILITIES_STRUCTURE = [
   {
     title: "CAPITAL",
-    groups: ["Capital Account","Reserve & surplus"]
+    groups: ["Capital Account"]
+  },
+  {
+    title: "RESERVES & SURPLUS",
+    groups: ["Reserve & surplus"]
   },
   {
     title: "SECURED LOANS",
@@ -505,7 +509,7 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
       const allCapitalLedgers = ledgers.filter(l => {
         const gName = l.groupName.trim().toLowerCase();
         const parentCategory = groupParentsMap[gName];
-        if (parentCategory === "Capital" && gName !== "profit & loss a/c") return true;
+        if ((parentCategory === "Capital" || parentCategory === "Profit & Loss A/c") && gName !== "profit & loss a/c") return true;
         return gName === 'capital' || 
                gName === 'capital account' || 
                gName === 'capital & reserves' ||

@@ -55,6 +55,10 @@ const LIABILITIES_STRUCTURE = [
     groups: ["Capital Account", "Capital", "Capital & Reserves", "Profit & Loss A/c"]
   },
   {
+    title: "RESERVES & SURPLUS",
+    groups: ["Reserve & surplus"]
+  },
+  {
     title: "SECURED LOANS",
     groups: ["Secured Loans", "Bank OCC a/c", "Loans (Liability)"]
   },

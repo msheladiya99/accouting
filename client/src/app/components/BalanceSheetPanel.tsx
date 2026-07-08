@@ -83,9 +83,12 @@ const ASSETS_STRUCTURE = [
     subsections: [
       { title: "INVENTORY", groups: ["Stock-in-hand", "Stock-in-hand", "OPENING STOCK", "Opening Stock", "opening stock"] },
       { title: "SUNDRY DEBTORS", groups: ["Sundry Debtors"] },
-      { title: "CASH AND BANK", groups: ["Cash-in-hand", "Bank Accounts (Banks)", "Cash", "Bank", "Cash Ledger A/C.", "Bank Accounts"] },
-      { title: "LOANS AND ADVANCES (ASSETS)", groups: ["Loans & Advances (Asset)", "Deposits (Asset)"] }
+      { title: "CASH AND BANK", groups: ["Cash-in-hand", "Bank Accounts (Banks)", "Cash", "Bank", "Cash Ledger A/C.", "Bank Accounts"] }
     ]
+  },
+  {
+    title: "LOANS AND ADVANCES (ASSETS)",
+    groups: ["Loans & Advances (Asset)", "Deposits (Asset)"]
   },
   {
     title: "MISC EXPENSES (ASSETS)",

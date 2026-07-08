@@ -1033,6 +1033,7 @@ export function LedgerStatementModal({
           onClose={() => { setEditingRow(null); setActiveJournalEntry(undefined); }}
           onSubmit={handleJournalEntrySubmit}
           selectedFY={selectedFY}
+          onQuickCreate={handleQuickCreateOpen}
         />
       )}
 

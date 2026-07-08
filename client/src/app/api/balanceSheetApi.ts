@@ -44,7 +44,7 @@ const ASSET_ORDER = [
   "Misc. Expenses (Asset)", "Suspense Account"
 ];
 const LIAB_CAP_ORDER = [
-  "Capital", "Capital Account", "Current Capital Account", "Reserves & Surplus", "Profit & Loss A/c",
+  "Capital", "Capital Account", "Current Capital Account", "Reserves & Surplus", "SUB CAPITAL", "Sub Capital", "Profit & Loss A/c",
   "Liabilities", "Sundry Creditors", "Sundry Creditors - Material", "Sundry Creditors - Services",
   "Advances From Customers", "Duties & Taxes", "Provisions", "Salary Expenses Payable",
   "Bank OCC a/c", "Loans (Liability)", "Secured Loans", "Unsecured Loans"

@@ -158,6 +158,7 @@ async function seed() {
       { groupName: "Profit & Loss A/c", superGroup: "Profit & Loss A/c" },
       { groupName: "Provisions", superGroup: "Current Liabilities" },
       { groupName: "Reserves & Surplus", superGroup: "Capital Account" },
+      { groupName: "Sub Capital", superGroup: "Capital Account" },
       { groupName: "Salary Expenses Payable", superGroup: "Current Liabilities" },
       { groupName: "Secured Loans", superGroup: "Loans (Liability)" },
       { groupName: "Stock-in-hand", superGroup: "Stock-in-hand" },

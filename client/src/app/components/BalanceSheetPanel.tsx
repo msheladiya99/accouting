@@ -32,7 +32,8 @@ const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" |
   "Expense Account": "Expense",
   "Partner Interest": "Expense",
   "Partner Remuneration": "Expense",
-  "Trading Account": "Income"
+  "Trading Account": "Income",
+  "Reserve & surplus": "Capital",
 };
 
 const fmt = (v: number) =>
@@ -50,22 +51,23 @@ const fmtReport = (v: number) => {
 const LIABILITIES_STRUCTURE = [
   {
     title: "CAPITAL",
-    groups: ["Capital Account", "Capital", "Capital & Reserves", "Profit & Loss A/c"]
+    groups: ["Capital Account","Reserve & surplus"]
   },
   {
-    title: "LOAN FUNDS",
-    subsections: [
-      { title: "SECURED LOANS", groups: ["Secured Loans", "Bank OCC a/c", "Loans (Liability)", "Secured Loans"] },
-      { title: "UNSECURED LOANS", groups: ["Unsecured Loans"] }
-    ]
+    title: "SECURED LOANS",
+    groups: ["Secured Loans", "Bank OCC a/c", "Loans (Liability)"]
+  },
+  {
+    title: "UNSECURED LOANS",
+    groups: ["Unsecured Loans"]
   },
   {
     title: "SUNDRY CREDITORS",
-    groups: ["Sundry Creditors", "Sundry Creditors - Material", "Sundry Creditors - Services", "Sundry Creditors"]
+    groups: ["Sundry Creditors", "Sundry Creditors - Material", "Sundry Creditors - Services", "Sundry Creditors", "Advances From Customers"]
   },
   {
     title: "PROVISIONS",
-    groups: ["Provisions", "Duties & Taxes", "Salary Expenses Payable", "Advances From Customers"]
+    groups: ["Provisions", "Duties & Taxes", "Salary Expenses Payable"]
   }
 ];
 
@@ -83,7 +85,7 @@ const ASSETS_STRUCTURE = [
     subsections: [
       { title: "INVENTORY", groups: ["Stock-in-hand", "Stock-in-hand", "OPENING STOCK", "Opening Stock", "opening stock"] },
       { title: "SUNDRY DEBTORS", groups: ["Sundry Debtors"] },
-      { title: "CASH AND BANK", groups: ["Cash-in-hand", "Bank Accounts (Banks)", "Cash", "Bank", "Cash Ledger A/C.", "Bank Accounts"] }
+      { title: "CASH AND BANK", groups: ["Cash-in-hand", "Bank Accounts (Banks)", "Cash", "Bank", "Bank Accounts"] }
     ]
   },
   {

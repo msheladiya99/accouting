@@ -55,11 +55,12 @@ const LIABILITIES_STRUCTURE = [
     groups: ["Capital Account", "Capital", "Capital & Reserves", "Profit & Loss A/c"]
   },
   {
-    title: "LOAN FUNDS",
-    subsections: [
-      { title: "SECURED LOANS", groups: ["Secured Loans", "Bank OCC a/c", "Loans (Liability)", "Secured Loans"] },
-      { title: "UNSECURED LOANS", groups: ["Unsecured Loans"] }
-    ]
+    title: "SECURED LOANS",
+    groups: ["Secured Loans", "Bank OCC a/c", "Loans (Liability)"]
+  },
+  {
+    title: "UNSECURED LOANS",
+    groups: ["Unsecured Loans"]
   },
   {
     title: "SUNDRY CREDITORS",
@@ -423,7 +424,7 @@ function computePartnerCapital(
 
       // If all contra accounts are capital accounts, this is an internal transfer.
       // Group it under the ledger's own name to merge the transfer into the main capital account line.
-      const isInternalCapitalTransfer = contraNames.length > 0 && contraNames.every(cName => 
+      const isInternalCapitalTransfer = contraNames.length > 0 && contraNames.every((cName: string) => 
         capitalLedgerNames.has(cName.toLowerCase())
       );
       const contraLabel = isInternalCapitalTransfer 

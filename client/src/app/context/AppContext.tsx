@@ -19,6 +19,16 @@ export interface Company {
   email: string;
   taxId: string;
   currency: string;
+  emailNotificationsEnabled?: boolean;
+  smtpHost?: string;
+  smtpPort?: string;
+  smtpUsername?: string;
+  smtpPassword?: string;
+  smtpFromName?: string;
+  smtpFromEmail?: string;
+  notifyOnExport?: boolean;
+  notifyOnBackup?: boolean;
+  notifyOnLogin?: boolean;
 }
 
 const defaultCompany: Company = {
@@ -28,6 +38,16 @@ const defaultCompany: Company = {
   email: "finance@acmecorp.com",
   taxId: "US-TAX-123456",
   currency: "USD",
+  emailNotificationsEnabled: false,
+  smtpHost: "",
+  smtpPort: "587",
+  smtpUsername: "",
+  smtpPassword: "",
+  smtpFromName: "AccountPro",
+  smtpFromEmail: "",
+  notifyOnExport: true,
+  notifyOnBackup: false,
+  notifyOnLogin: false,
 };
 
 // ── Context shape ─────────────────────────────────────────────────────────────
@@ -96,13 +116,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         try {
           const c = await getCurrentCompany();
           setCompany({
-            id:       c._id,
-            name:     c.companyName,
-            address:  "—",
-            phone:    "—",
-            email:    "—",
-            taxId:    c.panNumber,
-            currency: "INR",
+            id:                         c._id,
+            name:                       c.companyName,
+            address:                    c.address || "",
+            phone:                      c.mobileNumber || "",
+            email:                      c.email || "",
+            taxId:                      c.panNumber,
+            currency:                   c.currency || "INR",
+            emailNotificationsEnabled:  c.emailNotificationsEnabled || false,
+            smtpHost:                   c.smtpHost || "",
+            smtpPort:                   c.smtpPort || "587",
+            smtpUsername:               c.smtpUsername || "",
+            smtpPassword:               c.smtpPassword || "",
+            smtpFromName:               c.smtpFromName || "AccountPro",
+            smtpFromEmail:              c.smtpFromEmail || "",
+            notifyOnExport:             c.notifyOnExport !== false,
+            notifyOnBackup:             c.notifyOnBackup || false,
+            notifyOnLogin:              c.notifyOnLogin || false,
           });
         } catch (err) {
           console.error("Failed to resolve subdomain company context:", err);

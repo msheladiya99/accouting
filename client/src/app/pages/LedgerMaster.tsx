@@ -72,6 +72,8 @@ const GROUP_META_MAP: Record<string, string> = {
   "Profit & Loss A/c": "Capital",
   "Provisions": "Liabilities",
   "Reserves & Surplus": "Capital",
+  "Sub Capital": "Capital",
+  "SUB CAPITAL": "Capital",
   "Salary Expenses Payable": "Liabilities",
   "Secured Loans": "Liabilities",
   "Stock-in-hand": "Assets",

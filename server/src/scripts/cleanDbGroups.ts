@@ -47,6 +47,7 @@ const DEFAULT_GROUPS_SEEDS = [
   { groupName: "PROFIT & LOSS A/C", superGroup: "Profit & Loss A/c" },
   { groupName: "PROVISIONS", superGroup: "Current Liabilities" },
   { groupName: "RESERVES & SURPLUS", superGroup: "Capital Account" },
+  { groupName: "SUB CAPITAL", superGroup: "Capital Account" },
   { groupName: "SALARY EXPENSES PAYABLE", superGroup: "Current Liabilities" },
   { groupName: "SECURED LOANS", superGroup: "Loans (Liability)" },
   { groupName: "STOCK-IN-HAND", superGroup: "Stock-in-hand" },

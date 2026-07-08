@@ -5,6 +5,20 @@ export interface Company {
   companyName: string;
   panNumber: string;
   createdAt: string;
+  address?: string;
+  mobileNumber?: string;
+  email?: string;
+  currency?: string;
+  emailNotificationsEnabled?: boolean;
+  smtpHost?: string;
+  smtpPort?: string;
+  smtpUsername?: string;
+  smtpPassword?: string;
+  smtpFromName?: string;
+  smtpFromEmail?: string;
+  notifyOnExport?: boolean;
+  notifyOnBackup?: boolean;
+  notifyOnLogin?: boolean;
 }
 
 export interface CreateCompanyPayload {
@@ -29,7 +43,7 @@ export async function getCompanyById(id: string): Promise<Company> {
   return res.data;
 }
 
-export async function updateCompany(id: string, payload: Partial<CreateCompanyPayload>): Promise<Company> {
+export async function updateCompany(id: string, payload: any): Promise<Company> {
   const res = await axiosClient.put<Company>(`/company/${id}`, payload);
   return res.data;
 }
@@ -41,4 +55,8 @@ export async function deleteCompany(id: string): Promise<void> {
 export async function getCurrentCompany(): Promise<Company> {
   const res = await axiosClient.get<Company>("/company/current");
   return res.data;
+}
+
+export async function sendTestEmail(id: string, payload: any): Promise<void> {
+  await axiosClient.post(`/company/${id}/test-email`, payload);
 }

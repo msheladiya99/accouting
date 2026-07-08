@@ -44,7 +44,7 @@ const ASSET_ORDER = [
   "Misc. Expenses (Asset)", "Suspense Account"
 ];
 const LIAB_CAP_ORDER = [
-  "Capital", "Capital Account", "Current Capital Account", "Reserves & Surplus", "Profit & Loss A/c",
+  "Capital", "Capital Account", "Current Capital Account", "Reserves & Surplus", "SUB CAPITAL", "Sub Capital", "Profit & Loss A/c",
   "Liabilities", "Sundry Creditors", "Sundry Creditors - Material", "Sundry Creditors - Services",
   "Advances From Customers", "Duties & Taxes", "Provisions", "Salary Expenses Payable",
   "Bank OCC a/c", "Loans (Liability)", "Secured Loans", "Unsecured Loans"
@@ -112,11 +112,13 @@ export async function computeBalanceSheet(cache?: {
 
   let totalRevenue  = 0; // sum of Income + Sales net credit
   let totalExpense  = 0; // sum of Expense + Purchases net debit
+  let totalCapitalBalance = 0;
 
   for (const row of rows) {
     const netDr = row.closingDr;
     const netCr = row.closingCr;
-    let parentCategory = groupParentsMap[row.group.trim().toLowerCase()] || "Assets";
+    const gNameLower = row.group.trim().toLowerCase();
+    let parentCategory = groupParentsMap[gNameLower] || "Assets";
 
     // Skip Income/Expense groups — they go to P&L, not Balance Sheet
     if (parentCategory === "Income") {
@@ -125,6 +127,14 @@ export async function computeBalanceSheet(cache?: {
     }
     if (parentCategory === "Expense") {
       totalExpense += netDr - netCr;
+      continue;
+    }
+
+    // Accumulate all partner capital account balances into a single totalCapitalBalance
+    // and skip listing them individually on the Balance Sheet table.
+    // Note: Profit & Loss A/c represents Net Profit/Loss and is handled separately.
+    if (parentCategory === "Capital" && gNameLower !== "profit & loss a/c") {
+      totalCapitalBalance += (netCr - netDr);
       continue;
     }
 
@@ -138,7 +148,7 @@ export async function computeBalanceSheet(cache?: {
     if (netCredit > 0) {
       // ── Credit balance → Liabilities/Capital side ────────────────────────
       if (parentCategory === "Capital") {
-        // Capital ledger with credit balance → Capital section
+        // Capital ledger with credit balance → Capital section (fallback)
         const amount = netCredit;
         if (!capitalMap.has(row.group)) capitalMap.set(row.group, []);
         capitalMap.get(row.group)!.push({ ledgerName: row.ledgerName, amount });
@@ -156,6 +166,24 @@ export async function computeBalanceSheet(cache?: {
       const amount = -netCredit; // convert to positive
       if (!assetMap.has(row.group)) assetMap.set(row.group, []);
       assetMap.get(row.group)!.push({ ledgerName: row.ledgerName, amount });
+    }
+  }
+
+  // Inject the combined partner capital balance as a single line on the Balance Sheet
+  if (Math.abs(totalCapitalBalance) > 0.001) {
+    const targetGroup = "Capital Account";
+    if (totalCapitalBalance > 0) {
+      if (!capitalMap.has(targetGroup)) capitalMap.set(targetGroup, []);
+      capitalMap.get(targetGroup)!.push({
+        ledgerName: "Capital Account",
+        amount: totalCapitalBalance
+      });
+    } else {
+      if (!assetMap.has(targetGroup)) assetMap.set(targetGroup, []);
+      assetMap.get(targetGroup)!.push({
+        ledgerName: "Capital Account",
+        amount: -totalCapitalBalance
+      });
     }
   }
 

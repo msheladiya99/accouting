@@ -2,6 +2,7 @@ import { Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { User } from "../models/User";
+import { Company } from "../models/Company";
 import { AuthenticatedRequest } from "../middleware/auth";
 
 const JWT_SECRET = process.env.JWT_SECRET || "accountpro-demo-2026-secure-secret-key-12345";
@@ -18,7 +19,14 @@ export async function login(req: AuthenticatedRequest, res: Response): Promise<v
     const companyId = (req as any).companyId || req.headers["x-company-id"];
     const query: any = { email: email.toLowerCase() };
     if (companyId) {
-      query.companyId = companyId;
+      const relatedCompanies = await Company.find({
+        $or: [
+          { _id: companyId },
+          { parentCompanyId: companyId }
+        ]
+      });
+      const companyIds = relatedCompanies.map(c => c._id);
+      query.companyId = { $in: companyIds };
     }
 
     const user = await User.findOne(query);

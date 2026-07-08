@@ -1227,25 +1227,25 @@ export default function BalanceSheet() {
           {capitalAccounts.length > 0 && (() => {
             // Merge all capital ledger accounts into one combined Capital Account
             const allDebits: CapitalTxn[] = [];
-            const allCredits: CapitalTxn[] = [];
+            const openingBalanceCredits: CapitalTxn[] = [];
+            const otherCredits: CapitalTxn[] = [];
             let combinedTotal = 0;
 
             capitalAccounts.forEach((account: PartnerCapitalAccount) => {
               // For each capital ledger, add its opening balance with ledger name prefix
-              // For each capital ledger, add its opening balance with ledger name prefix
               const openingRow = account.credits.find(c => c.particulars === "BY OPENING BALANCE");
               if (openingRow && (openingRow.amount ?? 0) > 0) {
                 if (capitalAccounts.length === 1 || account.ledgerName === "OPENING BALANCE") {
-                  allCredits.push({ particulars: "BY OPENING BALANCE", amount: openingRow.amount });
+                  openingBalanceCredits.push({ particulars: "BY OPENING BALANCE", amount: openingRow.amount });
                 } else {
-                  allCredits.push({ particulars: `BY OPENING BALANCE (${account.ledgerName})`, amount: openingRow.amount });
+                  openingBalanceCredits.push({ particulars: `BY OPENING BALANCE (${account.ledgerName})`, amount: openingRow.amount });
                 }
               }
               // Other credits (not opening balance)
               account.credits
                 .filter(c => c.particulars !== "BY OPENING BALANCE")
                 .forEach(c => {
-                  allCredits.push(c);
+                  otherCredits.push(c);
                 });
               // Debits (not closing balance)
               account.debits
@@ -1254,6 +1254,8 @@ export default function BalanceSheet() {
                   allDebits.push(d);
                 });
             });
+
+            const allCredits = [...openingBalanceCredits, ...otherCredits];
 
             // Compute combined closing balance
             const creditsSum = allCredits.reduce((s, c) => s + (c.amount ?? 0), 0);

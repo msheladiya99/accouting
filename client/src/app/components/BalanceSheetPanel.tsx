@@ -497,11 +497,17 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
       const trialSummary = await computeTrialBalance(raw);
       const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
 
-      const allCapitalLedgers = ledgers.filter(l => 
-        l.groupName.toLowerCase() === 'capital' || 
-        l.groupName.toLowerCase() === 'capital account' || 
-        l.groupName.toLowerCase() === 'capital & reserves'
-      );
+      const allCapitalLedgers = ledgers.filter(l => {
+        const gName = l.groupName.trim().toLowerCase();
+        const parentCategory = groupParentsMap[gName];
+        if (parentCategory === "Capital" && gName !== "profit & loss a/c") return true;
+        return gName === 'capital' || 
+               gName === 'capital account' || 
+               gName === 'capital & reserves' ||
+               gName === 'current capital account' ||
+               gName === 'sub capital' ||
+               gName === 'sub-capital';
+      });
 
       const capitalLedgerAccounts = allCapitalLedgers.filter(l => {
         const tbRow = trialSummary.rows.find(r => r.ledgerName.toLowerCase() === l.ledgerName.toLowerCase());

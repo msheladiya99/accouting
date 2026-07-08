@@ -53,3 +53,13 @@ export async function mergeGroups(sourceIds: string[], targetId: string): Promis
   const res = await axiosClient.post<{ message: string; targetGroup: AccountGroup }>("/account-group/merge", { sourceIds, targetId });
   return res.data;
 }
+
+export async function updateGroup(id: string, payload: AccountGroupPayload): Promise<AccountGroup> {
+  const res = await axiosClient.put<AccountGroup>(`/account-group/${id}`, payload);
+  return res.data;
+}
+
+export async function deleteGroup(id: string): Promise<{ message: string }> {
+  const res = await axiosClient.delete<{ message: string }>(`/account-group/${id}`);
+  return res.data;
+}

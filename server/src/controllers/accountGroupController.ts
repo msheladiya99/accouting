@@ -231,3 +231,119 @@ export async function mergeGroups(req: AuthenticatedRequest, res: Response): Pro
     res.status(500).json({ message: error.message || "Failed to merge groups" });
   }
 }
+
+export async function updateGroup(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { id } = req.params;
+  const { groupName, superGroup } = req.body;
+  try {
+    const group = await AccountGroup.findOne({ _id: id, companyId: req.companyId });
+    if (!group) {
+      res.status(404).json({ message: "Account group not found" });
+      return;
+    }
+
+    const oldName = group.groupName;
+    const newName = groupName ? groupName.trim().toUpperCase() : oldName;
+    const newSuper = superGroup ? superGroup.trim() : group.superGroup;
+
+    if (newName !== oldName) {
+      const exists = await AccountGroup.findOne({
+        _id: { $ne: id },
+        groupName: { $regex: new RegExp(`^${newName}$`, "i") },
+        companyId: req.companyId
+      });
+      if (exists) {
+        res.status(400).json({ message: "An account group with this name already exists in this company" });
+        return;
+      }
+
+      // Update references
+      const { Ledger } = await import("../models/Ledger");
+      const { JournalEntry } = await import("../models/JournalEntry");
+      const { BankCashEntry } = await import("../models/BankCashEntry");
+      const { ImportedTransaction } = await import("../models/ImportedTransaction");
+
+      const { Types: MongoTypes } = require("mongoose");
+      let companyIdFilter: any;
+      try {
+        companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+      } catch {
+        companyIdFilter = req.companyId;
+      }
+
+      // 1. Ledgers
+      await Ledger.updateMany(
+        { companyId: req.companyId, groupName: oldName },
+        { $set: { groupName: newName as any } }
+      );
+
+      // 2. Journal debit/credit
+      await JournalEntry.updateMany(
+        { companyId: companyIdFilter, debitGroup: oldName },
+        { $set: { debitGroup: newName } }
+      );
+      await JournalEntry.updateMany(
+        { companyId: companyIdFilter, creditGroup: oldName },
+        { $set: { creditGroup: newName } }
+      );
+
+      // 3. Journal items
+      await JournalEntry.updateMany(
+        { companyId: companyIdFilter, "items.groupName": oldName },
+        { $set: { "items.$[elem].groupName": newName } },
+        { arrayFilters: [{ "elem.groupName": oldName }] } as any
+      );
+
+      // 4. BankCashEntry
+      const escaped = oldName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      await BankCashEntry.updateMany(
+        { companyId: companyIdFilter, contraAccountGroup: { $regex: new RegExp(`^${escaped}$`, "i") } },
+        { $set: { contraAccountGroup: newName } }
+      );
+
+      // 5. ImportedTransaction
+      try {
+        await ImportedTransaction.updateMany(
+          { companyId: companyIdFilter, accountGroup: oldName },
+          { $set: { accountGroup: newName } }
+        );
+      } catch {
+        // ignore safely
+      }
+    }
+
+    group.groupName = newName;
+    group.superGroup = newSuper as any;
+    await group.save();
+
+    res.json(group);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to update account group" });
+  }
+}
+
+export async function deleteGroup(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { id } = req.params;
+  try {
+    const group = await AccountGroup.findOne({ _id: id, companyId: req.companyId });
+    if (!group) {
+      res.status(404).json({ message: "Account group not found" });
+      return;
+    }
+
+    // Check if any Ledger is using this groupName
+    const { Ledger } = await import("../models/Ledger");
+    const count = await Ledger.countDocuments({ companyId: req.companyId, groupName: group.groupName });
+    if (count > 0) {
+      res.status(400).json({
+        message: `Cannot delete group "${group.groupName}" because it is currently assigned to ${count} ledger(s).`
+      });
+      return;
+    }
+
+    await AccountGroup.deleteOne({ _id: id, companyId: req.companyId });
+    res.json({ message: `Account group "${group.groupName}" deleted successfully` });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to delete account group" });
+  }
+}

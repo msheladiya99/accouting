@@ -73,6 +73,8 @@ apiRouter.delete("/ledger/:id", ledgerController.deleteLedger);
 apiRouter.get("/account-group", accountGroupController.getAllGroups);
 apiRouter.post("/account-group/merge", accountGroupController.mergeGroups);
 apiRouter.post("/account-group", accountGroupController.createGroup);
+apiRouter.put("/account-group/:id", accountGroupController.updateGroup);
+apiRouter.delete("/account-group/:id", accountGroupController.deleteGroup);
 
 // Bank Cash Book routes
 apiRouter.get("/bank-cash-book/accounts", bankCashController.getAllAccounts);

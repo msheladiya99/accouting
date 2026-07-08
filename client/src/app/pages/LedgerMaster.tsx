@@ -23,7 +23,8 @@ import {
   saveBulkOpeningBalances,
 } from "../api/ledgerApi";
 import {
-  getAllGroups, createGroup, SUPER_GROUPS, type AccountGroup, mergeGroups
+  getAllGroups, createGroup, SUPER_GROUPS, type AccountGroup, mergeGroups,
+  updateGroup, deleteGroup
 } from "../api/accountGroupApi";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -390,12 +391,23 @@ function LedgerModal({ mode, ledger, loading, groups, onClose, onSubmit }: Modal
   );
 }
 
-function GroupModal({ loading, onClose, onSubmit }: {
+function GroupModal({
+  loading,
+  onClose,
+  onSubmit,
+  group,
+}: {
   loading: boolean;
   onClose: () => void;
   onSubmit: (data: { groupName: string; superGroup: any }) => void;
+  group?: AccountGroup;
 }) {
-  const { register, handleSubmit, formState: { errors } } = useForm<{ groupName: string; superGroup: any }>();
+  const { register, handleSubmit, formState: { errors } } = useForm<{ groupName: string; superGroup: any }>({
+    defaultValues: {
+      groupName: group?.groupName ?? "",
+      superGroup: group?.superGroup ?? "",
+    }
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -408,7 +420,7 @@ function GroupModal({ loading, onClose, onSubmit }: {
               <Layers size={16} />
             </div>
             <div>
-              <h2 className="text-slate-900 text-base">Create Account Group</h2>
+              <h2 className="text-slate-900 text-base">{group ? "Edit Account Group" : "Create Account Group"}</h2>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors">
@@ -458,7 +470,7 @@ function GroupModal({ loading, onClose, onSubmit }: {
               className="flex items-center gap-2 px-5 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors disabled:opacity-50"
             >
               {loading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              Create Group
+              {group ? "Save Changes" : "Create Group"}
             </button>
           </div>
         </form>
@@ -835,12 +847,22 @@ export default function LedgerMaster() {
   const [search, setSearch]     = useState("");
   const [groupFilter, setGroupFilter] = useState<string>("All");
   const [modal, setModal]       = useState<{ mode: "add" | "edit"; ledger?: Ledger } | null>(null);
-  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"ledgers" | "groups">("ledgers");
+  const [groupEditModal, setGroupEditModal] = useState<{ mode: "add" | "edit"; group?: AccountGroup } | null>(null);
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [mergeSaving, setMergeSaving] = useState(false);
   const [mergeGroupsModalOpen, setMergeGroupsModalOpen] = useState(false);
   const [mergeGroupsSaving, setMergeGroupsSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [groupSearch, setGroupSearch] = useState("");
+
+  const filteredGroups = useMemo(() => {
+    const q = groupSearch.toLowerCase().trim();
+    if (!q) return groups;
+    return groups.filter(
+      (g) => g.groupName.toLowerCase().includes(q) || g.superGroup.toLowerCase().includes(q)
+    );
+  }, [groups, groupSearch]);
   const gridRef                 = useRef<AgGridReact<Ledger>>(null);
 
   // Duplicate Matching States
@@ -927,23 +949,46 @@ export default function LedgerMaster() {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleCreateGroup = useCallback(async (data: { groupName: string; superGroup: any }) => {
+  const handleSaveGroup = useCallback(async (data: { groupName: string; superGroup: any }) => {
     setGroupSaving(true);
     try {
       const payload = {
         groupName: data.groupName.trim().toUpperCase(),
-        superGroup: data.superGroup.trim().toUpperCase()
+        superGroup: data.superGroup.trim() as any
       };
-      const created = await createGroup(payload);
-      setGroups((p) => [...p, created]);
-      DYNAMIC_SUPER_GROUP_MAP[created.groupName] = created.superGroup;
-      toast.success(`Account group "${created.groupName}" created!`);
-      setGroupModalOpen(false);
+      if (groupEditModal?.mode === "add") {
+        const created = await createGroup(payload);
+        setGroups((p) => [...p, created]);
+        DYNAMIC_SUPER_GROUP_MAP[created.groupName] = created.superGroup;
+        toast.success(`Account group "${created.groupName}" created!`);
+      } else if (groupEditModal?.group) {
+        const updated = await updateGroup(groupEditModal.group._id, payload);
+        setGroups((p) => p.map((g) => g._id === updated._id ? updated : g));
+        DYNAMIC_SUPER_GROUP_MAP[updated.groupName] = updated.superGroup;
+        toast.success(`Account group "${updated.groupName}" updated!`);
+      }
+      setGroupEditModal(null);
+      await load(); // Reload to refresh grid row mappings & group select lists
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
-      toast.error(e.response?.data?.message || e.message || "Failed to create group");
+      toast.error(e.response?.data?.message || e.message || "Failed to save group");
     } finally {
       setGroupSaving(false);
+    }
+  }, [groupEditModal, load]);
+
+  const handleDeleteGroup = useCallback(async (group: AccountGroup) => {
+    if (!window.confirm(`Delete account group "${group.groupName}"? This cannot be undone.`)) return;
+    setLoading(true);
+    try {
+      const res = await deleteGroup(group._id);
+      setGroups((p) => p.filter((g) => g._id !== group._id));
+      toast.success(res.message || `Account group "${group.groupName}" deleted`);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || e.message || "Failed to delete account group");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -1348,9 +1393,12 @@ export default function LedgerMaster() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-slate-900">Ledger Master</h1>
+          <h1 className="text-slate-900">{activeTab === "ledgers" ? "Ledger Master" : "Group Master"}</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {rows.length} ledgers across {Object.keys(groupCounts).length} groups
+            {activeTab === "ledgers" 
+              ? `${rows.length} ledgers across ${Object.keys(groupCounts).length} groups`
+              : `${groups.length} account groups defined`
+            }
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1361,408 +1409,558 @@ export default function LedgerMaster() {
           >
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
-          {selectedIds.length >= 2 && (
-            <button
-              onClick={() => {
-                if (selectedIds.length > 4) {
-                  toast.error("You can merge a maximum of 4 accounts at once.");
-                  return;
-                }
-                setMergeModalOpen(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700 transition-colors shadow-sm animate-in fade-in slide-in-from-right-2 duration-200"
-            >
-              <GitMerge size={15} /> Merge ({selectedIds.length})
-            </button>
+          
+          {activeTab === "ledgers" ? (
+            <>
+              {selectedIds.length >= 2 && (
+                <button
+                  onClick={() => {
+                    if (selectedIds.length > 4) {
+                      toast.error("You can merge a maximum of 4 accounts at once.");
+                      return;
+                    }
+                    setMergeModalOpen(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700 transition-colors shadow-sm"
+                >
+                  <GitMerge size={15} /> Merge ({selectedIds.length})
+                </button>
+              )}
+              {selectedIds.length > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 transition-colors shadow-sm"
+                >
+                  <Trash2 size={15} /> Delete Selected ({selectedIds.length})
+                </button>
+              )}
+              <label className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer shadow-sm">
+                <Upload size={15} /> Import Excel / CSV
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={handleImportFile}
+                />
+              </label>
+              <button
+                onClick={handleExportTemplate}
+                title="Download Excel Template"
+                className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              >
+                <FileSpreadsheet size={15} /> Template
+              </button>
+              <button
+                onClick={handleExportData}
+                title="Export Current Ledgers"
+                className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
+              >
+                <Download size={15} /> Export
+              </button>
+              <button
+                onClick={() => setMergeGroupsModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 transition-colors shadow-sm"
+              >
+                <GitMerge size={15} /> Merge Groups
+              </button>
+              <button
+                onClick={() => setGroupEditModal({ mode: "add" })}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors"
+              >
+                <Plus size={15} /> Create Group
+              </button>
+              <button
+                onClick={() => setModal({ mode: "add" })}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors"
+              >
+                <Plus size={15} /> Add Ledger
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setMergeGroupsModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 transition-colors shadow-sm"
+              >
+                <GitMerge size={15} /> Merge Groups
+              </button>
+              <button
+                onClick={() => setGroupEditModal({ mode: "add" })}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors"
+              >
+                <Plus size={15} /> Create Group
+              </button>
+            </>
           )}
-          {selectedIds.length > 0 && (
-            <button
-              onClick={handleBulkDelete}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 transition-colors shadow-sm animate-in fade-in slide-in-from-right-2 duration-200"
-            >
-              <Trash2 size={15} /> Delete Selected ({selectedIds.length})
-            </button>
-          )}
-          {/* Import Excel */}
-          <label className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer shadow-sm">
-            <Upload size={15} /> Import Excel / CSV
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={handleImportFile}
-            />
-          </label>
-          {/* Download Template */}
-          <button
-            onClick={handleExportTemplate}
-            title="Download Excel Template"
-            className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
-          >
-            <FileSpreadsheet size={15} /> Template
-          </button>
-          {/* Export Data */}
-          <button
-            onClick={handleExportData}
-            title="Export Current Ledgers"
-            className="flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors shadow-sm"
-          >
-            <Download size={15} /> Export
-          </button>
-          <button
-            onClick={() => setMergeGroupsModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 transition-colors shadow-sm"
-          >
-            <GitMerge size={15} /> Merge Groups
-          </button>
-          <button
-            onClick={() => setGroupModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors"
-          >
-            <Plus size={15} /> Create Group
-          </button>
-          <button
-            onClick={() => setModal({ mode: "add" })}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors"
-          >
-            <Plus size={15} /> Add Ledger
-          </button>
         </div>
+      </div>
+
+      {/* Tabs Selector */}
+      <div className="flex border-b border-slate-200">
+        <button
+          onClick={() => setActiveTab("ledgers")}
+          className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-all ${
+            activeTab === "ledgers"
+              ? "border-indigo-600 text-indigo-600 font-bold"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          <BookMarked size={16} /> Ledgers
+        </button>
+        <button
+          onClick={() => setActiveTab("groups")}
+          className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-all ${
+            activeTab === "groups"
+              ? "border-indigo-600 text-indigo-600 font-bold"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          <Layers size={16} /> Account Groups
+        </button>
       </div>
 
       {/* Duplicate Suggestions Panel */}
-      {duplicateGroups.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center justify-between px-5 py-4 bg-amber-50/50 border-b border-amber-100 flex-wrap gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center text-amber-700">
-                <GitMerge size={16} />
+      {/* Tab content */}
+      {activeTab === "ledgers" ? (
+        <>
+          {/* Duplicate Suggestions Panel */}
+          {duplicateGroups.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="flex items-center justify-between px-5 py-4 bg-amber-50/50 border-b border-amber-100 flex-wrap gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center text-amber-700">
+                    <GitMerge size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Potential Duplicate Ledgers Detected
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Found {duplicateGroups.length} group{duplicateGroups.length > 1 ? "s" : ""} of similar ledger names (match similarity &ge; {Math.round(similarityThreshold * 100)}%)
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 flex-wrap">
+                  {/* Threshold Slider */}
+                  <div className="flex items-center gap-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm">
+                    <span>Match Threshold:</span>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="0.9"
+                      step="0.05"
+                      value={similarityThreshold}
+                      onChange={(e) => setSimilarityThreshold(parseFloat(e.target.value))}
+                      className="w-24 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                    />
+                    <span className="w-8 text-right font-semibold text-indigo-600">
+                      {Math.round(similarityThreshold * 100)}%
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setSuggestionsExpanded(!suggestionsExpanded)}
+                    className="px-3.5 py-1.5 bg-amber-100 text-amber-800 hover:bg-amber-200 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+                  >
+                    {suggestionsExpanded ? "Hide Suggestions" : "Review Suggestions"}
+                  </button>
+                </div>
               </div>
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Potential Duplicate Ledgers Detected
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Found {duplicateGroups.length} group{duplicateGroups.length > 1 ? "s" : ""} of similar ledger names (match similarity &ge; {Math.round(similarityThreshold * 100)}%)
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4 flex-wrap">
-              {/* Threshold Slider */}
-              <div className="flex items-center gap-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm">
-                <span>Match Threshold:</span>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="0.9"
-                  step="0.05"
-                  value={similarityThreshold}
-                  onChange={(e) => setSimilarityThreshold(parseFloat(e.target.value))}
-                  className="w-24 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                />
-                <span className="w-8 text-right font-semibold text-indigo-600">
-                  {Math.round(similarityThreshold * 100)}%
-                </span>
-              </div>
-              <button
-                onClick={() => setSuggestionsExpanded(!suggestionsExpanded)}
-                className="px-3.5 py-1.5 bg-amber-100 text-amber-800 hover:bg-amber-200 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
-              >
-                {suggestionsExpanded ? "Hide Suggestions" : "Review Suggestions"}
-              </button>
-            </div>
-          </div>
 
-          {suggestionsExpanded && (
-            <div className="p-5 space-y-4 max-h-[350px] overflow-y-auto bg-slate-50/30">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {duplicateGroups.map((group, groupIdx) => {
+              {suggestionsExpanded && (
+                <div className="p-5 space-y-4 max-h-[350px] overflow-y-auto bg-slate-50/30">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {duplicateGroups.map((group, groupIdx) => {
+                      return (
+                        <div
+                          key={groupIdx}
+                          className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-3 hover:shadow-md transition-shadow"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                                Duplicate Group #{groupIdx + 1}
+                              </span>
+                              <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+                                {group.length} Accounts (Max 4)
+                              </span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {group.map((ledger, idx) => {
+                                const similarity = idx === 0 
+                                  ? 1.0 
+                                  : getLedgerSimilarity(group[0].ledgerName, ledger.ledgerName);
+                                return (
+                                  <div
+                                    key={ledger._id}
+                                    className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-50 border border-slate-100"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className="font-semibold text-slate-700 truncate">
+                                        {ledger.ledgerName}
+                                      </span>
+                                      <GroupBadge group={ledger.groupName} />
+                                    </div>
+                                    <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">
+                                      {idx === 0 ? "Base" : `${Math.round(similarity * 100)}% match`}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                setSelectedIds(group.map((l) => l._id));
+                                setMergeModalOpen(true);
+                              }}
+                              className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-semibold text-xs rounded-lg transition-colors border border-indigo-100"
+                            >
+                              <GitMerge size={13} />
+                              Merge Group ({group.length})
+                            </button>
+                            <button
+                              onClick={() => handleIgnoreGroup(group.map((l) => l._id))}
+                              className="px-3 py-2 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700 font-semibold text-xs rounded-lg transition-colors border border-slate-200 flex-shrink-0"
+                              title="Ignore this suggestion"
+                            >
+                              Ignore
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Search + Quick Filter row */}
+          <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 flex-1 min-w-[220px] max-w-sm">
+              <Search size={14} className="text-slate-400 flex-shrink-0" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search ledger name or group…"
+                className="bg-transparent text-sm outline-none text-slate-700 placeholder-slate-400 w-full"
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="text-slate-400 hover:text-slate-600">
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            {/* Group Filter Dropdown */}
+            <div className="flex items-center gap-2">
+              <Layers size={14} className="text-slate-400" />
+              <select
+                value={groupFilter}
+                onChange={(e) => setGroupFilter(e.target.value)}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+              >
+                <option value="All">All Groups ({rows.length})</option>
+                {groups.map((g) => g.groupName).sort().map((groupName) => {
+                  const count = groupCounts[groupName] ?? 0;
                   return (
-                    <div
-                      key={groupIdx}
-                      className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-3 hover:shadow-md transition-shadow"
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                            Duplicate Group #{groupIdx + 1}
-                          </span>
-                          <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
-                            {group.length} Accounts (Max 4)
-                          </span>
-                        </div>
-                        <div className="space-y-1.5">
-                          {group.map((ledger, idx) => {
-                            const similarity = idx === 0 
-                              ? 1.0 
-                              : getLedgerSimilarity(group[0].ledgerName, ledger.ledgerName);
-                            return (
-                              <div
-                                key={ledger._id}
-                                className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-50 border border-slate-100"
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="font-semibold text-slate-700 truncate">
-                                    {ledger.ledgerName}
-                                  </span>
-                                  <GroupBadge group={ledger.groupName} />
-                                </div>
-                                <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">
-                                  {idx === 0 ? "Base" : `${Math.round(similarity * 100)}% match`}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setSelectedIds(group.map((l) => l._id));
-                            setMergeModalOpen(true);
-                          }}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-semibold text-xs rounded-lg transition-colors border border-indigo-100"
-                        >
-                          <GitMerge size={13} />
-                          Merge Group ({group.length})
-                        </button>
-                        <button
-                          onClick={() => handleIgnoreGroup(group.map((l) => l._id))}
-                          className="px-3 py-2 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700 font-semibold text-xs rounded-lg transition-colors border border-slate-200 flex-shrink-0"
-                          title="Ignore this suggestion"
-                        >
-                          Ignore
-                        </button>
-                      </div>
-                    </div>
+                    <option key={groupName} value={groupName}>
+                      {groupName} ({count})
+                    </option>
                   );
                 })}
-              </div>
+              </select>
             </div>
-          )}
-        </div>
-      )}
 
-      {/* Duplicate Groups Suggestions Panel */}
-      {duplicateAccountGroups.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-purple-200 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center justify-between px-5 py-4 bg-purple-50/30 border-b border-purple-100 flex-wrap gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center text-purple-700">
-                <Layers size={16} />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Potential Duplicate Groups Detected
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Found {duplicateAccountGroups.length} group{duplicateAccountGroups.length > 1 ? "s" : ""} of similar group names (match similarity &ge; {Math.round(groupSimilarityThreshold * 100)}%)
-                </p>
-              </div>
+            <div className="flex items-center gap-2 text-sm text-slate-500 ml-auto">
+              <Filter size={14} />
+              <span className="font-medium text-slate-700">{filtered.length} results</span>
             </div>
-            <div className="flex items-center gap-4 flex-wrap">
-              {/* Threshold Slider */}
-              <div className="flex items-center gap-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm">
-                <span>Match Threshold:</span>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="0.9"
-                  step="0.05"
-                  value={groupSimilarityThreshold}
-                  onChange={(e) => setGroupSimilarityThreshold(parseFloat(e.target.value))}
-                  className="w-24 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-                />
-                <span className="w-8 text-right font-semibold text-purple-600">
-                  {Math.round(groupSimilarityThreshold * 100)}%
-                </span>
-              </div>
-              <button
-                onClick={() => setGroupSuggestionsExpanded(!groupSuggestionsExpanded)}
-                className="px-3.5 py-1.5 bg-purple-100 text-purple-800 hover:bg-purple-200 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
-              >
-                {groupSuggestionsExpanded ? "Hide Suggestions" : "Review Suggestions"}
-              </button>
-            </div>
-          </div>
-
-          {groupSuggestionsExpanded && (
-            <div className="p-5 space-y-4 max-h-[350px] overflow-y-auto bg-slate-50/30">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {duplicateAccountGroups.map((cluster, clusterIdx) => {
-                  return (
-                    <div
-                      key={clusterIdx}
-                      className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-3 hover:shadow-md transition-shadow"
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                            Duplicate Group #{clusterIdx + 1}
-                          </span>
-                          <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
-                            {cluster.length} Groups (Max 4)
-                          </span>
-                        </div>
-                        <div className="space-y-1.5">
-                          {cluster.map((g, idx) => {
-                            const similarity = idx === 0 
-                              ? 1.0 
-                              : getLedgerSimilarity(cluster[0].groupName, g.groupName);
-                            return (
-                              <div
-                                key={g._id}
-                                className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-50 border border-slate-100"
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="font-semibold text-slate-700 truncate">
-                                    {g.groupName}
-                                  </span>
-                                  <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.2 rounded font-mono">
-                                    {g.superGroup}
-                                  </span>
-                                </div>
-                                <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">
-                                  {idx === 0 ? "Base" : `${Math.round(similarity * 100)}% match`}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setPreSelectedSourceIds(cluster.slice(1).map(g => g._id));
-                            setPreSelectedTargetId(cluster[0]._id);
-                            setMergeGroupsModalOpen(true);
-                          }}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-purple-50 text-purple-600 hover:bg-purple-100 font-semibold text-xs rounded-lg transition-colors border border-purple-100"
-                        >
-                          <GitMerge size={13} />
-                          Merge Groups ({cluster.length})
-                        </button>
-                        <button
-                          onClick={() => handleIgnoreGroupSuggestion(cluster.map((g) => g._id))}
-                          className="px-3 py-2 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700 font-semibold text-xs rounded-lg transition-colors border border-slate-200 flex-shrink-0"
-                          title="Ignore this suggestion"
-                        >
-                          Ignore
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Search + Quick Filter row */}
-      <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 flex-1 min-w-[220px] max-w-sm">
-          <Search size={14} className="text-slate-400 flex-shrink-0" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search ledger name or group…"
-            className="bg-transparent text-sm outline-none text-slate-700 placeholder-slate-400 w-full"
-          />
-          {search && (
-            <button onClick={() => setSearch("")} className="text-slate-400 hover:text-slate-600">
-              <X size={13} />
-            </button>
-          )}
-        </div>
-
-        {/* Group Filter Dropdown */}
-        <div className="flex items-center gap-2">
-          <Layers size={14} className="text-slate-400" />
-          <select
-            value={groupFilter}
-            onChange={(e) => setGroupFilter(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
-          >
-            <option value="All">All Groups ({rows.length})</option>
-            {groups.map((g) => g.groupName).sort().map((groupName) => {
-              const count = groupCounts[groupName] ?? 0;
-              return (
-                <option key={groupName} value={groupName}>
-                  {groupName} ({count})
-                </option>
-              );
-            })}
-          </select>
-        </div>
-
-        <div className="flex items-center gap-2 text-sm text-slate-500 ml-auto">
-          <Filter size={14} />
-          <span className="font-medium text-slate-700">{filtered.length} results</span>
-        </div>
-        <p className="text-xs text-slate-400 hidden lg:block w-full border-t border-slate-50 pt-2 mt-1">
-          Double-click a cell to edit inline · Use column filter icons for advanced search
-        </p>
-      </div>
-
-      {/* AG Grid */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-        {loading ? (
-          <div className="flex items-center justify-center py-24 gap-3 text-slate-400">
-            <RefreshCw size={18} className="animate-spin" />
-            <span className="text-sm">Loading ledgers…</span>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 gap-3">
-            <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center">
-              <BookMarked size={24} className="text-slate-400" />
-            </div>
-            <p className="text-slate-500 text-sm">
-              {search || groupFilter !== "All"
-                ? "No ledgers match your search or filter"
-                : "No ledgers yet — add one to get started"}
+            <p className="text-xs text-slate-400 hidden lg:block w-full border-t border-slate-50 pt-2 mt-1">
+              Double-click a cell to edit inline · Use column filter icons for advanced search
             </p>
-            {!search && groupFilter === "All" && (
-              <button
-                onClick={() => setModal({ mode: "add" })}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors mt-1"
+          </div>
+
+          {/* AG Grid */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+            {loading ? (
+              <div className="flex items-center justify-center py-24 gap-3 text-slate-400">
+                <RefreshCw size={18} className="animate-spin" />
+                <span className="text-sm">Loading ledgers…</span>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-24 gap-3">
+                <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center">
+                  <BookMarked size={24} className="text-slate-400" />
+                </div>
+                <p className="text-slate-500 text-sm">
+                  {search || groupFilter !== "All"
+                    ? "No ledgers match your search or filter"
+                    : "No ledgers yet — add one to get started"}
+                </p>
+                {!search && groupFilter === "All" && (
+                  <button
+                    onClick={() => setModal({ mode: "add" })}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors mt-1"
+                  >
+                    <Plus size={14} /> Add First Ledger
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div
+                className="ag-theme-quartz"
+                style={{ height: Math.max(400, Math.min(filtered.length * 52 + 110, 620)) }}
               >
-                <Plus size={14} /> Add First Ledger
-              </button>
+                <AgGridReact<Ledger>
+                  theme="legacy"
+                  ref={gridRef}
+                  rowData={filtered}
+                  columnDefs={columnDefs}
+                  defaultColDef={{
+                    resizable: true,
+                    sortable: true,
+                    floatingFilterComponentParams: { suppressFilterButton: false },
+                  }}
+                  rowSelection={rowSelection}
+                  selectionColumnDef={selectionColumnDef}
+                  onSelectionChanged={onSelectionChanged}
+                  onCellEditingStopped={onCellEditingStopped}
+                  rowHeight={52}
+                  headerHeight={44}
+                  floatingFiltersHeight={40}
+                  animateRows
+                  stopEditingWhenCellsLoseFocus
+                  getRowId={(p) => p.data._id}
+                  rowClassRules={{
+                    "hover:bg-slate-50": () => true,
+                  }}
+                />
+              </div>
             )}
           </div>
-        ) : (
-          <div
-            className="ag-theme-quartz"
-            style={{ height: Math.max(400, Math.min(filtered.length * 52 + 110, 620)) }}
-          >
-            <AgGridReact<Ledger>
-              theme="legacy"
-              ref={gridRef}
-              rowData={filtered}
-              columnDefs={columnDefs}
-              defaultColDef={{
-                resizable: true,
-                sortable: true,
-                floatingFilterComponentParams: { suppressFilterButton: false },
-              }}
-              rowSelection={rowSelection}
-              selectionColumnDef={selectionColumnDef}
-              onSelectionChanged={onSelectionChanged}
-              onCellEditingStopped={onCellEditingStopped}
-              rowHeight={52}
-              headerHeight={44}
-              floatingFiltersHeight={40}
-              animateRows
-              stopEditingWhenCellsLoseFocus
-              getRowId={(p) => p.data._id}
-              rowClassRules={{
-                "hover:bg-slate-50": () => true,
-              }}
-            />
+        </>
+      ) : (
+        <>
+          {/* Duplicate Account Groups Suggestions Panel */}
+          {duplicateAccountGroups.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-purple-200 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="flex items-center justify-between px-5 py-4 bg-purple-50/30 border-b border-purple-100 flex-wrap gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center text-purple-700">
+                    <Layers size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Potential Duplicate Groups Detected
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Found {duplicateAccountGroups.length} group{duplicateAccountGroups.length > 1 ? "s" : ""} of similar group names (match similarity &ge; {Math.round(groupSimilarityThreshold * 100)}%)
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 flex-wrap">
+                  {/* Threshold Slider */}
+                  <div className="flex items-center gap-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm">
+                    <span>Match Threshold:</span>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="0.9"
+                      step="0.05"
+                      value={groupSimilarityThreshold}
+                      onChange={(e) => setGroupSimilarityThreshold(parseFloat(e.target.value))}
+                      className="w-24 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                    />
+                    <span className="w-8 text-right font-semibold text-purple-600">
+                      {Math.round(groupSimilarityThreshold * 100)}%
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setGroupSuggestionsExpanded(!groupSuggestionsExpanded)}
+                    className="px-3.5 py-1.5 bg-purple-100 text-purple-800 hover:bg-purple-200 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+                  >
+                    {groupSuggestionsExpanded ? "Hide Suggestions" : "Review Suggestions"}
+                  </button>
+                </div>
+              </div>
+
+              {groupSuggestionsExpanded && (
+                <div className="p-5 space-y-4 max-h-[350px] overflow-y-auto bg-slate-50/30">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {duplicateAccountGroups.map((cluster, clusterIdx) => {
+                      return (
+                        <div
+                          key={clusterIdx}
+                          className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between gap-3 hover:shadow-md transition-shadow"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                                Duplicate Group #{clusterIdx + 1}
+                              </span>
+                              <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+                                {cluster.length} Groups (Max 4)
+                              </span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {cluster.map((g, idx) => {
+                                const similarity = idx === 0 
+                                  ? 1.0 
+                                  : getLedgerSimilarity(cluster[0].groupName, g.groupName);
+                                return (
+                                  <div
+                                    key={g._id}
+                                    className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-50 border border-slate-100"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className="font-semibold text-slate-700 truncate">
+                                        {g.groupName}
+                                      </span>
+                                      <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.2 rounded font-mono">
+                                        {g.superGroup}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">
+                                      {idx === 0 ? "Base" : `${Math.round(similarity * 100)}% match`}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                setPreSelectedSourceIds(cluster.slice(1).map(g => g._id));
+                                setPreSelectedTargetId(cluster[0]._id);
+                                setMergeGroupsModalOpen(true);
+                              }}
+                              className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-purple-50 text-purple-600 hover:bg-purple-100 font-semibold text-xs rounded-lg transition-colors border border-purple-100"
+                            >
+                              <GitMerge size={13} />
+                              Merge Groups ({cluster.length})
+                            </button>
+                            <button
+                              onClick={() => handleIgnoreGroupSuggestion(cluster.map((g) => g._id))}
+                              className="px-3 py-2 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700 font-semibold text-xs rounded-lg transition-colors border border-slate-200 flex-shrink-0"
+                              title="Ignore this suggestion"
+                            >
+                              Ignore
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Group Search Row */}
+          <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100 flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 flex-1 min-w-[220px] max-w-sm">
+              <Search size={14} className="text-slate-400 flex-shrink-0" />
+              <input
+                value={groupSearch}
+                onChange={(e) => setGroupSearch(e.target.value)}
+                placeholder="Search group name or supergroup…"
+                className="bg-transparent text-sm outline-none text-slate-700 placeholder-slate-400 w-full"
+              />
+              {groupSearch && (
+                <button onClick={() => setGroupSearch("")} className="text-slate-400 hover:text-slate-600">
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 text-sm text-slate-500 ml-auto">
+              <Filter size={14} />
+              <span className="font-medium text-slate-700">{filteredGroups.length} results</span>
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* Groups Table */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+            {filteredGroups.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-24 gap-3">
+                <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center">
+                  <Layers size={24} className="text-slate-400" />
+                </div>
+                <p className="text-slate-500 text-sm">
+                  {groupSearch
+                    ? "No groups match your search"
+                    : "No groups found"}
+                </p>
+                {!groupSearch && (
+                  <button
+                    onClick={() => setGroupEditModal({ mode: "add" })}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors mt-1"
+                  >
+                    <Plus size={14} /> Create First Group
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm text-slate-700">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                      <th className="px-6 py-4 w-16">#</th>
+                      <th className="px-6 py-4">Group Name</th>
+                      <th className="px-6 py-4">Supergroup Name</th>
+                      <th className="px-6 py-4 text-right w-36">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredGroups.map((g, idx) => (
+                      <tr key={g._id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4 text-slate-400 font-medium">{idx + 1}</td>
+                        <td className="px-6 py-4 font-semibold text-slate-900">{g.groupName}</td>
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
+                            {g.superGroup}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => setGroupEditModal({ mode: "edit", group: g })}
+                              title="Edit Group"
+                              className="p-1.5 rounded-md hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setPreSelectedTargetId(g._id);
+                                setMergeGroupsModalOpen(true);
+                              }}
+                              title="Merge Group"
+                              className="p-1.5 rounded-md hover:bg-purple-50 text-slate-400 hover:text-purple-600 transition-colors"
+                            >
+                              <GitMerge size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteGroup(g)}
+                              title="Delete Group"
+                              className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Modal */}
       {modal && (
@@ -1777,11 +1975,12 @@ export default function LedgerMaster() {
       )}
 
       {/* Group Modal */}
-      {groupModalOpen && (
+      {groupEditModal && (
         <GroupModal
           loading={groupSaving}
-          onClose={() => setGroupModalOpen(false)}
-          onSubmit={handleCreateGroup}
+          group={groupEditModal.group}
+          onClose={() => setGroupEditModal(null)}
+          onSubmit={handleSaveGroup}
         />
       )}
 

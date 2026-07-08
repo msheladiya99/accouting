@@ -23,7 +23,7 @@ import {
   saveBulkOpeningBalances,
 } from "../api/ledgerApi";
 import {
-  getAllGroups, createGroup, SUPER_GROUPS, type AccountGroup
+  getAllGroups, createGroup, SUPER_GROUPS, type AccountGroup, mergeGroups
 } from "../api/accountGroupApi";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -554,6 +554,224 @@ function MergeModal({
   );
 }
 
+// ── Merge Groups Modal ────────────────────────────────────────────────────────
+function MergeGroupsModal({
+  groups,
+  loading,
+  onClose,
+  onMerge,
+}: {
+  groups: AccountGroup[];
+  loading: boolean;
+  onClose: () => void;
+  onMerge: (sourceIds: string[], targetId: string) => void;
+}) {
+  const [sourceSearch, setSourceSearch] = useState("");
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [targetId, setTargetId] = useState<string>("");
+
+  // Sort groups alphabetically by name
+  const sortedGroups = useMemo(() => {
+    return [...groups].sort((a, b) => a.groupName.localeCompare(b.groupName));
+  }, [groups]);
+
+  // Filter groups for source selection based on search input
+  const filteredSourceGroups = useMemo(() => {
+    return sortedGroups.filter((g) =>
+      g.groupName.toLowerCase().includes(sourceSearch.toLowerCase())
+    );
+  }, [sortedGroups, sourceSearch]);
+
+  // Target groups list: show all groups on both sides as requested
+  const availableTargetGroups = sortedGroups;
+
+  const hasOverlap = selectedSourceIds.includes(targetId);
+
+  // Toggle source selection
+  const toggleSource = (id: string) => {
+    setSelectedSourceIds((prev) => {
+      const isSelected = prev.includes(id);
+      return isSelected ? prev.filter((item) => item !== id) : [...prev, id];
+    });
+  };
+
+  const handleConfirmMerge = () => {
+    if (selectedSourceIds.length === 0 || !targetId || hasOverlap) return;
+    const targetGroup = groups.find((g) => g._id === targetId);
+    const sourceNames = groups
+      .filter((g) => selectedSourceIds.includes(g._id))
+      .map((g) => g.groupName)
+      .join(", ");
+    
+    if (
+      window.confirm(
+        `Are you sure you want to merge these group(s):\n"${sourceNames}"\n\ninto the target group:\n"${targetGroup?.groupName}"?\n\nThis will reassign all ledgers and transaction references, and delete the source group(s) permanently.`
+      )
+    ) {
+      onMerge(selectedSourceIds, targetId);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-purple-50 to-indigo-50 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-purple-100 text-purple-700">
+              <GitMerge size={16} />
+            </div>
+            <div>
+              <h2 className="text-slate-900 text-base font-semibold">Merge Account Groups</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Combine groups and reassign all their ledgers</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/70 text-slate-500 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5 overflow-y-auto flex-grow">
+          {/* Warning banner */}
+          <div className="flex gap-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+            <span className="text-amber-500 mt-0.5 flex-shrink-0 text-sm">⚠️</span>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              All ledgers belonging to the <strong>source groups</strong> will be moved to the <strong>target group</strong>.
+              All existing transaction references (debitGroup, creditGroup, etc.) will be rewritten.
+              Source groups will be <strong>permanently deleted</strong>.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Left Column: Select Sources */}
+            <div className="flex flex-col h-[280px]">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                1. Select Source Group(s) ({selectedSourceIds.length} chosen)
+              </label>
+              {/* Search source groups */}
+              <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2.5 py-1.5 border border-slate-200 mb-2 flex-shrink-0">
+                <Search size={13} className="text-slate-400" />
+                <input
+                  value={sourceSearch}
+                  onChange={(e) => setSourceSearch(e.target.value)}
+                  placeholder="Filter source groups..."
+                  className="bg-transparent text-xs outline-none text-slate-700 w-full placeholder-slate-400"
+                />
+              </div>
+              <div className="border border-slate-200 rounded-xl overflow-y-auto flex-grow divide-y divide-slate-100 bg-slate-50/30">
+                {filteredSourceGroups.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-400">No groups match search</div>
+                ) : (
+                  filteredSourceGroups.map((g) => {
+                    const isChecked = selectedSourceIds.includes(g._id);
+                    return (
+                      <label
+                        key={g._id}
+                        onClick={() => toggleSource(g._id)}
+                        className={`flex items-center gap-2.5 px-3 py-2 text-xs cursor-pointer select-none transition-colors ${
+                          isChecked ? "bg-purple-50 text-purple-900" : "hover:bg-slate-50 text-slate-700"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          readOnly
+                          className="rounded text-purple-600 focus:ring-purple-400"
+                        />
+                        <span className="font-medium truncate">{g.groupName}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Right Column: Select Target */}
+            <div className="flex flex-col h-[280px]">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
+                2. Select Target Group
+              </label>
+              <div className="border border-slate-200 rounded-xl overflow-y-auto flex-grow divide-y divide-slate-100 bg-slate-50/30">
+                {availableTargetGroups.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-400">No target groups available</div>
+                ) : (
+                  availableTargetGroups.map((g) => {
+                    const isChecked = targetId === g._id;
+                    return (
+                      <label
+                        key={g._id}
+                        onClick={() => setTargetId(g._id)}
+                        className={`flex items-center gap-2.5 px-3 py-2 text-xs cursor-pointer select-none transition-colors ${
+                          isChecked ? "bg-indigo-50 text-indigo-900" : "hover:bg-slate-50 text-slate-700"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="groupMergeTarget"
+                          checked={isChecked}
+                          readOnly
+                          className="text-indigo-600 focus:ring-indigo-400"
+                        />
+                        <span className="font-medium truncate">{g.groupName}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Overlap Error Banner */}
+          {hasOverlap && (
+            <div className="flex gap-3 p-3.5 bg-red-50 border border-red-200 rounded-xl animate-in fade-in duration-200">
+              <span className="text-red-500 mt-0.5 flex-shrink-0 text-sm">❌</span>
+              <p className="text-xs text-red-800 leading-relaxed font-semibold">
+                Invalid Merge Selection: The target group cannot also be selected as a source group. Please deselect it from either column.
+              </p>
+            </div>
+          )}
+
+          {/* Merge summary */}
+          {!hasOverlap && selectedSourceIds.length > 0 && targetId && (() => {
+            const targetGroup = groups.find((g) => g._id === targetId);
+            const sourceGroupsText = groups
+              .filter((g) => selectedSourceIds.includes(g._id))
+              .map((g) => g.groupName)
+              .join(", ");
+            return (
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1 animate-in fade-in duration-200">
+                <p className="font-semibold text-slate-700">Merge configuration:</p>
+                <p>• Merge: <strong className="text-purple-700">{sourceGroupsText}</strong></p>
+                <p>• Into: <strong className="text-indigo-700">{targetGroup?.groupName}</strong></p>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 flex-shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirmMerge}
+            disabled={loading || selectedSourceIds.length === 0 || !targetId || hasOverlap}
+            className="flex items-center gap-2 px-5 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 transition-colors disabled:opacity-50 font-medium"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <GitMerge size={14} />}
+            Merge Groups
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function LedgerMaster() {
   const [rows, setRows]         = useState<Ledger[]>([]);
@@ -567,6 +785,8 @@ export default function LedgerMaster() {
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [mergeSaving, setMergeSaving] = useState(false);
+  const [mergeGroupsModalOpen, setMergeGroupsModalOpen] = useState(false);
+  const [mergeGroupsSaving, setMergeGroupsSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const gridRef                 = useRef<AgGridReact<Ledger>>(null);
 
@@ -714,6 +934,21 @@ export default function LedgerMaster() {
       toast.error(e.response?.data?.message || e.message || "Merge failed");
     } finally {
       setMergeSaving(false);
+    }
+  }, [load]);
+
+  const handleMergeGroups = useCallback(async (sourceIds: string[], targetId: string) => {
+    setMergeGroupsSaving(true);
+    try {
+      const result = await mergeGroups(sourceIds, targetId);
+      toast.success(result.message);
+      setMergeGroupsModalOpen(false);
+      await load();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || e.message || "Merge groups failed");
+    } finally {
+      setMergeGroupsSaving(false);
     }
   }, [load]);
 
@@ -1089,6 +1324,12 @@ export default function LedgerMaster() {
             <Download size={15} /> Export
           </button>
           <button
+            onClick={() => setMergeGroupsModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 transition-colors shadow-sm"
+          >
+            <GitMerge size={15} /> Merge Groups
+          </button>
+          <button
             onClick={() => setGroupModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors"
           >
@@ -1349,6 +1590,16 @@ export default function LedgerMaster() {
           loading={mergeSaving}
           onClose={() => setMergeModalOpen(false)}
           onMerge={handleMerge}
+        />
+      )}
+
+      {/* Merge Groups Modal */}
+      {mergeGroupsModalOpen && (
+        <MergeGroupsModal
+          groups={groups}
+          loading={mergeGroupsSaving}
+          onClose={() => setMergeGroupsModalOpen(false)}
+          onMerge={handleMergeGroups}
         />
       )}
     </div>

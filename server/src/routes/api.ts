@@ -71,6 +71,7 @@ apiRouter.delete("/ledger/:id", ledgerController.deleteLedger);
 
 // Account Group routes
 apiRouter.get("/account-group", accountGroupController.getAllGroups);
+apiRouter.post("/account-group/merge", accountGroupController.mergeGroups);
 apiRouter.post("/account-group", accountGroupController.createGroup);
 
 // Bank Cash Book routes

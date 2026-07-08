@@ -48,3 +48,8 @@ export async function createGroup(payload: AccountGroupPayload): Promise<Account
   const res = await axiosClient.post<AccountGroup>("/account-group", payload);
   return res.data;
 }
+
+export async function mergeGroups(sourceIds: string[], targetId: string): Promise<{ message: string; targetGroup: AccountGroup }> {
+  const res = await axiosClient.post<{ message: string; targetGroup: AccountGroup }>("/account-group/merge", { sourceIds, targetId });
+  return res.data;
+}

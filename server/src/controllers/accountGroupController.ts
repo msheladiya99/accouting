@@ -64,6 +64,36 @@ export async function getAllGroups(req: AuthenticatedRequest, res: Response): Pr
       groups = await AccountGroup.find({ companyId: req.companyId }).sort({ groupName: 1 });
     }
 
+    // ── Self-healing: Check for any group names used in Ledgers that are missing from AccountGroup ──
+    const { Ledger } = await import("../models/Ledger");
+    const uniqueLedgerGroups = await Ledger.distinct("groupName", { companyId: req.companyId });
+    const existingGroupNamesLower = new Set(groups.map((g) => g.groupName.trim().toLowerCase()));
+
+    const missingGroupsToInsert: any[] = [];
+    for (const gName of uniqueLedgerGroups) {
+      if (!gName) continue;
+      const gNameTrimmed = gName.trim();
+      if (!existingGroupNamesLower.has(gNameTrimmed.toLowerCase())) {
+        // Find if this group was a default group to reuse its superGroup, else fallback
+        const seededGroup = DEFAULT_GROUPS_SEEDS.find(
+          (seed) => seed.groupName.toLowerCase() === gNameTrimmed.toLowerCase()
+        );
+        const superGroup = seededGroup ? seededGroup.superGroup : "Capital Account"; // default fallback
+        
+        missingGroupsToInsert.push({
+          groupName: gNameTrimmed.toUpperCase(),
+          superGroup: superGroup,
+          companyId: req.companyId
+        });
+      }
+    }
+
+    if (missingGroupsToInsert.length > 0) {
+      await AccountGroup.insertMany(missingGroupsToInsert);
+      // Reload groups list to include newly inserted ones
+      groups = await AccountGroup.find({ companyId: req.companyId }).sort({ groupName: 1 });
+    }
+
     res.json(groups);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to retrieve account groups" });
@@ -99,5 +129,104 @@ export async function createGroup(req: AuthenticatedRequest, res: Response): Pro
     res.status(201).json(newGroup);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to create account group" });
+  }
+}
+
+export async function mergeGroups(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { sourceIds, targetId } = req.body;
+  try {
+    if (!Array.isArray(sourceIds) || sourceIds.length === 0 || !targetId) {
+      res.status(400).json({ message: "Provide sourceIds[] and targetId" });
+      return;
+    }
+
+    // Load target group
+    const targetGroup = await AccountGroup.findOne({ _id: targetId, companyId: req.companyId });
+    if (!targetGroup) {
+      res.status(404).json({ message: "Target group not found" });
+      return;
+    }
+    const targetName = targetGroup.groupName;
+
+    // Load source groups
+    const sourceGroups = await AccountGroup.find({ _id: { $in: sourceIds }, companyId: req.companyId });
+    if (sourceGroups.length === 0) {
+      res.status(404).json({ message: "No source groups found" });
+      return;
+    }
+    const sourceNames = sourceGroups.map((g) => g.groupName);
+
+    const { Ledger } = await import("../models/Ledger");
+    const { JournalEntry } = await import("../models/JournalEntry");
+    const { BankCashEntry } = await import("../models/BankCashEntry");
+    const { ImportedTransaction } = await import("../models/ImportedTransaction");
+
+    const { Types: MongoTypes } = require("mongoose");
+    let companyIdFilter: any;
+    try {
+      companyIdFilter = { $in: [req.companyId, new MongoTypes.ObjectId(req.companyId as string)] };
+    } catch {
+      companyIdFilter = req.companyId;
+    }
+
+    // 1. Update Ledgers belonging to the source groups
+    await Ledger.updateMany(
+      { companyId: req.companyId, groupName: { $in: sourceNames } },
+      { $set: { groupName: targetName as any } }
+    );
+
+    // 2. Update JournalEntry debitGroup and creditGroup
+    await JournalEntry.updateMany(
+      { companyId: companyIdFilter, debitGroup: { $in: sourceNames } },
+      { $set: { debitGroup: targetName } }
+    );
+    await JournalEntry.updateMany(
+      { companyId: companyIdFilter, creditGroup: { $in: sourceNames } },
+      { $set: { creditGroup: targetName } }
+    );
+
+    // 3. Update JournalEntry items array
+    for (const srcName of sourceNames) {
+      await JournalEntry.updateMany(
+        { companyId: companyIdFilter, "items.groupName": srcName },
+        {
+          $set: {
+            "items.$[elem].groupName": targetName
+          }
+        },
+        { arrayFilters: [{ "elem.groupName": srcName }] } as any
+      );
+    }
+
+    // 4. Update BankCashEntry contraAccountGroup
+    for (const srcName of sourceNames) {
+      const escaped = srcName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      await BankCashEntry.updateMany(
+        { companyId: companyIdFilter, contraAccountGroup: { $regex: new RegExp(`^${escaped}$`, "i") } },
+        { $set: { contraAccountGroup: targetName } }
+      );
+    }
+
+    // 5. Update ImportedTransaction accountGroup
+    try {
+      for (const srcName of sourceNames) {
+        await ImportedTransaction.updateMany(
+          { companyId: companyIdFilter, accountGroup: srcName },
+          { $set: { accountGroup: targetName } }
+        );
+      }
+    } catch {
+      // ignore safely
+    }
+
+    // 6. Delete source groups
+    await AccountGroup.deleteMany({ _id: { $in: sourceIds }, companyId: req.companyId });
+
+    res.json({
+      message: `${sourceGroups.length} group(s) merged into "${targetName}" successfully`,
+      targetGroup
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to merge groups" });
   }
 }

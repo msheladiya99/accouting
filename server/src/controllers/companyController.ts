@@ -45,6 +45,7 @@ const DEFAULT_GROUPS_SEEDS = [
   { groupName: "SALARY EXPENSES PAYABLE", superGroup: "Current Liabilities" },
   { groupName: "SECURED LOANS", superGroup: "Loans (Liability)" },
   { groupName: "STOCK-IN-HAND", superGroup: "Stock-in-hand" },
+  { groupName: "OPENING STOCK", superGroup: "Stock-in-hand" },
   { groupName: "SUNDRY CREDITORS", superGroup: "Current Liabilities" },
   { groupName: "SUNDRY CREDITORS - MATERIAL", superGroup: "Current Liabilities" },
   { groupName: "SUNDRY CREDITORS - SERVICES", superGroup: "Current Liabilities" },

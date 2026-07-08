@@ -81,7 +81,7 @@ const ASSETS_STRUCTURE = [
   {
     title: "CURRENT ASSETS",
     subsections: [
-      { title: "INVENTORY", groups: ["Stock-in-hand", "Stock-in-hand"] },
+      { title: "INVENTORY", groups: ["Stock-in-hand", "Stock-in-hand", "OPENING STOCK", "Opening Stock", "opening stock"] },
       { title: "SUNDRY DEBTORS", groups: ["Sundry Debtors"] },
       { title: "CASH AND BANK", groups: ["Cash-in-hand", "Bank Accounts (Banks)", "Cash", "Bank", "Cash Ledger A/C.", "Bank Accounts"] },
       { title: "LOANS AND ADVANCES (ASSETS)", groups: ["Loans & Advances (Asset)", "Deposits (Asset)"] }
@@ -260,7 +260,7 @@ function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, stri
 
     if (parentCategory !== "Income" && parentCategory !== "Expense") {
       // Stock-in-hand (Asset) opening/closing stock is an exception needed for Trading account!
-      if (groupName === "stock-in-hand" || groupName === "inventory") {
+      if (groupName === "stock-in-hand" || groupName === "inventory" || groupName === "opening stock") {
         if (r.openingDr > 0) {
           openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
         }

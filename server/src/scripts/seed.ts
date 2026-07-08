@@ -162,6 +162,7 @@ async function seed() {
       { groupName: "Salary Expenses Payable", superGroup: "Current Liabilities" },
       { groupName: "Secured Loans", superGroup: "Loans (Liability)" },
       { groupName: "Stock-in-hand", superGroup: "Stock-in-hand" },
+      { groupName: "Opening Stock", superGroup: "Stock-in-hand" },
       { groupName: "Sundry Creditors", superGroup: "Current Liabilities" },
       { groupName: "Sundry Creditors - Material", superGroup: "Current Liabilities" },
       { groupName: "Sundry Creditors - Services", superGroup: "Current Liabilities" },

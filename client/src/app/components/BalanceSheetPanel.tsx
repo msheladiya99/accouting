@@ -11,7 +11,7 @@ import {
 import { computeTrialBalance, type TrialRow } from "../api/trialBalanceApi";
 import { fetchAccountingRawData } from "../api/accountingDataCache";
 
-const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
+const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense" | "Profit & Loss A/c"> = {
   "Capital Account": "Capital",
   "Profit & Loss A/c": "Capital",
   "Current Liabilities": "Liabilities",
@@ -32,7 +32,8 @@ const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" |
   "Expense Account": "Expense",
   "Partner Interest": "Expense",
   "Partner Remuneration": "Expense",
-  "Trading Account": "Income"
+  "Trading Account": "Income",
+  "Reserve & surplus": "Profit & Loss A/c",
 };
 
 const fmt = (v: number) =>
@@ -50,22 +51,27 @@ const fmtReport = (v: number) => {
 const LIABILITIES_STRUCTURE = [
   {
     title: "CAPITAL",
-    groups: ["Capital Account", "Capital", "Capital & Reserves", "Profit & Loss A/c"]
+    groups: ["Capital Account"]
   },
   {
-    title: "LOAN FUNDS",
-    subsections: [
-      { title: "SECURED LOANS", groups: ["Secured Loans", "Bank OCC a/c", "Loans (Liability)", "Secured Loans"] },
-      { title: "UNSECURED LOANS", groups: ["Unsecured Loans"] }
-    ]
+    title: "RESERVES & SURPLUS",
+    groups: ["Reserve & surplus"]
+  },
+  {
+    title: "SECURED LOANS",
+    groups: ["Secured Loans", "Bank OCC a/c", "Loans (Liability)"]
+  },
+  {
+    title: "UNSECURED LOANS",
+    groups: ["Unsecured Loans"]
   },
   {
     title: "SUNDRY CREDITORS",
-    groups: ["Sundry Creditors", "Sundry Creditors - Material", "Sundry Creditors - Services", "Sundry Creditors"]
+    groups: ["Sundry Creditors", "Sundry Creditors - Material", "Sundry Creditors - Services", "Sundry Creditors", "Advances From Customers"]
   },
   {
     title: "PROVISIONS",
-    groups: ["Provisions", "Duties & Taxes", "Salary Expenses Payable", "Advances From Customers"]
+    groups: ["Provisions", "Duties & Taxes", "Salary Expenses Payable"]
   }
 ];
 
@@ -81,11 +87,14 @@ const ASSETS_STRUCTURE = [
   {
     title: "CURRENT ASSETS",
     subsections: [
-      { title: "INVENTORY", groups: ["Stock-in-hand", "Stock-in-hand"] },
+      { title: "INVENTORY", groups: ["Stock-in-hand", "Stock-in-hand", "OPENING STOCK", "Opening Stock", "opening stock"] },
       { title: "SUNDRY DEBTORS", groups: ["Sundry Debtors"] },
-      { title: "CASH AND BANK", groups: ["Cash-in-hand", "Bank Accounts (Banks)", "Cash", "Bank", "Cash Ledger A/C.", "Bank Accounts"] },
-      { title: "LOANS AND ADVANCES (ASSETS)", groups: ["Loans & Advances (Asset)", "Deposits (Asset)"] }
+      { title: "CASH AND BANK", groups: ["Cash-in-hand", "Bank Accounts (Banks)", "Cash", "Bank", "Bank Accounts"] }
     ]
+  },
+  {
+    title: "LOANS AND ADVANCES (ASSETS)",
+    groups: ["Loans & Advances (Asset)", "Deposits (Asset)"]
   },
   {
     title: "MISC EXPENSES (ASSETS)",
@@ -260,7 +269,7 @@ function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, stri
 
     if (parentCategory !== "Income" && parentCategory !== "Expense") {
       // Stock-in-hand (Asset) opening/closing stock is an exception needed for Trading account!
-      if (groupName === "stock-in-hand" || groupName === "inventory") {
+      if (groupName === "stock-in-hand" || groupName === "inventory" || groupName === "opening stock") {
         if (r.openingDr > 0) {
           openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
         }
@@ -500,7 +509,7 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
       const allCapitalLedgers = ledgers.filter(l => {
         const gName = l.groupName.trim().toLowerCase();
         const parentCategory = groupParentsMap[gName];
-        if (parentCategory === "Capital" && gName !== "profit & loss a/c") return true;
+        if ((parentCategory === "Capital" || parentCategory === "Profit & Loss A/c") && gName !== "profit & loss a/c") return true;
         return gName === 'capital' || 
                gName === 'capital account' || 
                gName === 'capital & reserves' ||

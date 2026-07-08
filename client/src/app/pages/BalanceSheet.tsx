@@ -55,11 +55,16 @@ const LIABILITIES_STRUCTURE = [
     groups: ["Capital Account", "Capital", "Capital & Reserves", "Profit & Loss A/c"]
   },
   {
-    title: "LOAN FUNDS",
-    subsections: [
-      { title: "SECURED LOANS", groups: ["Secured Loans", "Bank OCC a/c", "Loans (Liability)", "Secured Loans"] },
-      { title: "UNSECURED LOANS", groups: ["Unsecured Loans"] }
-    ]
+    title: "RESERVES & SURPLUS",
+    groups: ["Reserve & surplus"]
+  },
+  {
+    title: "SECURED LOANS",
+    groups: ["Secured Loans", "Bank OCC a/c", "Loans (Liability)"]
+  },
+  {
+    title: "UNSECURED LOANS",
+    groups: ["Unsecured Loans"]
   },
   {
     title: "SUNDRY CREDITORS",
@@ -83,11 +88,14 @@ const ASSETS_STRUCTURE = [
   {
     title: "CURRENT ASSETS",
     subsections: [
-      { title: "INVENTORY", groups: ["Stock-in-hand", "Stock-in-hand"] },
+      { title: "INVENTORY", groups: ["Stock-in-hand", "Stock-in-hand", "OPENING STOCK", "Opening Stock", "opening stock"] },
       { title: "SUNDRY DEBTORS", groups: ["Sundry Debtors"] },
-      { title: "CASH AND BANK", groups: ["Cash-in-hand", "Bank Accounts (Banks)", "Cash", "Bank", "Cash Ledger A/C.", "Bank Accounts"] },
-      { title: "LOANS AND ADVANCES (ASSETS)", groups: ["Loans & Advances (Asset)", "Deposits (Asset)"] }
+      { title: "CASH AND BANK", groups: ["Cash-in-hand", "Bank Accounts (Banks)", "Cash", "Bank", "Cash Ledger A/C.", "Bank Accounts"] }
     ]
+  },
+  {
+    title: "LOANS AND ADVANCES (ASSETS)",
+    groups: ["Loans & Advances (Asset)", "Deposits (Asset)"]
   },
   {
     title: "MISC EXPENSES (ASSETS)",
@@ -279,7 +287,7 @@ function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, stri
 
     if (parentCategory !== "Income" && parentCategory !== "Expense") {
       // Stock-in-hand (Asset) opening/closing stock is an exception needed for Trading account!
-      if (groupName === "stock-in-hand" || groupName === "inventory") {
+      if (groupName === "stock-in-hand" || groupName === "inventory" || groupName === "opening stock") {
         if (r.openingDr > 0) {
           openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
         }
@@ -420,7 +428,7 @@ function computePartnerCapital(
 
       // If all contra accounts are capital accounts, this is an internal transfer.
       // Group it under the ledger's own name to merge the transfer into the main capital account line.
-      const isInternalCapitalTransfer = contraNames.length > 0 && contraNames.every(cName => 
+      const isInternalCapitalTransfer = contraNames.length > 0 && contraNames.every((cName: string) => 
         capitalLedgerNames.has(cName.toLowerCase())
       );
       const contraLabel = isInternalCapitalTransfer 
@@ -1227,25 +1235,25 @@ export default function BalanceSheet() {
           {capitalAccounts.length > 0 && (() => {
             // Merge all capital ledger accounts into one combined Capital Account
             const allDebits: CapitalTxn[] = [];
-            const allCredits: CapitalTxn[] = [];
+            const openingBalanceCredits: CapitalTxn[] = [];
+            const otherCredits: CapitalTxn[] = [];
             let combinedTotal = 0;
 
             capitalAccounts.forEach((account: PartnerCapitalAccount) => {
               // For each capital ledger, add its opening balance with ledger name prefix
-              // For each capital ledger, add its opening balance with ledger name prefix
               const openingRow = account.credits.find(c => c.particulars === "BY OPENING BALANCE");
               if (openingRow && (openingRow.amount ?? 0) > 0) {
                 if (capitalAccounts.length === 1 || account.ledgerName === "OPENING BALANCE") {
-                  allCredits.push({ particulars: "BY OPENING BALANCE", amount: openingRow.amount });
+                  openingBalanceCredits.push({ particulars: "BY OPENING BALANCE", amount: openingRow.amount });
                 } else {
-                  allCredits.push({ particulars: `BY OPENING BALANCE (${account.ledgerName})`, amount: openingRow.amount });
+                  openingBalanceCredits.push({ particulars: `BY OPENING BALANCE (${account.ledgerName})`, amount: openingRow.amount });
                 }
               }
               // Other credits (not opening balance)
               account.credits
                 .filter(c => c.particulars !== "BY OPENING BALANCE")
                 .forEach(c => {
-                  allCredits.push(c);
+                  otherCredits.push(c);
                 });
               // Debits (not closing balance)
               account.debits
@@ -1254,6 +1262,8 @@ export default function BalanceSheet() {
                   allDebits.push(d);
                 });
             });
+
+            const allCredits = [...openingBalanceCredits, ...otherCredits];
 
             // Compute combined closing balance
             const creditsSum = allCredits.reduce((s, c) => s + (c.amount ?? 0), 0);

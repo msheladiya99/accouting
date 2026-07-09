@@ -12,30 +12,7 @@ import { computeTrialBalance, TrialRow } from "../api/trialBalanceApi";
 import { fetchAccountingRawData } from "../api/accountingDataCache";
 import { LedgerStatementModal } from "./TrialBalance";
 import { exportBalanceSheetDirect } from "../api/exportApi";
-
-const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
-  "Capital Account": "Capital",
-  "Profit & Loss A/c": "Capital",
-  "Current Liabilities": "Liabilities",
-  "Loans (Liability)": "Liabilities",
-  "Fixed Assets": "Assets",
-  "Investments": "Assets",
-  "Current Assets": "Assets",
-  "Cash Ledger A/C.": "Assets",
-  "Stock-in-hand": "Assets",
-  "Suspense Account": "Assets",
-  "Misc. Expenses (Asset)": "Assets",
-  "Sales Account": "Income",
-  "Purchase Account": "Expense",
-  "Income (Trading)": "Income",
-  "Income": "Income",
-  "Income (Other Then Sales)": "Income",
-  "Expenses (Direct)": "Expense",
-  "Expense Account": "Expense",
-  "Partner Interest": "Expense",
-  "Partner Remuneration": "Expense",
-  "Trading Account": "Income"
-};
+import { SUPER_GROUP_PARENTS } from "../api/accountGroupApi";
 
 const fmt = (v: number) =>
   `\u20B9${Math.abs(v).toLocaleString("en-IN")}`;
@@ -533,7 +510,7 @@ export async function prefetchBalanceSheetData(fyId: string, force = false) {
     const allCapitalLedgers = ledgers.filter(l => {
       const gName = l.groupName.trim().toLowerCase();
       const parentCategory = groupParentsMap[gName];
-      if (parentCategory === "Capital" && gName !== "profit & loss a/c") return true;
+      if (parentCategory === "Capital" && gName !== "profit & loss a/c" && gName !== "reserve & surplus" && gName !== "reserves & surplus") return true;
       return gName === 'capital' || 
              gName === 'capital account' || 
              gName === 'capital & reserves' ||
@@ -697,7 +674,7 @@ export default function BalanceSheet() {
       const allCapitalLedgers = ledgers.filter(l => {
         const gName = l.groupName.trim().toLowerCase();
         const parentCategory = groupParentsMap[gName];
-        if (parentCategory === "Capital" && gName !== "profit & loss a/c") return true;
+        if (parentCategory === "Capital" && gName !== "profit & loss a/c" && gName !== "reserve & surplus" && gName !== "reserves & surplus") return true;
         return gName === 'capital' || 
                gName === 'capital account' || 
                gName === 'capital & reserves' ||

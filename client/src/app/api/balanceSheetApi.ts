@@ -1,29 +1,5 @@
 import { computeTrialBalance, TrialRow } from "./trialBalanceApi";
-import { getAllGroups } from "./accountGroupApi";
-
-const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
-  "Capital Account": "Capital",
-  "Profit & Loss A/c": "Capital",
-  "Current Liabilities": "Liabilities",
-  "Loans (Liability)": "Liabilities",
-  "Fixed Assets": "Assets",
-  "Investments": "Assets",
-  "Current Assets": "Assets",
-  "Cash Ledger A/C.": "Assets",
-  "Stock-in-hand": "Assets",
-  "Suspense Account": "Assets",
-  "Misc. Expenses (Asset)": "Assets",
-  "Sales Account": "Income",
-  "Purchase Account": "Expense",
-  "Income (Trading)": "Income",
-  "Income": "Income",
-  "Income (Other Then Sales)": "Income",
-  "Expenses (Direct)": "Expense",
-  "Expense Account": "Expense",
-  "Partner Interest": "Expense",
-  "Partner Remuneration": "Expense",
-  "Trading Account": "Income"
-};
+import { getAllGroups, SUPER_GROUP_PARENTS } from "./accountGroupApi";
 
 // Display labels for each accounting group on the Balance Sheet
 const GROUP_DISPLAY: Record<string, string> = {
@@ -133,7 +109,7 @@ export async function computeBalanceSheet(cache?: {
     // Accumulate all partner capital account balances into a single totalCapitalBalance
     // and skip listing them individually on the Balance Sheet table.
     // Note: Profit & Loss A/c represents Net Profit/Loss and is handled separately.
-    if (parentCategory === "Capital" && gNameLower !== "profit & loss a/c") {
+    if (parentCategory === "Capital" && gNameLower !== "profit & loss a/c" && gNameLower !== "reserve & surplus" && gNameLower !== "reserves & surplus") {
       totalCapitalBalance += (netCr - netDr);
       continue;
     }

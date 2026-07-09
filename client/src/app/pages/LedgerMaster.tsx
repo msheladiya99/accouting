@@ -432,26 +432,27 @@ function GroupModal({
     const nextSide = selectedSide === sideOpt ? null : sideOpt;
     setSelectedSide(nextSide);
     
-    // Check if the current combination (nextSide, selectedStmt) is valid.
-    // If not, clear the statement filter.
-    let nextStmt = selectedStmt;
-    if (nextSide && selectedStmt) {
-      const hasOverlap = SUPER_GROUPS.some(
-        (g) => SUPER_GROUP_PARENTS[g] === nextSide && SUPER_GROUP_STATEMENT[g] === selectedStmt
-      );
-      if (!hasOverlap) {
-        nextStmt = null;
-        setSelectedStmt(null);
+    if (nextSide) {
+      // Find the first supergroup that matches nextSide and selectedStmt
+      const match = SUPER_GROUPS.find((g) => {
+        const matchesSide = SUPER_GROUP_PARENTS[g] === nextSide;
+        const matchesStmt = !selectedStmt || SUPER_GROUP_STATEMENT[g] === selectedStmt;
+        return matchesSide && matchesStmt;
+      });
+      if (match) {
+        setValue("superGroup", match);
+        setSelectedStmt(SUPER_GROUP_STATEMENT[match]);
+      } else {
+        // Fallback to find any match with just nextSide
+        const fallbackMatch = SUPER_GROUPS.find((g) => SUPER_GROUP_PARENTS[g] === nextSide);
+        if (fallbackMatch) {
+          setValue("superGroup", fallbackMatch);
+          setSelectedStmt(SUPER_GROUP_STATEMENT[fallbackMatch]);
+        }
       }
-    }
-
-    // Check if current superGroup is still valid under new filters
-    if (currentSuperGroup) {
-      const matchesSide = !nextSide || SUPER_GROUP_PARENTS[currentSuperGroup as SuperGroup] === nextSide;
-      const matchesStmt = !nextStmt || SUPER_GROUP_STATEMENT[currentSuperGroup as SuperGroup] === nextStmt;
-      if (!matchesSide || !matchesStmt) {
-        setValue("superGroup", "");
-      }
+    } else {
+      setValue("superGroup", "");
+      setSelectedStmt(null);
     }
   };
 
@@ -459,35 +460,29 @@ function GroupModal({
     const nextStmt = selectedStmt === stmtOpt ? null : stmtOpt;
     setSelectedStmt(nextStmt);
     
-    // Check if the current combination (selectedSide, nextStmt) is valid.
-    // If not, clear the side filter.
-    let nextSide = selectedSide;
-    if (selectedSide && nextStmt) {
-      const hasOverlap = SUPER_GROUPS.some(
-        (g) => SUPER_GROUP_PARENTS[g] === selectedSide && SUPER_GROUP_STATEMENT[g] === nextStmt
-      );
-      if (!hasOverlap) {
-        nextSide = null;
-        setSelectedSide(null);
+    if (nextStmt) {
+      // Find the first supergroup that matches selectedSide and nextStmt
+      const match = SUPER_GROUPS.find((g) => {
+        const matchesSide = !selectedSide || SUPER_GROUP_PARENTS[g] === selectedSide;
+        const matchesStmt = SUPER_GROUP_STATEMENT[g] === nextStmt;
+        return matchesSide && matchesStmt;
+      });
+      if (match) {
+        setValue("superGroup", match);
+        setSelectedSide(SUPER_GROUP_PARENTS[match]);
+      } else {
+        // Fallback to find any match with just nextStmt
+        const fallbackMatch = SUPER_GROUPS.find((g) => SUPER_GROUP_STATEMENT[g] === nextStmt);
+        if (fallbackMatch) {
+          setValue("superGroup", fallbackMatch);
+          setSelectedSide(SUPER_GROUP_PARENTS[fallbackMatch]);
+        }
       }
-    }
-
-    // Check if current superGroup is still valid under new filters
-    if (currentSuperGroup) {
-      const matchesSide = !nextSide || SUPER_GROUP_PARENTS[currentSuperGroup as SuperGroup] === nextSide;
-      const matchesStmt = !nextStmt || SUPER_GROUP_STATEMENT[currentSuperGroup as SuperGroup] === nextStmt;
-      if (!matchesSide || !matchesStmt) {
-        setValue("superGroup", "");
-      }
+    } else {
+      setValue("superGroup", "");
+      setSelectedSide(null);
     }
   };
-
-  // Filter super groups based on selected side/statement
-  const filteredSuperGroups = SUPER_GROUPS.filter((g) => {
-    if (selectedSide && SUPER_GROUP_PARENTS[g] !== selectedSide) return false;
-    if (selectedStmt && SUPER_GROUP_STATEMENT[g] !== selectedStmt) return false;
-    return true;
-  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -607,11 +602,6 @@ function GroupModal({
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
               3. Super Group <span className="text-red-500">*</span>
-              {(selectedSide || selectedStmt) && (
-                <span className="text-emerald-600 font-semibold text-xs ml-1.5">
-                  ({filteredSuperGroups.length} filtered)
-                </span>
-              )}
             </label>
             <select
               {...register("superGroup", { required: "Super group is required" })}
@@ -619,7 +609,7 @@ function GroupModal({
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-all text-slate-700 font-medium"
             >
               <option value="">-- Select Super Group --</option>
-              {filteredSuperGroups.map((g) => (
+              {SUPER_GROUPS.map((g) => (
                 <option key={g} value={g}>{g}</option>
               ))}
             </select>

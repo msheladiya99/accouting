@@ -7,10 +7,7 @@ import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeBalanceSheet, BalanceSheetData, BSGroup, BSLedger } from "../api/balanceSheetApi";
 import { computeTrialBalance, TrialRow } from "../api/trialBalanceApi";
-import { getAllEntries, getAllAccounts } from "../api/bankCashBookApi";
-import { getAllJournalEntries } from "../api/journalVoucherApi";
-import { getAllLedgers } from "../api/ledgerApi";
-import { getAllGroups } from "../api/accountGroupApi";
+import { fetchAccountingRawData } from "../api/accountingDataCache";
 
 const SUPER_GROUP_PARENTS: Record<string, "Assets" | "Liabilities" | "Capital" | "Income" | "Expense"> = {
   "Capital Account": "Capital",
@@ -541,15 +538,9 @@ export default function BalanceSheet() {
     else if (!silent) setLoading(true);
     setError(null);
     try {
-      const [ledgers, bankAccounts, bankEntries, journalEntries, groups] = await Promise.all([
-        getAllLedgers(),
-        getAllAccounts(),
-        getAllEntries(),
-        getAllJournalEntries(),
-        getAllGroups()
-      ]);
-
-      const cache = { ledgers, bankAccounts, bankEntries, journalEntries, groups };
+      const raw = await fetchAccountingRawData(resolvedFYId || "", isRefresh);
+      const { ledgers, bankAccounts, bankEntries, journalEntries, groups } = raw;
+      const cache = raw;
 
       // Compute balance sheet using cache
       const result = await computeBalanceSheet(cache);

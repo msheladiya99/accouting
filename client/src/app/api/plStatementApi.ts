@@ -47,8 +47,12 @@ function toSection(map: Map<string, number>): PLSection {
   return { entries, total: entries.reduce((s, e) => s + e.amount, 0) };
 }
 
-export async function computePL(dateFrom: string, dateTo: string): Promise<PLData> {
-  const groups = await getAllGroups();
+export async function computePL(dateFrom: string, dateTo: string, cache?: {
+  groups?: any[];
+  bankEntries?: any[];
+  journalEntries?: any[];
+}): Promise<PLData> {
+  const groups = cache?.groups ?? await getAllGroups();
 
   const SALES_GROUPS        = new Set<string>();
   const OTHER_INCOME_GROUPS = new Set<string>();
@@ -76,7 +80,7 @@ export async function computePL(dateFrom: string, dateTo: string): Promise<PLDat
   let journalTxns  = 0;
 
   // 1. Bank / Cash Book entries
-  const bankEntries = await getAllEntries();
+  const bankEntries = cache?.bankEntries ?? await getAllEntries();
   for (const e of bankEntries) {
     if (e.date < dateFrom || e.date > dateTo) continue;
     const cg = e.contraAccountGroup;
@@ -93,7 +97,7 @@ export async function computePL(dateFrom: string, dateTo: string): Promise<PLDat
   }
 
   // 2. Journal Entries
-  const journalEntries = await getAllJournalEntries();
+  const journalEntries = cache?.journalEntries ?? await getAllJournalEntries();
   for (const e of journalEntries) {
     if (e.date < dateFrom || e.date > dateTo) continue;
     let counted = false;

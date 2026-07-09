@@ -23,8 +23,8 @@ export interface BookRow {
 }
 
 function buildBookRows(
-  accounts: Awaited<ReturnType<typeof getAllAccounts>>,
-  allEntries: Awaited<ReturnType<typeof getAllEntries>>,
+  accounts: any[],
+  allEntries: any[],
   group: "Cash" | "Bank",
   dateFrom: string,
   dateTo: string,
@@ -32,7 +32,6 @@ function buildBookRows(
   const rows: BookRow[] = [];
   for (const acc of accounts.filter((a) => a.group === group)) {
     const acctEntries = allEntries.filter((e) => e.accountId === acc._id);
-    // computeRows accepts BankCashEntry[]; BankCashRow extends it so cast is safe
     computeRows(acc, acctEntries as any)
       .filter((r) => r.date >= dateFrom && r.date <= dateTo)
       .forEach((r) => rows.push({
@@ -53,13 +52,21 @@ function buildBookRows(
   return rows;
 }
 
-export async function getCashBook(dateFrom: string, dateTo: string): Promise<BookRow[]> {
-  const [accounts, allEntries] = await Promise.all([getAllAccounts(), getAllEntries()]);
+export async function getCashBook(dateFrom: string, dateTo: string, cache?: {
+  bankAccounts?: any[];
+  bankEntries?: any[];
+}): Promise<BookRow[]> {
+  const accounts = cache?.bankAccounts ?? await getAllAccounts();
+  const allEntries = cache?.bankEntries ?? await getAllEntries();
   return buildBookRows(accounts, allEntries, "Cash", dateFrom, dateTo);
 }
 
-export async function getBankBook(dateFrom: string, dateTo: string): Promise<BookRow[]> {
-  const [accounts, allEntries] = await Promise.all([getAllAccounts(), getAllEntries()]);
+export async function getBankBook(dateFrom: string, dateTo: string, cache?: {
+  bankAccounts?: any[];
+  bankEntries?: any[];
+}): Promise<BookRow[]> {
+  const accounts = cache?.bankAccounts ?? await getAllAccounts();
+  const allEntries = cache?.bankEntries ?? await getAllEntries();
   return buildBookRows(accounts, allEntries, "Bank", dateFrom, dateTo);
 }
 
@@ -88,17 +95,21 @@ export async function getLedgerReport(
   ledgerName: string,
   dateFrom: string,
   dateTo: string,
+  cache?: {
+    ledgers?: any[];
+    bankAccounts?: any[];
+    bankEntries?: any[];
+    journalEntries?: any[];
+  },
 ): Promise<LedgerReportResult> {
-  const [bankEntries, journalEntries] = await Promise.all([
-    getAllEntries(),
-    getAllJournalEntries(),
-  ]);
+  const bankEntries = cache?.bankEntries ?? await getAllEntries();
+  const journalEntries = cache?.journalEntries ?? await getAllJournalEntries();
 
   // Compute opening balance = net of all transactions BEFORE dateFrom
   let openingBalance = 0;
 
   // From opening balances (hardcoded in trialBalanceApi — derive via trial balance)
-  const { rows: tbRows } = await computeTrialBalance();
+  const { rows: tbRows } = await computeTrialBalance(cache);
   const tbRow = tbRows.find((r) => r.ledgerName === ledgerName);
   if (tbRow) {
     openingBalance = tbRow.openingDr - tbRow.openingCr;
@@ -169,11 +180,13 @@ export async function getDayBook(
   dateFrom: string,
   dateTo: string,
   groupFilter?: string,
+  cache?: {
+    bankEntries?: any[];
+    journalEntries?: any[];
+  },
 ): Promise<DayBookRow[]> {
-  const [bankEntries, journalEntries] = await Promise.all([
-    getAllEntries(),
-    getAllJournalEntries(),
-  ]);
+  const bankEntries = cache?.bankEntries ?? await getAllEntries();
+  const journalEntries = cache?.journalEntries ?? await getAllJournalEntries();
 
   const raw: { date: string; createdAt: string; source: string; ref: string; particulars: string; drAccount: string; drGroup: string; crAccount: string; crGroup: string; amount: number }[] = [];
 
@@ -202,11 +215,13 @@ export async function getDayBook(
 }
 
 // ── All ledger names (for dropdown) ───────────────────────────────────────────
-export async function getAllLedgerNames(): Promise<string[]> {
-  const [bankEntries, journalEntries] = await Promise.all([
-    getAllEntries(),
-    getAllJournalEntries(),
-  ]);
+export async function getAllLedgerNames(cache?: {
+  bankEntries?: any[];
+  journalEntries?: any[];
+}): Promise<string[]> {
+  const bankEntries = cache?.bankEntries ?? await getAllEntries();
+  const journalEntries = cache?.journalEntries ?? await getAllJournalEntries();
+  
   const names = new Set<string>();
   for (const e of bankEntries) { names.add(e.accountName); names.add(e.contraAccountName); }
   for (const e of journalEntries) { names.add(e.debitAccount); names.add(e.creditAccount); }

@@ -46,18 +46,34 @@ export const tenantMiddleware = async (req: Request, res: Response, next: NextFu
   }
 
   try {
-    const company = await Company.findOne({ subdomain, status: "active" });
+    const tenantCompany = await Company.findOne({ subdomain, status: "active" });
 
-    if (!company) {
+    if (!tenantCompany) {
       return res.status(404).json({ 
         message: `Company not found or suspended for subdomain: ${subdomain}` 
       });
     }
 
-    // Set the headers and req parameter so that existing scoping works automatically
-    req.headers["x-company-id"] = company._id.toString();
-    (req as any).companyId = company._id.toString();
-    (req as any).company = company;
+    // Determine the active company context based on the x-company-id header
+    const requestedCompanyId = req.headers["x-company-id"];
+    let finalCompanyId = tenantCompany._id.toString();
+
+    if (requestedCompanyId && typeof requestedCompanyId === "string" && requestedCompanyId !== tenantCompany._id.toString()) {
+      // Verify that the requested company is a child/client company of the tenant firm
+      const childCompany = await Company.findOne({
+        _id: requestedCompanyId,
+        parentCompanyId: tenantCompany._id,
+        status: "active"
+      });
+      if (childCompany) {
+        finalCompanyId = childCompany._id.toString();
+      }
+    }
+
+    // Set the headers and req parameters so that existing scoping works automatically
+    req.headers["x-company-id"] = finalCompanyId;
+    (req as any).companyId = finalCompanyId;
+    (req as any).company = tenantCompany; // Keep tenantCompany as the resolved subdomain context
     next();
   } catch (error) {
     console.error("Tenant middleware error:", error);

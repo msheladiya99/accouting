@@ -471,6 +471,7 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
       const raw = await fetchAccountingRawData(selectedFY?._id || "", false);
       const { ledgers, bankAccounts, bankEntries, journalEntries, groups } = raw;
 
+
       // Compute balance sheet using cache
       const result = await computeBalanceSheet(raw);
 

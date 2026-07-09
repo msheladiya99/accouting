@@ -660,6 +660,7 @@ export default function BalanceSheet() {
       const raw = await fetchAccountingRawData(resolvedFYId || "", isRefresh);
       const { ledgers, bankAccounts, bankEntries, journalEntries, groups } = raw;
 
+
       // Compute balance sheet using cache
       const result = await computeBalanceSheet(raw);
 

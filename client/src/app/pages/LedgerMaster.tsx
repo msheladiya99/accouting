@@ -24,7 +24,7 @@ import {
 } from "../api/ledgerApi";
 import {
   getAllGroups, createGroup, SUPER_GROUPS, type AccountGroup, mergeGroups,
-  updateGroup, deleteGroup
+  updateGroup, deleteGroup, SUPER_GROUP_PARENTS, SUPER_GROUP_STATEMENT
 } from "../api/accountGroupApi";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -402,12 +402,87 @@ function GroupModal({
   onSubmit: (data: { groupName: string; superGroup: any }) => void;
   group?: AccountGroup;
 }) {
-  const { register, handleSubmit, formState: { errors } } = useForm<{ groupName: string; superGroup: any }>({
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<{ groupName: string; superGroup: any }>({
     defaultValues: {
       groupName: group?.groupName ?? "",
       superGroup: group?.superGroup ?? "",
     }
   });
+
+  const [selectedSide, setSelectedSide] = useState<string | null>(
+    group?.superGroup ? SUPER_GROUP_PARENTS[group.superGroup] : null
+  );
+  const [selectedStmt, setSelectedStmt] = useState<string | null>(
+    group?.superGroup ? SUPER_GROUP_STATEMENT[group.superGroup] : null
+  );
+
+  const currentSuperGroup = watch("superGroup") as string;
+
+  // If superGroup changes from the dropdown, sync the side and statement
+  const handleSuperGroupSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setValue("superGroup", val);
+    if (val) {
+      setSelectedSide(SUPER_GROUP_PARENTS[val as SuperGroup]);
+      setSelectedStmt(SUPER_GROUP_STATEMENT[val as SuperGroup]);
+    }
+  };
+
+  const handleSideClick = (sideOpt: string) => {
+    const nextSide = selectedSide === sideOpt ? null : sideOpt;
+    setSelectedSide(nextSide);
+    
+    if (nextSide) {
+      // Find the first supergroup that matches nextSide and selectedStmt
+      const match = SUPER_GROUPS.find((g) => {
+        const matchesSide = SUPER_GROUP_PARENTS[g] === nextSide;
+        const matchesStmt = !selectedStmt || SUPER_GROUP_STATEMENT[g] === selectedStmt;
+        return matchesSide && matchesStmt;
+      });
+      if (match) {
+        setValue("superGroup", match);
+        setSelectedStmt(SUPER_GROUP_STATEMENT[match]);
+      } else {
+        // Fallback to find any match with just nextSide
+        const fallbackMatch = SUPER_GROUPS.find((g) => SUPER_GROUP_PARENTS[g] === nextSide);
+        if (fallbackMatch) {
+          setValue("superGroup", fallbackMatch);
+          setSelectedStmt(SUPER_GROUP_STATEMENT[fallbackMatch]);
+        }
+      }
+    } else {
+      setValue("superGroup", "");
+      setSelectedStmt(null);
+    }
+  };
+
+  const handleStmtClick = (stmtOpt: string) => {
+    const nextStmt = selectedStmt === stmtOpt ? null : stmtOpt;
+    setSelectedStmt(nextStmt);
+    
+    if (nextStmt) {
+      // Find the first supergroup that matches selectedSide and nextStmt
+      const match = SUPER_GROUPS.find((g) => {
+        const matchesSide = !selectedSide || SUPER_GROUP_PARENTS[g] === selectedSide;
+        const matchesStmt = SUPER_GROUP_STATEMENT[g] === nextStmt;
+        return matchesSide && matchesStmt;
+      });
+      if (match) {
+        setValue("superGroup", match);
+        setSelectedSide(SUPER_GROUP_PARENTS[match]);
+      } else {
+        // Fallback to find any match with just nextStmt
+        const fallbackMatch = SUPER_GROUPS.find((g) => SUPER_GROUP_STATEMENT[g] === nextStmt);
+        if (fallbackMatch) {
+          setValue("superGroup", fallbackMatch);
+          setSelectedSide(SUPER_GROUP_PARENTS[fallbackMatch]);
+        }
+      }
+    } else {
+      setValue("superGroup", "");
+      setSelectedSide(null);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -443,13 +518,94 @@ function GroupModal({
             {errors.groupName && <p className="mt-1 text-xs text-red-600">{errors.groupName.message}</p>}
           </div>
 
+          {/* B/S Side selector */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-sm font-medium text-slate-700">
+                1. Select B/S Side <span className="text-red-500">*</span>
+              </label>
+              {selectedSide && (
+                <button
+                  type="button"
+                  onClick={() => handleSideClick(selectedSide)}
+                  className="text-[11px] text-slate-500 hover:text-slate-800 underline font-medium"
+                >
+                  Clear filter
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-5 gap-1.5">
+              {(["Assets","Liabilities","Capital","Income","Expense"] as const).map((opt) => {
+                const active = selectedSide === opt;
+                const colors: Record<string, { act: string; idle: string; dot: string }> = {
+                  "Assets":      { act: "bg-teal-600 text-white border-teal-600",   idle: "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300", dot: "bg-teal-400" },
+                  "Liabilities": { act: "bg-violet-600 text-white border-violet-600", idle: "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300", dot: "bg-violet-400" },
+                  "Capital":     { act: "bg-amber-500 text-white border-amber-500",   idle: "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300", dot: "bg-amber-400" },
+                  "Income":      { act: "bg-emerald-600 text-white border-emerald-600", idle: "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300", dot: "bg-emerald-400" },
+                  "Expense":     { act: "bg-rose-600 text-white border-rose-600",    idle: "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300", dot: "bg-rose-400" },
+                };
+                const c = colors[opt];
+                return (
+                  <button
+                    type="button"
+                    key={opt}
+                    onClick={() => handleSideClick(opt)}
+                    className={`flex flex-col items-center gap-1 px-1 py-2.5 rounded-lg border text-center transition-all text-[11px] font-bold ${active ? c.act : c.idle} ${active ? "shadow-md scale-[1.03]" : "opacity-75"}`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${active ? "bg-white/70" : c.dot}`} />
+                    {opt}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Affects Statement selector */}
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-sm font-medium text-slate-700">
+                2. Select Statement Affect <span className="text-red-500">*</span>
+              </label>
+              {selectedStmt && (
+                <button
+                  type="button"
+                  onClick={() => handleStmtClick(selectedStmt)}
+                  className="text-[11px] text-slate-500 hover:text-slate-800 underline font-medium"
+                >
+                  Clear filter
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { key: "Trading A/c",   label: "Trading A/c",   sub: "Gross profit / loss", act: "bg-teal-700 border-teal-800 text-white",    idle: "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300" },
+                { key: "P&L A/c",       label: "P&L A/c",       sub: "Net profit / loss",   act: "bg-[#7a2e1a] border-[#5a1e0e] text-white",  idle: "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300" },
+                { key: "Balance Sheet", label: "B/S",           sub: "Assets & liabilities",act: "bg-indigo-800 border-indigo-900 text-white", idle: "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300" },
+              ] as const).map((opt) => {
+                const active = selectedStmt === opt.key;
+                return (
+                  <button
+                    type="button"
+                    key={opt.key}
+                    onClick={() => handleStmtClick(opt.key)}
+                    className={`flex flex-col items-center text-center px-2 py-3 rounded-xl border transition-all ${active ? opt.act + " shadow-md scale-[1.02]" : opt.idle + " opacity-75"}`}
+                  >
+                    <span className={`text-xs font-bold leading-tight ${active ? "text-white" : "text-slate-700"}`}>{opt.label}</span>
+                    <span className={`text-[10px] mt-0.5 leading-tight ${active ? "text-white/80" : "text-slate-400"}`}>{opt.sub}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Super Group select */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Super Group <span className="text-red-500">*</span>
+              3. Super Group <span className="text-red-500">*</span>
             </label>
             <select
               {...register("superGroup", { required: "Super group is required" })}
+              onChange={handleSuperGroupSelectChange}
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-all text-slate-700 font-medium"
             >
               <option value="">-- Select Super Group --</option>
@@ -1911,49 +2067,85 @@ export default function LedgerMaster() {
                       <th className="px-6 py-4 w-16">#</th>
                       <th className="px-6 py-4">Group Name</th>
                       <th className="px-6 py-4">Supergroup Name</th>
+                      <th className="px-6 py-4">B/S Side</th>
+                      <th className="px-6 py-4">Affects Statement</th>
                       <th className="px-6 py-4 text-right w-36">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredGroups.map((g, idx) => (
-                      <tr key={g._id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-4 text-slate-400 font-medium">{idx + 1}</td>
-                        <td className="px-6 py-4 font-semibold text-slate-900">{g.groupName}</td>
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
-                            {g.superGroup}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              onClick={() => setGroupEditModal({ mode: "edit", group: g })}
-                              title="Edit Group"
-                              className="p-1.5 rounded-md hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
-                            >
-                              <Pencil size={14} />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setPreSelectedTargetId(g._id);
-                                setMergeGroupsModalOpen(true);
-                              }}
-                              title="Merge Group"
-                              className="p-1.5 rounded-md hover:bg-purple-50 text-slate-400 hover:text-purple-600 transition-colors"
-                            >
-                              <GitMerge size={14} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteGroup(g)}
-                              title="Delete Group"
-                              className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredGroups.map((g, idx) => {
+                      const side = SUPER_GROUP_PARENTS[g.superGroup as keyof typeof SUPER_GROUP_PARENTS];
+                      const stmt = SUPER_GROUP_STATEMENT[g.superGroup as keyof typeof SUPER_GROUP_STATEMENT];
+                      const sideBadge: Record<string, { bg: string; text: string; dot: string; label: string }> = {
+                        "Assets":      { bg: "bg-teal-50",   text: "text-teal-700",   dot: "bg-teal-500",    label: "Assets" },
+                        "Liabilities": { bg: "bg-violet-50", text: "text-violet-700", dot: "bg-violet-500",  label: "Liabilities" },
+                        "Capital":     { bg: "bg-amber-50",  text: "text-amber-700",  dot: "bg-amber-500",   label: "Capital" },
+                        "Income":      { bg: "bg-emerald-50",text: "text-emerald-700",dot: "bg-emerald-500", label: "Income" },
+                        "Expense":     { bg: "bg-rose-50",   text: "text-rose-700",   dot: "bg-rose-500",    label: "Expense" },
+                      };
+                      const stmtBadge: Record<string, { bg: string; text: string; border: string; label: string; sub: string }> = {
+                        "Trading A/c":   { bg: "bg-teal-700",   text: "text-white", border: "border-teal-800",   label: "Trading A/c",   sub: "Gross profit / loss" },
+                        "P&L A/c":       { bg: "bg-[#7a2e1a]",  text: "text-white", border: "border-[#5a1e0e]",  label: "P&L A/c",       sub: "Net profit / loss" },
+                        "Balance Sheet": { bg: "bg-indigo-800", text: "text-white", border: "border-indigo-900", label: "B/S",           sub: "Assets & liabilities" },
+                      };
+                      const badge = side ? sideBadge[side] : { bg: "bg-slate-100", text: "text-slate-500", dot: "bg-slate-400", label: "—" };
+                      const sb = stmt ? stmtBadge[stmt] : null;
+                      return (
+                        <tr key={g._id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4 text-slate-400 font-medium">{idx + 1}</td>
+                          <td className="px-6 py-4 font-semibold text-slate-900">{g.groupName}</td>
+                          <td className="px-6 py-4">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
+                              {g.superGroup}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${badge.bg} ${badge.text}`}>
+                              <span className={`w-2 h-2 rounded-full inline-block ${badge.dot}`} />
+                              {badge.label}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            {sb ? (
+                              <span className={`inline-flex flex-col items-start px-3 py-1.5 rounded-lg text-xs font-bold border ${sb.bg} ${sb.text} ${sb.border}`}>
+                                <span>{sb.label}</span>
+                                <span className="font-normal opacity-80 text-[10px]">{sb.sub}</span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => setGroupEditModal({ mode: "edit", group: g })}
+                                title="Edit Group"
+                                className="p-1.5 rounded-md hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPreSelectedTargetId(g._id);
+                                  setMergeGroupsModalOpen(true);
+                                }}
+                                title="Merge Group"
+                                className="p-1.5 rounded-md hover:bg-purple-50 text-slate-400 hover:text-purple-600 transition-colors"
+                              >
+                                <GitMerge size={14} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteGroup(g)}
+                                title="Delete Group"
+                                className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

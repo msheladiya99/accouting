@@ -26,6 +26,62 @@ export const SUPER_GROUPS = [
 
 export type SuperGroup = typeof SUPER_GROUPS[number];
 
+export type BalanceSheetSide = "Assets" | "Liabilities" | "Capital" | "Income" | "Expense";
+
+export const SUPER_GROUP_PARENTS: Record<SuperGroup, BalanceSheetSide> = {
+  "Capital Account":          "Capital",
+  "Profit & Loss A/c":        "Capital",
+  "Current Liabilities":      "Liabilities",
+  "Loans (Liability)":        "Liabilities",
+  "Fixed Assets":             "Assets",
+  "Investments":              "Assets",
+  "Current Assets":           "Assets",
+  "Cash Ledger A/C.":         "Assets",
+  "Stock-in-hand":            "Assets",
+  "Suspense Account":         "Assets",
+  "Misc. Expenses (Asset)":   "Assets",
+  "Sales Account":            "Income",
+  "Purchase Account":         "Expense",
+  "Income (Trading)":         "Income",
+  "Income":                   "Income",
+  "Income (Other Then Sales)": "Income",
+  "Expenses (Direct)":        "Expense",
+  "Expense Account":          "Expense",
+  "Partner Interest":         "Expense",
+  "Partner Remuneration":     "Expense",
+  "Trading Account":          "Income",
+};
+
+export type StatementType = "Trading A/c" | "P&L A/c" | "Balance Sheet";
+
+/** Which financial statement each supergroup flows into */
+export const SUPER_GROUP_STATEMENT: Record<SuperGroup, StatementType> = {
+  // ── Trading Account (Gross profit / loss) ──────────────────────────────────
+  "Sales Account":            "Trading A/c",
+  "Purchase Account":         "Trading A/c",
+  "Income (Trading)":         "Trading A/c",
+  "Expenses (Direct)":        "Trading A/c",
+  "Stock-in-hand":            "Trading A/c",
+  "Trading Account":          "Trading A/c",
+  // ── Profit & Loss Account (Net profit / loss) ───────────────────────────────
+  "Income":                   "P&L A/c",
+  "Income (Other Then Sales)": "P&L A/c",
+  "Expense Account":          "P&L A/c",
+  "Partner Interest":         "P&L A/c",
+  "Partner Remuneration":     "P&L A/c",
+  "Misc. Expenses (Asset)":   "P&L A/c",
+  // ── Balance Sheet (Assets & Liabilities) ───────────────────────────────────
+  "Capital Account":          "Balance Sheet",
+  "Profit & Loss A/c":        "Balance Sheet",
+  "Current Liabilities":      "Balance Sheet",
+  "Loans (Liability)":        "Balance Sheet",
+  "Fixed Assets":             "Balance Sheet",
+  "Investments":              "Balance Sheet",
+  "Current Assets":           "Balance Sheet",
+  "Cash Ledger A/C.":         "Balance Sheet",
+  "Suspense Account":         "Balance Sheet",
+};
+
 export interface AccountGroup {
   _id: string;
   groupName: string;

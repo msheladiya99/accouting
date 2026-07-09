@@ -10,6 +10,7 @@ import { FYBanner } from "../components/FYBanner";
 import { computePL, buildPresets, PLData, PLSection, DatePreset } from "../api/plStatementApi";
 import type { FinancialYear } from "../api/financialYearApi";
 import { exportPLDirect } from "../api/exportApi";
+import { fetchAccountingRawData } from "../api/accountingDataCache";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (v: number) =>
@@ -213,7 +214,8 @@ export default function PLStatement() {
       else setLoading(true);
       setError(null);
       try {
-        const result = await computePL(dateFrom, dateTo);
+        const raw = await fetchAccountingRawData(activeFY?._id || "", isRefresh);
+        const result = await computePL(dateFrom, dateTo, raw);
         setData(result);
       } catch (e: any) {
         setError(e?.message ?? "Computation failed");
@@ -222,7 +224,7 @@ export default function PLStatement() {
         setRefreshing(false);
       }
     },
-    [dateFrom, dateTo],
+    [dateFrom, dateTo, activeFY?._id],
   );
 
   useEffect(() => {

@@ -262,14 +262,50 @@ function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, stri
 
     const parentCategory = groupParentsMap[r.group.trim().toLowerCase()] || "Assets";
 
-    if (parentCategory !== "Income" && parentCategory !== "Expense") {
-      // Stock-in-hand (Asset) opening/closing stock is an exception needed for Trading account!
-      if (groupName === "stock-in-hand" || groupName === "inventory" || groupName === "opening stock") {
-        if (r.openingDr > 0) {
-          openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
+    // 1. Stock / Inventory Ledgers categorization
+    const isStockGroup = 
+      groupName === "stock-in-hand" || 
+      groupName === "inventory" || 
+      groupName === "opening stock" ||
+      groupName.includes("stock") ||
+      groupName.includes("inventory");
+
+    const isStockLedger =
+      ledgerName.includes("stock") ||
+      ledgerName.includes("inventory");
+
+    if (isStockGroup || isStockLedger) {
+      // 1a. Opening Stock: derived from opening Dr balance, or if name contains "opening" and has a balance
+      // To prevent double counting, only include openingDr of original ledger or transferred balance if no other exists
+      if (r.openingDr > 0 && !ledgerName.includes("opening")) {
+        openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
+      } else if (r.openingDr === 0 && ledgerName.includes("opening") && r.closingDr > 0) {
+        const otherHasOpeningDr = rows.some((other) => {
+          const otherGroup = other.group.toLowerCase();
+          const otherLedger = other.ledgerName.toLowerCase();
+          const isOtherStock = otherGroup.includes("stock") || otherGroup.includes("inventory") || otherLedger.includes("stock") || otherLedger.includes("inventory");
+          return isOtherStock && other.openingDr > 0 && !otherLedger.includes("opening");
+        });
+        if (!otherHasOpeningDr) {
+          openingStockRows.push({ name: r.ledgerName, amount: r.closingDr });
         }
-        if (r.closingDr > 0) {
-          closingStockRows.push({ name: r.ledgerName, amount: r.closingDr });
+      }
+
+      // 1b. Closing Stock:
+      // Exclude any ledger representing opening stock transfers (contains "opening" in the name)
+      // and exclude duplicate credit ledger if we already counted the debit side of the transfer/JV
+      if (!ledgerName.includes("opening")) {
+        const netClosingDr = r.closingDr - r.closingCr;
+        if (netClosingDr > 0) {
+          closingStockRows.push({ name: r.ledgerName, amount: netClosingDr });
+        } else if (netClosingDr < 0 && ledgerName.includes("closing")) {
+          const otherHasClosingDr = rows.some((other) => {
+            const otherLedger = other.ledgerName.toLowerCase();
+            return !otherLedger.includes("opening") && !otherLedger.includes("closing") && (other.closingDr - other.closingCr) > 0;
+          });
+          if (!otherHasClosingDr) {
+            closingStockRows.push({ name: r.ledgerName, amount: Math.abs(netClosingDr) });
+          }
         }
       }
       return;

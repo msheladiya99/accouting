@@ -9,6 +9,7 @@ import * as bankCashController from "../controllers/bankCashController";
 import * as journalController from "../controllers/journalController";
 import * as importController from "../controllers/importController";
 import * as accountGroupController from "../controllers/accountGroupController";
+import * as reportsController from "../controllers/reportsController";
 import superAdminRouter from "./super-admin";
 
 export const apiRouter = Router();
@@ -46,8 +47,17 @@ apiRouter.use([
   "/bank-cash-book",
   "/journal-voucher",
   "/bank-import",
-  "/account-group"
+  "/account-group",
+  "/reports"
 ], companyRequired as any);
+
+// ── Report endpoints (computed server-side, cached) ─────────────────────────
+apiRouter.get("/reports/trial-balance",  reportsController.getTrialBalance  as any);
+apiRouter.get("/reports/balance-sheet",  reportsController.getBalanceSheet  as any);
+apiRouter.get("/reports/profit-loss",    reportsController.getProfitLoss    as any);
+apiRouter.get("/reports/cash-book",      reportsController.getCashBook      as any);
+apiRouter.get("/reports/bank-book",      reportsController.getBankBook      as any);
+apiRouter.get("/reports/dashboard",      reportsController.getDashboard     as any);
 
 // Financial Year routes
 apiRouter.get("/financial-year", financialYearController.getAllFYs);

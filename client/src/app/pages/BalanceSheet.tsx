@@ -7,12 +7,10 @@ import {
 import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
-import { computeBalanceSheet, BalanceSheetData, BSGroup, BSLedger } from "../api/balanceSheetApi";
-import { computeTrialBalance, TrialRow } from "../api/trialBalanceApi";
-import { fetchAccountingRawData } from "../api/accountingDataCache";
+import { BalanceSheetData } from "../api/balanceSheetApi";
 import { LedgerStatementModal } from "./TrialBalance";
 import { exportBalanceSheetDirect } from "../api/exportApi";
-import { SUPER_GROUP_PARENTS } from "../api/accountGroupApi";
+import { fetchBalanceSheet } from "../api/reportsApi";
 
 const fmt = (v: number) =>
   `\u20B9${Math.abs(v).toLocaleString("en-IN")}`;
@@ -422,158 +420,16 @@ function computePartnerCapital(
       debits.push({ particulars: `TO ${name.toUpperCase()}`, amount: Math.abs(closingBalance) });
     }
   }
-  
-  const finalCredits = [...credits];
-  const finalDebits = [...debits];
-  
+
   return {
     ledgerName: name.toUpperCase(),
-    debits: finalDebits,
-    credits: finalCredits,
+    debits,
+    credits,
     total: Math.max(
-      finalDebits.reduce((s, d) => s + (d.amount ?? 0), 0),
-      finalCredits.reduce((s, c) => s + (c.amount ?? 0), 0)
+      debits.reduce((s, d) => s + (d.amount ?? 0), 0),
+      credits.reduce((s, c) => s + (c.amount ?? 0), 0)
     )
   };
-}
-
-// ── Module-level cache for instant SWR loading ─────────────────────────────
-let cachedData: BalanceSheetData | null = null;
-let cachedCapitalAccounts: PartnerCapitalAccount[] = [];
-let cachedTradingPLData: any = null;
-let cachedFYId: string | null = null;
-
-// Load initial cache from sessionStorage if available to survive browser refreshes (F5)
-const CACHE_VERSION = "v3"; // bump when Capital Account logic changes
-try {
-  const sData = sessionStorage.getItem("ap_cached_bs_data");
-  const sCapital = sessionStorage.getItem("ap_cached_bs_capital");
-  const sTpl = sessionStorage.getItem("ap_cached_bs_tpl");
-  const sFy = sessionStorage.getItem("ap_cached_bs_fy");
-  const sVer = sessionStorage.getItem("ap_cached_bs_ver");
-  
-  if (sData && sCapital && sTpl && sFy && sVer === CACHE_VERSION) {
-    cachedData = JSON.parse(sData);
-    cachedCapitalAccounts = JSON.parse(sCapital);
-    cachedTradingPLData = JSON.parse(sTpl);
-    cachedFYId = sFy;
-  } else {
-    // Clear stale cache from old format
-    sessionStorage.removeItem("ap_cached_bs_data");
-    sessionStorage.removeItem("ap_cached_bs_capital");
-    sessionStorage.removeItem("ap_cached_bs_tpl");
-    sessionStorage.removeItem("ap_cached_bs_fy");
-    sessionStorage.removeItem("ap_cached_bs_ver");
-  }
-} catch (e) {
-  // ignore sessionStorage reading errors
-}
-
-// Export background prefetch function to populate cache
-export async function prefetchBalanceSheetData(fyId: string, force = false) {
-  if (!force && cachedFYId === fyId && cachedData) return;
-
-  try {
-    const raw = await fetchAccountingRawData(fyId, force);
-    const { ledgers, bankAccounts, bankEntries, journalEntries, groups } = raw;
-
-    const result = await computeBalanceSheet(raw);
-
-    const groupParentsMap: Record<string, string> = {};
-    groups.forEach((g) => {
-      groupParentsMap[g.groupName.trim().toLowerCase()] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
-    });
-
-    const trialSummary = await computeTrialBalance(raw);
-    const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
-
-    const allCapitalLedgers = ledgers.filter(l => {
-      const gName = l.groupName.trim().toLowerCase();
-      const parentCategory = groupParentsMap[gName];
-      if (parentCategory === "Capital" && gName !== "profit & loss a/c" && gName !== "reserve & surplus" && gName !== "reserves & surplus") return true;
-      return gName === 'capital' || 
-             gName === 'capital account' || 
-             gName === 'capital & reserves' ||
-             gName === 'current capital account' ||
-             gName === 'sub capital' ||
-             gName === 'sub-capital';
-    });
-
-    const capitalLedgerNames = new Set(allCapitalLedgers.map(l => l.ledgerName.toLowerCase()));
-
-    const capitalLedgerAccounts = allCapitalLedgers.filter(l => {
-      const tbRow = trialSummary.rows.find(r => r.ledgerName.toLowerCase() === l.ledgerName.toLowerCase());
-      if (tbRow) {
-        const closingBalance = tbRow.closingDr + tbRow.closingCr;
-        if (closingBalance === 0) return false;
-      }
-      return true;
-    });
-
-    const accounts = capitalLedgerAccounts.map(ledger => 
-      computePartnerCapital(ledger, trialSummary.rows, capitalLedgerNames)
-    );
-
-    cachedData = result;
-    cachedCapitalAccounts = accounts;
-    cachedTradingPLData = tpl;
-    cachedFYId = fyId;
-
-    try {
-      sessionStorage.setItem("ap_cached_bs_data", JSON.stringify(result));
-      sessionStorage.setItem("ap_cached_bs_capital", JSON.stringify(accounts));
-      sessionStorage.setItem("ap_cached_bs_tpl", JSON.stringify(tpl));
-      sessionStorage.setItem("ap_cached_bs_fy", fyId);
-      sessionStorage.setItem("ap_cached_bs_ver", CACHE_VERSION);
-    } catch (e) {
-      // ignore quota or storage errors
-    }
-  } catch (e) {
-    console.warn("Background prefetch for Balance Sheet failed:", e);
-  }
-}
-
-// Global event listener to clear cache and prefetch in background even when unmounted!
-if (typeof window !== "undefined") {
-  window.addEventListener("accounting-data-updated", () => {
-    cachedData = null;
-    cachedCapitalAccounts = [];
-    cachedTradingPLData = null;
-    cachedFYId = null;
-    try {
-      sessionStorage.removeItem("ap_cached_bs_data");
-      sessionStorage.removeItem("ap_cached_bs_capital");
-      sessionStorage.removeItem("ap_cached_bs_tpl");
-      sessionStorage.removeItem("ap_cached_bs_fy");
-      sessionStorage.removeItem("ap_cached_bs_ver");
-    } catch {}
-
-    try {
-      const saved = localStorage.getItem("ap_selected_fy");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const fyId = parsed?._id;
-        if (fyId) {
-          prefetchBalanceSheetData(fyId, true);
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-  });
-}
-
-function getSavedFYId(): string | null {
-  try {
-    const saved = localStorage.getItem("ap_selected_fy");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return parsed?._id || null;
-    }
-  } catch (e) {
-    // ignore
-  }
-  return null;
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
@@ -581,15 +437,37 @@ export default function BalanceSheet() {
   const { selectedFY, company } = useApp();
   const financialYear = selectedFY?.label ?? "—";
 
-  const resolvedFYId = selectedFY?._id || getSavedFYId();
-
-  const [data, setData]       = useState<BalanceSheetData | null>(cachedFYId === resolvedFYId ? cachedData : null);
-  const [loading, setLoading] = useState(cachedFYId === resolvedFYId ? !cachedData : true);
+  const [data, setData]       = useState<BalanceSheetData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedLedger, setSelectedLedger] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const printAreaRef = useRef<HTMLDivElement>(null);
+
+  const [capitalAccounts, setCapitalAccounts] = useState<any[]>([]);
+  const [tradingPLData, setTradingPLData] = useState<any>(null);
+
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      const result = await fetchBalanceSheet();
+      setData(result);
+      setCapitalAccounts(result.capitalAccounts || []);
+      setTradingPLData(result.tradingPL || null);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to load balance sheet");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load, selectedFY?._id]);
 
   const triggerExport = useCallback(async () => {
     if (!data) {
@@ -624,132 +502,6 @@ export default function BalanceSheet() {
       printElement(printAreaRef.current, `${company?.name || "Company"} - Balance Sheet`, saveAsPDF);
     });
   }, [data, company]);
-
-  const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>(
-    cachedFYId === resolvedFYId ? cachedCapitalAccounts : []
-  );
-  const [tradingPLData, setTradingPLData] = useState<any>(
-    cachedFYId === resolvedFYId ? cachedTradingPLData : null
-  );
-
-  const load = useCallback(async (isRefresh = false, silent = false) => {
-    if (isRefresh) setRefreshing(true);
-    else if (!silent) setLoading(true);
-    setError(null);
-    try {
-      const raw = await fetchAccountingRawData(resolvedFYId || "", isRefresh);
-      const { ledgers, bankAccounts, bankEntries, journalEntries, groups } = raw;
-
-
-      // Compute balance sheet using cache
-      const result = await computeBalanceSheet(raw);
-
-      const groupParentsMap: Record<string, string> = {};
-      groups.forEach((g) => {
-        groupParentsMap[g.groupName.trim().toLowerCase()] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
-      });
-
-      const trialSummary = await computeTrialBalance(raw);
-      const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
-
-      const allCapitalLedgers = ledgers.filter(l => {
-        const gName = l.groupName.trim().toLowerCase();
-        const parentCategory = groupParentsMap[gName];
-        if (parentCategory === "Capital" && gName !== "profit & loss a/c" && gName !== "reserve & surplus" && gName !== "reserves & surplus") return true;
-        return gName === 'capital' || 
-               gName === 'capital account' || 
-               gName === 'capital & reserves' ||
-               gName === 'current capital account' ||
-               gName === 'sub capital' ||
-               gName === 'sub-capital';
-      });
-
-      const capitalLedgerNames = new Set(allCapitalLedgers.map(l => l.ledgerName.toLowerCase()));
-
-      const capitalLedgerAccounts = allCapitalLedgers.filter(l => {
-        const tbRow = trialSummary.rows.find(r => r.ledgerName.toLowerCase() === l.ledgerName.toLowerCase());
-        if (tbRow) {
-          const closingBalance = tbRow.closingDr + tbRow.closingCr;
-          if (closingBalance === 0) return false;
-        }
-        return true;
-      });
-
-      const accounts = capitalLedgerAccounts.map(ledger => 
-        computePartnerCapital(ledger, trialSummary.rows, capitalLedgerNames)
-      );
-
-      setTradingPLData(tpl);
-      setCapitalAccounts(accounts);
-      setData(result);
-
-      // Save to module cache
-      cachedData = result;
-      cachedCapitalAccounts = accounts;
-      cachedTradingPLData = tpl;
-      cachedFYId = selectedFY?._id || null;
-
-      try {
-        if (selectedFY?._id) {
-          sessionStorage.setItem("ap_cached_bs_data", JSON.stringify(result));
-          sessionStorage.setItem("ap_cached_bs_capital", JSON.stringify(accounts));
-          sessionStorage.setItem("ap_cached_bs_tpl", JSON.stringify(tpl));
-          sessionStorage.setItem("ap_cached_bs_fy", selectedFY._id);
-          sessionStorage.setItem("ap_cached_bs_ver", CACHE_VERSION);
-        }
-      } catch (e) {
-        // ignore
-      }
-    } catch (e: any) {
-      if (!silent) {
-        setError(e?.message ?? "Failed to compute balance sheet");
-      }
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [selectedFY?._id]);
-
-  useEffect(() => {
-    if (!selectedFY?._id) return;
-
-    const hasCache = cachedFYId === selectedFY._id && cachedData !== null;
-    if (hasCache) {
-      setData(cachedData);
-      setCapitalAccounts(cachedCapitalAccounts);
-      setTradingPLData(cachedTradingPLData);
-      setLoading(false);
-    } else {
-      setLoading(true);
-      load(false, false);
-    }
-  }, [load, selectedFY?._id]);
-
-  // When data changes, wait for the background global listener to finish prefetching,
-  // then read the result into state — no double-fetch when Balance Sheet is already open.
-  useEffect(() => {
-    const handleUpdate = () => {
-      // The global module-level listener has already cleared cache and started prefetching.
-      // Wait briefly for it to complete, then pull the fresh cache into component state.
-      const checkCache = () => {
-        if (cachedData && cachedFYId === selectedFY?._id) {
-          setData(cachedData);
-          setCapitalAccounts(cachedCapitalAccounts);
-          setTradingPLData(cachedTradingPLData);
-          setLoading(false);
-          setRefreshing(false);
-        } else {
-          // Prefetch still in progress or failed — do a full reload
-          load(true);
-        }
-      };
-      // Give the global background prefetch ~600ms to finish
-      const t = setTimeout(checkCache, 600);
-      return () => clearTimeout(t);
-    };
-    window.addEventListener("accounting-data-updated", handleUpdate);
-    return () => window.removeEventListener("accounting-data-updated", handleUpdate);
-  }, [load, selectedFY?._id]);
 
   const today = new Date().toLocaleDateString("en-IN", {
     day: "2-digit", month: "short", year: "numeric",
@@ -827,7 +579,7 @@ export default function BalanceSheet() {
       {loading && (
         <div className="flex items-center justify-center h-64 text-slate-500 text-sm gap-2">
           <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-          Computing balance sheet from all sources...
+          Loading balance sheet…
         </div>
       )}
 

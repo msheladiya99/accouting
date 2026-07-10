@@ -1,6 +1,7 @@
 import { Response } from "express";
 import { FinancialYear } from "../models/FinancialYear";
 import { AuthenticatedRequest } from "../middleware/auth";
+import { ReportCacheService } from "../services/accounting/ReportCacheService";
 
 function computeStatus(startDate: string, endDate: string): "current" | "previous" | "future" | "closed" {
   const today = new Date();
@@ -86,7 +87,9 @@ export async function generateFYs(req: AuthenticatedRequest, res: Response): Pro
         added.push(fy);
       }
     }
-
+    if (added.length > 0) {
+      ReportCacheService.invalidateCompany(cid);
+    }
     res.status(201).json(added);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to generate financial years" });
@@ -109,6 +112,7 @@ export async function closeFY(req: AuthenticatedRequest, res: Response): Promise
 
     fy.status = "closed";
     await fy.save();
+    ReportCacheService.invalidateCompany(req.companyId as string);
     res.json(fy);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to close financial year" });
@@ -130,6 +134,7 @@ export async function deleteFY(req: AuthenticatedRequest, res: Response): Promis
     }
 
     await FinancialYear.deleteOne({ _id: id, companyId: req.companyId });
+    ReportCacheService.invalidateCompany(req.companyId as string);
     res.json({ message: "Financial year deleted successfully" });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to delete financial year" });
@@ -170,6 +175,7 @@ export async function createFY(req: AuthenticatedRequest, res: Response): Promis
     });
 
     await fy.save();
+    ReportCacheService.invalidateCompany(cid);
     res.status(201).json(fy);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to create financial year" });

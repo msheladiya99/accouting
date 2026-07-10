@@ -7,6 +7,7 @@ import { AccountGroup } from "../models/AccountGroup";
 import { FinancialYear } from "../models/FinancialYear";
 import { BankCashAccount } from "../models/BankCashAccount";
 import { ImportedTransaction } from "../models/ImportedTransaction";
+import { ReportCacheService } from "../services/accounting/ReportCacheService";
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -543,6 +544,7 @@ export async function createLedger(req: AuthenticatedRequest, res: Response): Pr
 
     await ledger.save();
     await syncBankCashAccountFromLedger(ledger);
+    ReportCacheService.invalidateCompany(req.companyId as string);
     res.status(201).json(ledger);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to create ledger" });
@@ -595,6 +597,7 @@ export async function updateLedger(req: AuthenticatedRequest, res: Response): Pr
 
     await ledger.save();
     await syncBankCashAccountFromLedger(ledger, oldName);
+    ReportCacheService.invalidateCompany(req.companyId as string);
     res.json(ledger);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to update ledger" });
@@ -706,6 +709,7 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
     }
 
     await Ledger.deleteOne({ _id: id, companyId: req.companyId });
+    ReportCacheService.invalidateCompany(req.companyId as string);
     res.json({ message: "Ledger deleted successfully" });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to delete ledger" });
@@ -817,6 +821,7 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
     }
 
     const result = await Ledger.deleteMany({ _id: { $in: deletableIds }, companyId: req.companyId });
+    ReportCacheService.invalidateCompany(req.companyId as string);
 
     const msg = blockedLedgers.length > 0
       ? `${result.deletedCount} ledger(s) deleted. ${blockedLedgers.length} ledger(s) skipped (have existing entries): ${blockedLedgers.slice(0, 5).join(", ")}${blockedLedgers.length > 5 ? " and more" : ""}.`
@@ -948,6 +953,7 @@ export async function mergeLedgers(req: AuthenticatedRequest, res: Response): Pr
 
     // ── 6. Delete source ledgers ──────────────────────────────────────────────
     await Ledger.deleteMany({ _id: { $in: sourceIds }, companyId: req.companyId });
+    ReportCacheService.invalidateCompany(req.companyId as string);
 
     res.json({
       message: `${sourceLedgers.length} ledger(s) merged into "${targetName}" successfully`,
@@ -1205,6 +1211,7 @@ export async function updateBulkOpeningBalances(req: AuthenticatedRequest, res: 
       .map(l => syncBankCashAccountFromLedger(l));
 
     await Promise.all(bankCashPromises);
+    ReportCacheService.invalidateCompany(companyId as string);
 
     res.json({ message: "Opening balances updated successfully", count: ledgersToSave.length });
   } catch (error: any) {

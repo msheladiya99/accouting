@@ -7,10 +7,10 @@ import {
 import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
-import { computePL, buildPresets, PLData, PLSection, DatePreset } from "../api/plStatementApi";
+import { buildPresets, PLData, PLSection, DatePreset } from "../api/plStatementApi";
 import type { FinancialYear } from "../api/financialYearApi";
 import { exportPLDirect } from "../api/exportApi";
-import { fetchAccountingRawData } from "../api/accountingDataCache";
+import { fetchProfitLoss } from "../api/reportsApi";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (v: number) =>
@@ -214,17 +214,16 @@ export default function PLStatement() {
       else setLoading(true);
       setError(null);
       try {
-        const raw = await fetchAccountingRawData(activeFY?._id || "", isRefresh);
-        const result = await computePL(dateFrom, dateTo, raw);
+        const result = await fetchProfitLoss(dateFrom, dateTo);
         setData(result);
       } catch (e: any) {
-        setError(e?.message ?? "Computation failed");
+        setError(e?.message ?? "Failed to load Profit & Loss");
       } finally {
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [dateFrom, dateTo, activeFY?._id],
+    [dateFrom, dateTo],
   );
 
   useEffect(() => {
@@ -355,7 +354,7 @@ export default function PLStatement() {
       {loading && (
         <div className="flex items-center justify-center h-56 text-slate-500 text-sm gap-2">
           <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-          Computing Profit & Loss…
+          Loading Profit & Loss…
         </div>
       )}
 

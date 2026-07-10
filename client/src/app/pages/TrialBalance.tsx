@@ -13,7 +13,7 @@ import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeTrialBalance, TrialRow, TrialSummary } from "../api/trialBalanceApi";
-import { fetchAccountingRawData } from "../api/accountingDataCache";
+import { fetchTrialBalance } from "../api/reportsApi";
 import { getLedgerStatement, getAllLedgers, LedgerStatement, LedgerStatementRow, Ledger, createLedger, LEDGER_GROUPS } from "../api/ledgerApi";
 import { createJournalEntry, getAllJournalEntries, updateJournalEntry, deleteJournalEntry, type JournalPayload, type JournalEntry } from "../api/journalVoucherApi";
 import { getAllEntries, getAllAccounts, updateEntry, bulkDeleteEntries, type BankCashAccount, type BankCashRow, type EntryPayload } from "../api/bankCashBookApi";
@@ -94,41 +94,6 @@ const VoucherBadge = ({ type }: { type: string }) => {
     </span>
   );
 };
-
-// Module-level cache
-let cachedSummary: TrialSummary | null = null;
-let cachedFYId: string | null = null;
-
-// Export background prefetch function to populate cache
-export async function prefetchTrialBalanceData(fyId: string, force = false) {
-  if (!force && cachedFYId === fyId && cachedSummary) return;
-  try {
-    const raw = await fetchAccountingRawData(fyId, force);
-    const result = await computeTrialBalance(raw);
-    cachedSummary = result;
-    cachedFYId = fyId;
-  } catch (e) {
-    console.warn("Background prefetch for Trial Balance failed:", e);
-  }
-}
-
-// Global event listener to clear cache and prefetch in background even when unmounted!
-if (typeof window !== "undefined") {
-  window.addEventListener("accounting-data-updated", () => {
-    cachedSummary = null;
-    cachedFYId = null;
-    try {
-      const saved = localStorage.getItem("ap_selected_fy");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const fyId = parsed?._id;
-        if (fyId) {
-          prefetchTrialBalanceData(fyId, true);
-        }
-      }
-    } catch (e) {}
-  });
-}
 
 // ── Mini JV Entry Form ─────────────────────────────────────────────────────────
 interface MiniJVRow {
@@ -1077,12 +1042,8 @@ export default function TrialBalance() {
   const { selectedFY, company } = useApp();
   const financialYear = selectedFY?.label ?? "—";
 
-  const [summary, setSummary] = useState<TrialSummary | null>(
-    cachedFYId === selectedFY?._id ? cachedSummary : null
-  );
-  const [loading, setLoading]  = useState(
-    cachedFYId === selectedFY?._id ? !cachedSummary : true
-  );
+  const [summary, setSummary] = useState<TrialSummary | null>(null);
+  const [loading, setLoading]  = useState(true);
   const [error, setError]      = useState<string | null>(null);
   const [search, setSearch]    = useState("");
   const [groupFilter, setGroupFilter] = useState<string>("All");
@@ -1091,62 +1052,21 @@ export default function TrialBalance() {
 
 
 
-
-
-  const load = useCallback(async (isRefresh = false, silent = false) => {
-    if (isRefresh) {
-      setLoading(true);
-    } else if (!silent) {
-      setLoading(true);
-    }
+  const load = useCallback(async (isRefresh = false) => {
+    setLoading(true);
     setError(null);
     try {
-      const raw = await fetchAccountingRawData(selectedFY?._id || "", isRefresh);
-      const result = await computeTrialBalance(raw);
+      const result = await fetchTrialBalance();
       setSummary(result);
-      cachedSummary = result;
-      cachedFYId = selectedFY?._id || null;
     } catch (e: any) {
-      if (!silent) {
-        setError(e?.message ?? "Failed to compute trial balance");
-      }
+      setError(e?.message ?? "Failed to load trial balance");
     } finally {
       setLoading(false);
     }
-  }, [selectedFY?._id]);
+  }, []);
 
   useEffect(() => {
-    if (!selectedFY?._id) return;
-
-    const hasCache = cachedFYId === selectedFY._id && cachedSummary !== null;
-    if (hasCache) {
-      setSummary(cachedSummary);
-      setLoading(false);
-    } else {
-      setLoading(true);
-      load(false, false);
-    }
-  }, [load, selectedFY?._id]);
-
-  // When data changes, wait for the global background prefetch to finish,
-  // then pull the fresh cache into component state — no double-fetch.
-  useEffect(() => {
-    const handleUpdate = () => {
-      const checkCache = () => {
-        if (cachedSummary && cachedFYId === selectedFY?._id) {
-          setSummary(cachedSummary);
-          setLoading(false);
-        } else {
-          // Prefetch still in progress or failed — do a full reload
-          load(true);
-        }
-      };
-      // Give the global background prefetch ~600ms to finish
-      const t = setTimeout(checkCache, 600);
-      return () => clearTimeout(t);
-    };
-    window.addEventListener("accounting-data-updated", handleUpdate);
-    return () => window.removeEventListener("accounting-data-updated", handleUpdate);
+    load();
   }, [load, selectedFY?._id]);
 
   const allGroups = useMemo(() => {
@@ -1576,7 +1496,7 @@ export default function TrialBalance() {
         {loading ? (
           <div className="flex items-center justify-center h-64 text-slate-500 text-sm gap-2">
             <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-            Computing trial balance…
+            Loading trial balance…
           </div>
         ) : error ? (
           <div className="flex items-center justify-center h-64 text-red-500 text-sm gap-2">

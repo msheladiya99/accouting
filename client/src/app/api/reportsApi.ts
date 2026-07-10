@@ -1,14 +1,17 @@
-import { getAllEntries, getAllAccounts, computeRows } from "./bankCashBookApi";
-import { getAllJournalEntries } from "./journalVoucherApi";
-import { computeTrialBalance } from "./trialBalanceApi";
-import { computeBalanceSheet } from "./balanceSheetApi";
-import { computePL } from "./plStatementApi";
+/**
+ * reportsApi.ts — Backend-served report fetchers (replaces ALL client-side compute)
+ *
+ * Each function is a thin axiosClient.get() wrapper.
+ * Response shapes match what the pages already use — zero component-template changes needed.
+ */
+import axiosClient from "./axiosClient";
 
-export type { TrialRow, TrialSummary } from "./trialBalanceApi";
-export type { BalanceSheetData }        from "./balanceSheetApi";
-export type { PLData }                  from "./plStatementApi";
+// ── Re-export types so existing import sites still compile ─────────────────────
+export type { TrialRow, TrialSummary }    from "./trialBalanceApi";
+export type { BalanceSheetData }          from "./balanceSheetApi";
+export type { PLData }                    from "./plStatementApi";
 
-// ── Cash / Bank Book ───────────────────────────────────────────────────────────
+// ── Cash / Bank Book Row (kept for pages that use this type) ───────────────────
 export interface BookRow {
   srNo:          number;
   date:          string;
@@ -22,64 +25,16 @@ export interface BookRow {
   contraGroup:   string;
 }
 
-function buildBookRows(
-  accounts: any[],
-  allEntries: any[],
-  group: "Cash" | "Bank",
-  dateFrom: string,
-  dateTo: string,
-): BookRow[] {
-  const rows: BookRow[] = [];
-  for (const acc of accounts.filter((a) => a.group === group)) {
-    const acctEntries = allEntries.filter((e) => e.accountId === acc._id);
-    computeRows(acc, acctEntries as any)
-      .filter((r) => r.date >= dateFrom && r.date <= dateTo)
-      .forEach((r) => rows.push({
-        srNo: 0,
-        date: r.date,
-        accountName: r.accountName,
-        accountGroup: r.accountGroup,
-        particulars: r.particulars,
-        withdrawal: r.withdrawal,
-        deposit: r.deposit,
-        balance: r.balance,
-        contraAccount: r.contraAccountName,
-        contraGroup: r.contraAccountGroup,
-      }));
-  }
-  rows.sort((a, b) => a.date.localeCompare(b.date));
-  rows.forEach((r, i) => (r.srNo = i + 1));
-  return rows;
-}
-
-export async function getCashBook(dateFrom: string, dateTo: string, cache?: {
-  bankAccounts?: any[];
-  bankEntries?: any[];
-}): Promise<BookRow[]> {
-  const accounts = cache?.bankAccounts ?? await getAllAccounts();
-  const allEntries = cache?.bankEntries ?? await getAllEntries();
-  return buildBookRows(accounts, allEntries, "Cash", dateFrom, dateTo);
-}
-
-export async function getBankBook(dateFrom: string, dateTo: string, cache?: {
-  bankAccounts?: any[];
-  bankEntries?: any[];
-}): Promise<BookRow[]> {
-  const accounts = cache?.bankAccounts ?? await getAllAccounts();
-  const allEntries = cache?.bankEntries ?? await getAllEntries();
-  return buildBookRows(accounts, allEntries, "Bank", dateFrom, dateTo);
-}
-
-// ── Ledger Report ──────────────────────────────────────────────────────────────
+// ── Ledger Report (kept for compatibility — modal still uses ledger/statement/:name) ──
 export interface LedgerRow {
-  srNo:       number;
-  date:       string;
-  source:     string;
-  ref:        string;
+  srNo:        number;
+  date:        string;
+  source:      string;
+  ref:         string;
   particulars: string;
-  debit:      number;
-  credit:     number;
-  balance:    number;
+  debit:       number;
+  credit:      number;
+  balance:     number;
 }
 
 export interface LedgerReportResult {
@@ -91,221 +46,54 @@ export interface LedgerReportResult {
   totalCredit:    number;
 }
 
-export async function getLedgerReport(
-  ledgerName: string,
-  dateFrom: string,
-  dateTo: string,
-  cache?: {
-    ledgers?: any[];
-    bankAccounts?: any[];
-    bankEntries?: any[];
-    journalEntries?: any[];
-  },
-): Promise<LedgerReportResult> {
-  const bankEntries = cache?.bankEntries ?? await getAllEntries();
-  const journalEntries = cache?.journalEntries ?? await getAllJournalEntries();
-
-  // Compute opening balance = net of all transactions BEFORE dateFrom
-  let openingBalance = 0;
-
-  // From opening balances (hardcoded in trialBalanceApi — derive via trial balance)
-  const { rows: tbRows } = await computeTrialBalance(cache);
-  const tbRow = tbRows.find((r) => r.ledgerName === ledgerName);
-  if (tbRow) {
-    openingBalance = tbRow.openingDr - tbRow.openingCr;
-  }
-
-  // Transactions before dateFrom from bank entries
-  for (const e of bankEntries) {
-    if (e.date >= dateFrom) continue;
-    if (e.accountName === ledgerName) openingBalance += e.deposit - e.withdrawal;
-    if (e.contraAccountName === ledgerName) openingBalance += e.withdrawal - e.deposit;
-  }
-  // Transactions before dateFrom from journal entries
-  for (const e of journalEntries) {
-    if (e.date >= dateFrom) continue;
-    if (e.items && e.items.length > 0) {
-      for (const item of e.items) {
-        if (item.accountName === ledgerName) {
-          if (item.type === "Db") openingBalance += item.amount;
-          else openingBalance -= item.amount;
-        }
-      }
-    } else {
-      if (e.debitAccount  === ledgerName) openingBalance += e.debitAmount;
-      if (e.creditAccount === ledgerName) openingBalance -= e.creditAmount;
-    }
-  }
-
-  // Now build ledger rows within date range
-  const rawRows: { date: string; createdAt: string; source: string; ref: string; particulars: string; debit: number; credit: number }[] = [];
-
-  for (const e of bankEntries) {
-    if (e.date < dateFrom || e.date > dateTo) continue;
-    if (e.accountName === ledgerName) {
-      rawRows.push({ date: e.date, createdAt: e.createdAt, source: "Bank/Cash Book", ref: e._id, particulars: `${e.particulars} (${e.contraAccountName})`, debit: e.deposit, credit: e.withdrawal });
-    } else if (e.contraAccountName === ledgerName) {
-      rawRows.push({ date: e.date, createdAt: e.createdAt, source: "Bank/Cash Book", ref: e._id, particulars: `${e.particulars} (${e.accountName})`, debit: e.withdrawal, credit: e.deposit });
-    }
-  }
-  for (const e of journalEntries) {
-    if (e.date < dateFrom || e.date > dateTo) continue;
-    if (e.items && e.items.length > 0) {
-      const matchedLegs = e.items.filter(
-        (it) => it.accountName && it.accountName.toLowerCase() === ledgerName.toLowerCase()
-      );
-      for (const leg of matchedLegs) {
-        if (leg.type === "Db") {
-          const contras = e.items
-            .filter((it) => it.type === "Cr")
-            .map((it) => it.accountName);
-          const contraStr = contras.length > 0 ? contras.join(", ") : "";
-          rawRows.push({
-            date: e.date,
-            createdAt: e.createdAt,
-            source: "Journal",
-            ref: e.voucherNo,
-            particulars: e.narration ? `${e.narration} (${contraStr})` : `By ${contraStr}`,
-            debit: leg.amount,
-            credit: 0
-          });
-        } else {
-          const contras = e.items
-            .filter((it) => it.type === "Db")
-            .map((it) => it.accountName);
-          const contraStr = contras.length > 0 ? contras.join(", ") : "";
-          rawRows.push({
-            date: e.date,
-            createdAt: e.createdAt,
-            source: "Journal",
-            ref: e.voucherNo,
-            particulars: e.narration ? `${e.narration} (${contraStr})` : `To ${contraStr}`,
-            debit: 0,
-            credit: leg.amount
-          });
-        }
-      }
-    } else {
-      if (e.debitAccount === ledgerName) {
-        rawRows.push({ date: e.date, createdAt: e.createdAt, source: "Journal", ref: e.voucherNo, particulars: `${e.narration} (${e.creditAccount})`, debit: e.debitAmount, credit: 0 });
-      } else if (e.creditAccount === ledgerName) {
-        rawRows.push({ date: e.date, createdAt: e.createdAt, source: "Journal", ref: e.voucherNo, particulars: `${e.narration} (${e.debitAccount})`, debit: 0, credit: e.creditAmount });
-      }
-    }
-  }
-
-  rawRows.sort((a, b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.createdAt.localeCompare(b.createdAt));
-
-  let running = openingBalance;
-  const rows: LedgerRow[] = rawRows.map((r, i) => {
-    running += r.debit - r.credit;
-    return { srNo: i + 1, date: r.date, source: r.source, ref: r.ref, particulars: r.particulars, debit: r.debit, credit: r.credit, balance: running };
-  });
-
-  const totalDebit  = rows.reduce((s, r) => s + r.debit,  0);
-  const totalCredit = rows.reduce((s, r) => s + r.credit, 0);
-
-  return { ledgerName, openingBalance, rows, closingBalance: running, totalDebit, totalCredit };
-}
-
-// ── Day Book ───────────────────────────────────────────────────────────────────
+// ── Day Book Row ───────────────────────────────────────────────────────────────
 export interface DayBookRow {
-  srNo:      number;
-  date:      string;
-  source:    string;
-  ref:       string;
+  srNo:        number;
+  date:        string;
+  source:      string;
+  ref:         string;
   particulars: string;
-  drAccount: string;
-  drGroup:   string;
-  crAccount: string;
-  crGroup:   string;
-  amount:    number;
+  drAccount:   string;
+  drGroup:     string;
+  crAccount:   string;
+  crGroup:     string;
+  amount:      number;
 }
 
-export async function getDayBook(
-  dateFrom: string,
-  dateTo: string,
-  groupFilter?: string,
-  cache?: {
-    bankEntries?: any[];
-    journalEntries?: any[];
-  },
-): Promise<DayBookRow[]> {
-  const bankEntries = cache?.bankEntries ?? await getAllEntries();
-  const journalEntries = cache?.journalEntries ?? await getAllJournalEntries();
+// ── Backend-served report fetchers ─────────────────────────────────────────────
 
-  const raw: { date: string; createdAt: string; source: string; ref: string; particulars: string; drAccount: string; drGroup: string; crAccount: string; crGroup: string; amount: number }[] = [];
-
-  for (const e of bankEntries) {
-    if (e.date < dateFrom || e.date > dateTo) continue;
-    const drAccount = e.deposit > 0 ? e.accountName      : e.contraAccountName;
-    const drGroup   = e.deposit > 0 ? e.accountGroup     : e.contraAccountGroup;
-    const crAccount = e.deposit > 0 ? e.contraAccountName: e.accountName;
-    const crGroup   = e.deposit > 0 ? e.contraAccountGroup: e.accountGroup;
-    const amount    = e.deposit > 0 ? e.deposit : e.withdrawal;
-
-    if (groupFilter && groupFilter !== "All" && drGroup !== groupFilter && crGroup !== groupFilter) continue;
-
-    raw.push({ date: e.date, createdAt: e.createdAt, source: "Bank/Cash", ref: e._id, particulars: e.particulars, drAccount, drGroup, crAccount, crGroup, amount });
-  }
-
-  for (const e of journalEntries) {
-    if (e.date < dateFrom || e.date > dateTo) continue;
-    if (e.items && e.items.length > 0) {
-      const matchFilter = !groupFilter || groupFilter === "All" || e.items.some((it) => it.groupName === groupFilter);
-      if (!matchFilter) continue;
-      
-      const drAccounts = e.items.filter((it) => it.type === "Db").map((it) => it.accountName).join(", ");
-      const drGroups = e.items.filter((it) => it.type === "Db").map((it) => it.groupName).join(", ");
-      const crAccounts = e.items.filter((it) => it.type === "Cr").map((it) => it.accountName).join(", ");
-      const crGroups = e.items.filter((it) => it.type === "Cr").map((it) => it.groupName).join(", ");
-      const amount = e.items.filter((it) => it.type === "Db").reduce((sum, it) => sum + it.amount, 0);
-      
-      raw.push({
-        date: e.date,
-        createdAt: e.createdAt,
-        source: "Journal",
-        ref: e.voucherNo,
-        particulars: e.narration,
-        drAccount: drAccounts,
-        drGroup: drGroups,
-        crAccount: crAccounts,
-        crGroup: crGroups,
-        amount
-      });
-    } else {
-      if (groupFilter && groupFilter !== "All" && e.debitGroup !== groupFilter && e.creditGroup !== groupFilter) continue;
-      raw.push({ date: e.date, createdAt: e.createdAt, source: "Journal", ref: e.voucherNo, particulars: e.narration, drAccount: e.debitAccount, drGroup: e.debitGroup, crAccount: e.creditAccount, crGroup: e.creditGroup, amount: e.debitAmount });
-    }
-  }
-
-  raw.sort((a, b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.createdAt.localeCompare(b.createdAt));
-
-  return raw.map((r, i) => ({ srNo: i + 1, ...r }));
+export async function getCashBook(dateFrom?: string, dateTo?: string): Promise<BookRow[]> {
+  const res = await axiosClient.get<BookRow[]>("/reports/cash-book", {
+    params: { dateFrom, dateTo },
+  });
+  return res.data;
 }
 
-// ── All ledger names (for dropdown) ───────────────────────────────────────────
-export async function getAllLedgerNames(cache?: {
-  bankEntries?: any[];
-  journalEntries?: any[];
-}): Promise<string[]> {
-  const bankEntries = cache?.bankEntries ?? await getAllEntries();
-  const journalEntries = cache?.journalEntries ?? await getAllJournalEntries();
-  
-  const names = new Set<string>();
-  for (const e of bankEntries) { names.add(e.accountName); names.add(e.contraAccountName); }
-  for (const e of journalEntries) {
-    if (e.items && e.items.length > 0) {
-      for (const item of e.items) {
-        if (item.accountName) names.add(item.accountName);
-      }
-    } else {
-      if (e.debitAccount) names.add(e.debitAccount);
-      if (e.creditAccount) names.add(e.creditAccount);
-    }
-  }
-  return [...names].sort();
+export async function getBankBook(dateFrom?: string, dateTo?: string): Promise<BookRow[]> {
+  const res = await axiosClient.get<BookRow[]>("/reports/bank-book", {
+    params: { dateFrom, dateTo },
+  });
+  return res.data;
 }
 
-// Re-export existing compute functions for use in Reports page
-export { computeTrialBalance, computeBalanceSheet, computePL };
+export async function fetchTrialBalance() {
+  const res = await axiosClient.get("/reports/trial-balance");
+  return res.data;
+}
+
+export async function fetchBalanceSheet() {
+  const res = await axiosClient.get("/reports/balance-sheet");
+  return res.data;
+}
+
+export async function fetchProfitLoss(dateFrom: string, dateTo: string) {
+  const res = await axiosClient.get("/reports/profit-loss", {
+    params: { dateFrom, dateTo },
+  });
+  return res.data;
+}
+
+export async function fetchDashboard() {
+  const res = await axiosClient.get("/reports/dashboard");
+  return res.data;
+}

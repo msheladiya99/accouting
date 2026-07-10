@@ -11,54 +11,15 @@ export interface AccountingRawData {
   groups: any[];
 }
 
-let cachedFYId: string | null = null;
-let cachedRawData: AccountingRawData | null = null;
-let activeFetchPromise: Promise<AccountingRawData> | null = null;
-
-export function clearAccountingDataCache() {
-  cachedRawData = null;
-  cachedFYId = null;
-  activeFetchPromise = null;
-}
-
+/** Pure utility fetcher to get all raw data dumps (used for backups only). */
 export async function fetchAccountingRawData(fyId: string, force = false): Promise<AccountingRawData> {
-  if (!force && cachedFYId === fyId && cachedRawData) {
-    return cachedRawData;
-  }
+  const [ledgers, bankAccounts, bankEntries, journalEntries, groups] = await Promise.all([
+    getAllLedgers(),
+    getAllAccounts(),
+    getAllEntries(),
+    getAllJournalEntries(),
+    getAllGroups()
+  ]);
 
-  if (activeFetchPromise && cachedFYId === fyId && !force) {
-    return activeFetchPromise;
-  }
-
-  cachedFYId = fyId;
-  activeFetchPromise = (async () => {
-    try {
-      const [ledgers, bankAccounts, bankEntries, journalEntries, groups] = await Promise.all([
-        getAllLedgers(),
-        getAllAccounts(),
-        getAllEntries(),
-        getAllJournalEntries(),
-        getAllGroups()
-      ]);
-
-      const data = { ledgers, bankAccounts, bankEntries, journalEntries, groups };
-      cachedRawData = data;
-      return data;
-    } catch (error) {
-      // Clear promise and cache on failure so subsequent attempts can retry
-      cachedRawData = null;
-      activeFetchPromise = null;
-      throw error;
-    } finally {
-      activeFetchPromise = null;
-    }
-  })();
-
-  return activeFetchPromise;
-}
-
-if (typeof window !== "undefined") {
-  window.addEventListener("accounting-data-updated", () => {
-    clearAccountingDataCache();
-  });
+  return { ledgers, bankAccounts, bankEntries, journalEntries, groups };
 }

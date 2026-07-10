@@ -1,9 +1,9 @@
 import ExcelJS from "exceljs";
 import * as XLSX from "xlsx";
-import { computeTrialBalance } from "./trialBalanceApi";
+import { fetchTrialBalance, fetchBalanceSheet } from "./reportsApi";
 import { getAllEntries, getAllAccounts, computeRows, type BankCashRow } from "./bankCashBookApi";
 import { getAllJournalEntries } from "./journalVoucherApi";
-import { computeBalanceSheet } from "./balanceSheetApi";
+import type { TrialSummary, BalanceSheetData } from "./reportsApi";
 import type { FinancialYear } from "./financialYearApi";
 
 // ── Palette (ARGB — "FF" prefix = fully opaque) ───────────────────────────────
@@ -179,7 +179,7 @@ export type ExportStep =
 
 function buildTrialBalance(
   workbook: ExcelJS.Workbook,
-  data: Awaited<ReturnType<typeof computeTrialBalance>>,
+  data: TrialSummary,
   params: ExportParams,
 ) {
   const sheet = workbook.addWorksheet("Trial Balance", {
@@ -360,7 +360,7 @@ function buildJournalSheet(
 
 function buildBalanceSheetSheet(
   workbook: ExcelJS.Workbook,
-  data: Awaited<ReturnType<typeof computeBalanceSheet>>,
+  data: BalanceSheetData,
   params: ExportParams,
 ) {
   const sheet = workbook.addWorksheet("Balance Sheet", {
@@ -474,7 +474,7 @@ export async function generateExcelExport(
 
     if (steps.includes("trial-balance")) {
       onStep("trial-balance");
-      const trialData = await computeTrialBalance();
+      const trialData = await fetchTrialBalance();
       buildTrialBalance(workbook, trialData, params);
     }
 
@@ -501,7 +501,7 @@ export async function generateExcelExport(
 
     if (steps.includes("balance-sheet")) {
       onStep("balance-sheet");
-      const bsData = await computeBalanceSheet();
+      const bsData = await fetchBalanceSheet();
       buildBalanceSheetSheet(workbook, bsData, params);
     }
 
@@ -530,7 +530,7 @@ export async function generateExcelExport(
 
       if (stepKey === "trial-balance") {
         onStep("trial-balance");
-        const trialData = await computeTrialBalance();
+        const trialData = await fetchTrialBalance();
         buildTrialBalance(workbook, trialData, params);
         filename = `${params.companyName.replace(/\s+/g, "_")}_Trial_Balance_${date}.xlsx`;
       } else if (stepKey === "cash-book") {
@@ -553,7 +553,7 @@ export async function generateExcelExport(
         filename = `${params.companyName.replace(/\s+/g, "_")}_Journal_Vouchers_${date}.xlsx`;
       } else if (stepKey === "balance-sheet") {
         onStep("balance-sheet");
-        const bsData = await computeBalanceSheet();
+        const bsData = await fetchBalanceSheet();
         buildBalanceSheetSheet(workbook, bsData, params);
         filename = `${params.companyName.replace(/\s+/g, "_")}_Balance_Sheet_${date}.xlsx`;
       }

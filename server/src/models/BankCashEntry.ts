@@ -17,5 +17,7 @@ const bankCashEntrySchema = new Schema(
 
 bankCashEntrySchema.index({ companyId: 1, date: 1 });
 bankCashEntrySchema.index({ accountId: 1 });
+bankCashEntrySchema.index({ companyId: 1, contraAccountName: 1 });
+bankCashEntrySchema.index({ companyId: 1, accountId: 1, date: 1 });
 
 export const BankCashEntry = model("BankCashEntry", bankCashEntrySchema);

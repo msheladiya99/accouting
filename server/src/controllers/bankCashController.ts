@@ -4,6 +4,7 @@ import { BankCashEntry } from "../models/BankCashEntry";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { Ledger } from "../models/Ledger";
 import { syncBankCashAccountFromLedger } from "./ledgerController";
+import { ReportCacheService } from "../services/accounting/ReportCacheService";
 
 function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -152,6 +153,7 @@ export async function createAccount(req: AuthenticatedRequest, res: Response): P
 
     await account.save();
     await syncLedgerFromBankCashAccount(account);
+    ReportCacheService.invalidateCompany(req.companyId as string);
     res.status(201).json(account);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to create account" });
@@ -207,6 +209,7 @@ export async function updateAccount(req: AuthenticatedRequest, res: Response): P
 
     await account.save();
     await syncLedgerFromBankCashAccount(account, oldName);
+    ReportCacheService.invalidateCompany(req.companyId as string);
 
     const initialBalance = req.financialYear
       ? await getOpeningBalanceAt(account, req.financialYear.startDate, req.companyId as string)
@@ -240,6 +243,7 @@ export async function deleteAccount(req: AuthenticatedRequest, res: Response): P
     // Delete associated entries
     await BankCashEntry.deleteMany({ accountId: id, companyId: req.companyId });
     await BankCashAccount.deleteOne({ _id: id, companyId: req.companyId });
+    ReportCacheService.invalidateCompany(req.companyId as string);
 
     res.json({ message: "Account and associated entries deleted successfully" });
   } catch (error: any) {
@@ -449,6 +453,10 @@ export async function createEntry(req: AuthenticatedRequest, res: Response): Pro
     });
 
     await entry.save();
+    // Invalidate reports cache
+    if (req.financialYear?.id) {
+      ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+    }
     res.status(201).json(entry);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to create entry" });
@@ -547,6 +555,10 @@ export async function updateEntry(req: AuthenticatedRequest, res: Response): Pro
     (entry as any).isChanged = true;
 
     await entry.save();
+    // Invalidate reports cache
+    if (req.financialYear?.id) {
+      ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+    }
     res.json(entry);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to update entry" });
@@ -563,6 +575,10 @@ export async function deleteEntry(req: AuthenticatedRequest, res: Response): Pro
     }
 
     await BankCashEntry.deleteOne({ _id: id, companyId: req.companyId });
+    // Invalidate reports cache
+    if (req.financialYear?.id) {
+      ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+    }
     res.json({ message: "Entry deleted successfully" });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to delete entry" });
@@ -580,6 +596,10 @@ export async function bulkDeleteEntries(req: AuthenticatedRequest, res: Response
       _id: { $in: ids },
       companyId: req.companyId
     });
+    // Invalidate reports cache
+    if (req.financialYear?.id) {
+      ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+    }
     res.json({ message: `Successfully deleted ${result.deletedCount} entries`, deletedCount: result.deletedCount });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to bulk delete entries" });

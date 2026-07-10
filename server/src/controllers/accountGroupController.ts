@@ -1,6 +1,7 @@
 import { Response } from "express";
 import { AccountGroup } from "../models/AccountGroup";
 import { AuthenticatedRequest } from "../middleware/auth";
+import { ReportCacheService } from "../services/accounting/ReportCacheService";
 
 const DEFAULT_GROUPS_SEEDS = [
   // Trading
@@ -127,6 +128,7 @@ export async function createGroup(req: AuthenticatedRequest, res: Response): Pro
     });
 
     await newGroup.save();
+    ReportCacheService.invalidateCompany(req.companyId as string);
     res.status(201).json(newGroup);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to create account group" });
@@ -222,6 +224,7 @@ export async function mergeGroups(req: AuthenticatedRequest, res: Response): Pro
 
     // 6. Delete source groups
     await AccountGroup.deleteMany({ _id: { $in: sourceIds }, companyId: req.companyId });
+    ReportCacheService.invalidateCompany(req.companyId as string);
 
     res.json({
       message: `${sourceGroups.length} group(s) merged into "${targetName}" successfully`,
@@ -315,6 +318,7 @@ export async function updateGroup(req: AuthenticatedRequest, res: Response): Pro
     group.groupName = newName;
     group.superGroup = newSuper as any;
     await group.save();
+    ReportCacheService.invalidateCompany(req.companyId as string);
 
     res.json(group);
   } catch (error: any) {
@@ -342,6 +346,7 @@ export async function deleteGroup(req: AuthenticatedRequest, res: Response): Pro
     }
 
     await AccountGroup.deleteOne({ _id: id, companyId: req.companyId });
+    ReportCacheService.invalidateCompany(req.companyId as string);
     res.json({ message: `Account group "${group.groupName}" deleted successfully` });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to delete account group" });

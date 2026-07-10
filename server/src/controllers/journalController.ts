@@ -1,6 +1,7 @@
 import { Response } from "express";
 import { JournalEntry } from "../models/JournalEntry";
 import { AuthenticatedRequest } from "../middleware/auth";
+import { ReportCacheService } from "../services/accounting/ReportCacheService";
 
 async function getNextVoucherNo(req: AuthenticatedRequest): Promise<string> {
   const query: any = { companyId: req.companyId };
@@ -113,6 +114,10 @@ export async function createJournalEntry(req: AuthenticatedRequest, res: Respons
     });
 
     await entry.save();
+    // Invalidate all cached reports for this company+FY so next read is fresh
+    if (req.financialYear?.id) {
+      ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+    }
     res.status(201).json(entry);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to create journal entry" });
@@ -229,6 +234,10 @@ export async function updateJournalEntry(req: AuthenticatedRequest, res: Respons
     }
 
     await entry.save();
+    // Invalidate cached reports
+    if (req.financialYear?.id) {
+      ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+    }
     res.json(entry);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to update journal entry" });
@@ -245,6 +254,10 @@ export async function deleteJournalEntry(req: AuthenticatedRequest, res: Respons
     }
 
     await JournalEntry.deleteOne({ _id: id, companyId: req.companyId });
+    // Invalidate cached reports
+    if (req.financialYear?.id) {
+      ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+    }
     res.json({ message: "Journal entry deleted successfully" });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to delete journal entry" });

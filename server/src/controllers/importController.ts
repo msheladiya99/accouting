@@ -6,6 +6,7 @@ import { Ledger } from "../models/Ledger";
 import { BankCashAccount } from "../models/BankCashAccount";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { syncBankCashAccountFromLedger } from "./ledgerController";
+import { ReportCacheService } from "../services/accounting/ReportCacheService";
 
 export async function getImportedTransactions(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
@@ -260,6 +261,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
     }
 
     const result = await BankCashEntry.insertMany(newEntries);
+    ReportCacheService.invalidateCompany(req.companyId as string);
     res.status(201).json({
       inserted: result,
       insertedCount: result.length,

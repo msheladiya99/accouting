@@ -5,12 +5,9 @@ import {
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import {
-  computeBalanceSheet,
   type BalanceSheetData,
 } from "../api/balanceSheetApi";
-import { computeTrialBalance, type TrialRow } from "../api/trialBalanceApi";
-import { fetchAccountingRawData } from "../api/accountingDataCache";
-import { SUPER_GROUP_PARENTS } from "../api/accountGroupApi";
+import { fetchBalanceSheet } from "../api/reportsApi";
 
 const fmt = (v: number) =>
   `\u20B9${Math.abs(v).toLocaleString("en-IN")}`;
@@ -210,307 +207,15 @@ function flattenUnmatched(unmatchedGroups: any[]): ReportRow[] {
   return rows;
 }
 
-// ── Extra Calculations for Trading & P&L and Capital Accounts ───────────────
-interface CapitalTxn {
-  particulars: string;
-  amount?: number;
-}
-
-interface PartnerCapitalAccount {
-  ledgerName: string;
-  debits: CapitalTxn[];
-  credits: CapitalTxn[];
-  total: number;
-}
-
-function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, string>) {
-  const openingStockRows: any[] = [];
-  const closingStockRows: any[] = [];
-  const purchaseRows: any[] = [];
-  const directExpRows: any[] = [];
-  const salesRows: any[] = [];
-  const indirectIncomeRows: any[] = [];
-  const indirectExpRows: any[] = [];
-  const depreciationRows: any[] = [];
-  const financialExpRows: any[] = [];
-
-  rows.forEach((r) => {
-    const groupName = r.group.toLowerCase();
-    const ledgerName = r.ledgerName.toLowerCase();
-    
-    const netDrCr = r.closingDr - r.closingCr;
-    const absVal = Math.abs(netDrCr);
-
-    const parentCategory = groupParentsMap[r.group.trim().toLowerCase()] || "Assets";
-
-    // 1. Stock / Inventory Ledgers categorization
-    const isStockGroup = 
-      groupName === "stock-in-hand" || 
-      groupName === "inventory" || 
-      groupName === "opening stock" ||
-      groupName.includes("stock") ||
-      groupName.includes("inventory");
-
-    const isStockLedger =
-      ledgerName.includes("stock") ||
-      ledgerName.includes("inventory");
-
-    if (isStockGroup || isStockLedger) {
-      // 1a. Opening Stock: derived from opening Dr balance, or if name contains "opening" and has a balance
-      if (ledgerName.includes("opening")) {
-        const amount = r.openingDr > 0 ? r.openingDr : r.closingDr;
-        if (amount > 0) {
-          openingStockRows.push({ name: r.ledgerName, amount });
-        }
-      } else {
-        if (r.openingDr > 0) {
-          // Check if this opening balance was transferred to a dedicated "opening" stock ledger
-          const isTransferred = rows.some((other) => {
-            const otherLedger = other.ledgerName.toLowerCase();
-            if (!otherLedger.includes("opening")) return false;
-            const otherAmount = other.openingDr > 0 ? other.openingDr : other.closingDr;
-            if (otherAmount <= 0) return false;
-            
-            // Clean names to check relationship
-            const cleanR = r.ledgerName.toLowerCase().replace("opening", "").replace(/\s+/g, "").trim();
-            const cleanOther = other.ledgerName.toLowerCase().replace("opening", "").replace(/\s+/g, "").trim();
-            return cleanR === cleanOther || cleanR.includes(cleanOther) || cleanOther.includes(cleanR) || Math.abs(otherAmount - r.openingDr) < 0.01;
-          });
-          
-          if (!isTransferred) {
-            openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
-          }
-        }
-      }
-
-      // 1b. Closing Stock:
-      // Exclude any ledger representing opening stock transfers (contains "opening" in the name)
-      // and exclude duplicate credit ledger if we already counted the debit side of the transfer/JV
-      if (!ledgerName.includes("opening")) {
-        const netClosingDr = r.closingDr - r.closingCr;
-        if (netClosingDr > 0) {
-          closingStockRows.push({ name: r.ledgerName, amount: netClosingDr });
-        } else if (netClosingDr < 0 && ledgerName.includes("closing")) {
-          const otherHasClosingDr = rows.some((other) => {
-            const otherLedger = other.ledgerName.toLowerCase();
-            return !otherLedger.includes("opening") && !otherLedger.includes("closing") && (other.closingDr - other.closingCr) > 0;
-          });
-          if (!otherHasClosingDr) {
-            closingStockRows.push({ name: r.ledgerName, amount: Math.abs(netClosingDr) });
-          }
-        }
-      }
-      return;
-    }
-
-    if (groupName === "purchase account" || groupName === "purchases") {
-      if (absVal > 0.001) {
-        purchaseRows.push({ name: r.ledgerName, amount: absVal });
-      }
-    } else if (groupName === "expenses (direct)" || groupName === "direct expenses") {
-      if (absVal > 0.001) {
-        directExpRows.push({ name: r.ledgerName, amount: absVal });
-      }
-    } else if (groupName === "sales account" || groupName === "sales") {
-      if (absVal > 0.001) {
-        salesRows.push({ name: r.ledgerName, amount: absVal });
-      }
-    } else if (parentCategory === "Income") {
-      if (absVal > 0.001) {
-        indirectIncomeRows.push({ name: r.ledgerName, amount: absVal });
-      }
-    } else if (parentCategory === "Expense") {
-      if (absVal > 0.001) {
-        if (ledgerName.includes("depreciation")) {
-          depreciationRows.push({ name: r.ledgerName, amount: absVal });
-        } else if (
-          ledgerName.includes("bank charges") || 
-          ledgerName.includes("interest") || 
-          ledgerName.includes("loan a/c") ||
-          ledgerName.includes("cc a/c") ||
-          groupName.includes("financial")
-        ) {
-          financialExpRows.push({ name: r.ledgerName, amount: absVal });
-        } else {
-          indirectExpRows.push({ name: r.ledgerName, amount: absVal });
-        }
-      }
-    }
-  });
-
-  const totalOpeningStock = openingStockRows.reduce((s, x) => s + x.amount, 0);
-  const totalClosingStock = closingStockRows.reduce((s, x) => s + x.amount, 0);
-  const totalPurchases = purchaseRows.reduce((s, x) => s + x.amount, 0);
-  const totalDirectExp = directExpRows.reduce((s, x) => s + x.amount, 0);
-  const totalSales = salesRows.reduce((s, x) => s + x.amount, 0);
-  const totalIndirectIncome = indirectIncomeRows.reduce((s, x) => s + x.amount, 0);
-  const totalFinancialExp = financialExpRows.reduce((s, x) => s + x.amount, 0);
-  const totalDepreciation = depreciationRows.reduce((s, x) => s + x.amount, 0);
-  const totalIndirectExp = indirectExpRows.reduce((s, x) => s + x.amount, 0);
-
-  const tradingDebits = totalOpeningStock + totalPurchases + totalDirectExp;
-  const tradingCredits = totalSales + totalClosingStock;
-  const grossProfit = tradingCredits - tradingDebits;
-
-  const plCredits = (grossProfit > 0 ? grossProfit : 0) + totalIndirectIncome;
-  const plDebits = (grossProfit < 0 ? Math.abs(grossProfit) : 0) + totalFinancialExp + totalDepreciation + totalIndirectExp;
-  const netProfit = plCredits - plDebits;
-
-  return {
-    openingStockRows,
-    closingStockRows,
-    purchaseRows,
-    directExpRows,
-    salesRows,
-    indirectIncomeRows,
-    indirectExpRows,
-    depreciationRows,
-    financialExpRows,
-    totalOpeningStock,
-    totalClosingStock,
-    totalPurchases,
-    totalDirectExp,
-    totalSales,
-    totalIndirectIncome,
-    totalFinancialExp,
-    totalDepreciation,
-    totalIndirectExp,
-    grossProfit,
-    netProfit
-  };
-}
-
-function computePartnerCapital(
-  ledger: any,
-  bankEntries: any[],
-  journalEntries: any[],
-  bankAccounts: any[],
-  capitalLedgerNames: Set<string>
-): PartnerCapitalAccount {
-  const name = ledger.ledgerName;
-  const openingBalance = ledger.openingCr - ledger.openingDr;
-
-  // Build a map of accountId -> bank account name for label lookup
-  const bankAccountNameMap = new Map<string, string>();
-  bankAccounts.forEach((a: any) => {
-    if (a._id) bankAccountNameMap.set(a._id.toString(), a.name);
-  });
-
-  // Use maps to GROUP entries by account/ledger name and SUM amounts
-  const debitMap = new Map<string, number>();
-  const creditMap = new Map<string, number>();
-
-  // Bank/Cash entries — group by the capital ledger name
-  bankEntries.forEach((e) => {
-    if (e.contraAccountName === name) {
-      if (e.withdrawal > 0) {
-        debitMap.set(name, (debitMap.get(name) || 0) + e.withdrawal);
-      }
-      if (e.deposit > 0) {
-        creditMap.set(name, (creditMap.get(name) || 0) + e.deposit);
-      }
-    }
-  });
-
-  // Journal entries — group by the CONTRA ACCOUNT NAME
-  journalEntries.forEach((e) => {
-    const items = e.items && e.items.length > 0
-      ? e.items
-      : [
-          { type: "Db", accountName: e.debitAccount,  amount: e.debitAmount  },
-          { type: "Cr", accountName: e.creditAccount, amount: e.creditAmount }
-        ];
-
-    const capitalLegs = items.filter((it: any) => it.accountName === name);
-    if (capitalLegs.length === 0) return;
-
-    capitalLegs.forEach((leg: any) => {
-      // Contra = the other side(s) of this journal entry
-      const contraNames = items
-        .filter((it: any) => it.accountName !== name)
-        .map((it: any) => it.accountName as string)
-        .filter(Boolean);
-
-      // If all contra accounts are capital accounts, this is an internal transfer.
-      // Group it under the ledger's own name to merge the transfer into the main capital account line.
-      const isInternalCapitalTransfer = contraNames.length > 0 && contraNames.every((cName: string) => 
-        capitalLedgerNames.has(cName.toLowerCase())
-      );
-
-      const isInterestOrSubCapital = name.toLowerCase().includes("interest") || 
-                                     name.toLowerCase().includes("intrest") || 
-                                     name.toLowerCase().includes("remuneration") ||
-                                     name.toLowerCase().includes("commission") ||
-                                     name.toLowerCase().includes("share");
-
-      const contraLabel = (isInternalCapitalTransfer || isInterestOrSubCapital)
-        ? name 
-        : (contraNames.length > 0 ? contraNames.join(", ") : (e.narration || "JOURNAL"));
-
-      const amt = Number(leg.amount || 0);
-      if (leg.type === "Db") {
-        debitMap.set(contraLabel, (debitMap.get(contraLabel) || 0) + amt);
-      } else {
-        creditMap.set(contraLabel, (creditMap.get(contraLabel) || 0) + amt);
-      }
-    });
-  });
-
-  // Convert grouped maps → formatted arrays
-  const formattedDebits: CapitalTxn[] = Array.from(debitMap.entries()).map(([key, amt]) => ({
-    particulars: `TO ${key.toUpperCase()}`,
-    amount: amt
-  }));
-
-  const formattedCredits: CapitalTxn[] = Array.from(creditMap.entries()).map(([key, amt]) => ({
-    particulars: `BY ${key.toUpperCase()}`,
-    amount: amt
-  }));
-
-  const finalCredits = [
-    { particulars: "BY OPENING BALANCE", amount: Math.abs(openingBalance) },
-    ...formattedCredits
-  ];
-
-  const creditsSum = finalCredits.reduce((s, c) => s + (c.amount ?? 0), 0);
-  const debitsSum = formattedDebits.reduce((s, d) => s + (d.amount ?? 0), 0);
-  const closingBalance = creditsSum - debitsSum;
-
-  const finalDebits = [
-    ...formattedDebits,
-    { particulars: "TO CLOSING BALANCE", amount: closingBalance }
-  ];
-
-  return {
-    ledgerName: name.toUpperCase(),
-    debits: finalDebits,
-    credits: finalCredits,
-    total: Math.max(
-      finalDebits.reduce((s, d) => s + (d.amount ?? 0), 0),
-      finalCredits.reduce((s, c) => s + (c.amount ?? 0), 0)
-    )
-  };
-}
-
-// ── Module-level cache for instant SWR loading on BalanceSheetPanel ─────────
-let cachedPanelData: BalanceSheetData | null = null;
-let cachedPanelCapitalAccounts: PartnerCapitalAccount[] = [];
-let cachedPanelTradingPLData: any = null;
-let cachedPanelFYId: string | null = null;
-
 // ── Main Panel ────────────────────────────────────────────────────────────────
 export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const { selectedFY, company } = useApp();
-  const [data,    setData]    = useState<BalanceSheetData | null>(cachedPanelFYId === selectedFY?._id ? cachedPanelData : null);
-  const [loading, setLoading] = useState(cachedPanelFYId === selectedFY?._id ? !cachedPanelData : false);
+  const [data,    setData]    = useState<BalanceSheetData | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
-  const [capitalAccounts, setCapitalAccounts] = useState<PartnerCapitalAccount[]>(
-    cachedPanelFYId === selectedFY?._id ? cachedPanelCapitalAccounts : []
-  );
-  const [tradingPLData, setTradingPLData] = useState<any>(
-    cachedPanelFYId === selectedFY?._id ? cachedPanelTradingPLData : null
-  );
+  const [capitalAccounts, setCapitalAccounts] = useState<any[]>([]);
+  const [tradingPLData, setTradingPLData] = useState<any>(null);
 
   // Resizing state & logic
   const [width, setWidth] = useState(850);
@@ -547,57 +252,10 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const raw = await fetchAccountingRawData(selectedFY?._id || "", false);
-      const { ledgers, bankAccounts, bankEntries, journalEntries, groups } = raw;
-
-
-      // Compute balance sheet using cache
-      const result = await computeBalanceSheet(raw);
-
-      const groupParentsMap: Record<string, string> = {};
-      groups.forEach((g) => {
-        groupParentsMap[g.groupName.trim().toLowerCase()] = SUPER_GROUP_PARENTS[g.superGroup] || "Assets";
-      });
-
-      const trialSummary = await computeTrialBalance(raw);
-      const tpl = computeTradingPL(trialSummary.rows, groupParentsMap);
-
-      const allCapitalLedgers = ledgers.filter(l => {
-        const gName = l.groupName.trim().toLowerCase();
-        const parentCategory = groupParentsMap[gName];
-        if (parentCategory === "Capital" && gName !== "profit & loss a/c" && gName !== "reserve & surplus" && gName !== "reserves & surplus") return true;
-        return gName === 'capital' || 
-               gName === 'capital account' || 
-               gName === 'capital & reserves' ||
-               gName === 'current capital account' ||
-               gName === 'sub capital' ||
-               gName === 'sub-capital';
-      });
-
-      const capitalLedgerAccounts = allCapitalLedgers.filter(l => {
-        const tbRow = trialSummary.rows.find(r => r.ledgerName.toLowerCase() === l.ledgerName.toLowerCase());
-        if (tbRow) {
-          const closingBalance = tbRow.closingDr + tbRow.closingCr;
-          if (closingBalance === 0) return false;
-        }
-        return true;
-      });
-
-      const capitalLedgerNames = new Set(allCapitalLedgers.map(l => l.ledgerName.toLowerCase()));
-
-      const accounts = capitalLedgerAccounts.map(ledger => 
-        computePartnerCapital(ledger, trialSummary.rows, capitalLedgerNames)
-      );
-
-      setTradingPLData(tpl);
-      setCapitalAccounts(accounts);
+      const result = await fetchBalanceSheet();
       setData(result);
-
-      // Save to module cache
-      cachedPanelData = result;
-      cachedPanelCapitalAccounts = accounts;
-      cachedPanelTradingPLData = tpl;
-      cachedPanelFYId = selectedFY?._id || null;
+      setCapitalAccounts(result.capitalAccounts || []);
+      setTradingPLData(result.tradingPL || null);
     }
     catch (e: any) { 
       if (!silent) {
@@ -605,28 +263,19 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
       }
     }
     finally { setLoading(false); }
-  }, [selectedFY?._id]);
+  }, []);
 
   useEffect(() => {
     if (open) {
-      const hasCache = cachedPanelFYId === selectedFY?._id && cachedPanelData !== null;
-      if (hasCache) {
-        setData(cachedPanelData);
-        setCapitalAccounts(cachedPanelCapitalAccounts);
-        setTradingPLData(cachedPanelTradingPLData);
-        setLoading(false);
-      } else {
-        load(false);
-      }
+      load(false);
     }
-  }, [open, load]);
+  }, [open, load, selectedFY?._id]);
 
   useEffect(() => {
     const handleUpdate = () => {
       if (open) {
         load(true);
       } else {
-        cachedPanelData = null;
         setData(null);
       }
     };
@@ -724,7 +373,7 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
             <div className="flex-1 flex items-center justify-center text-slate-400">
               <div className="flex flex-col items-center gap-2">
                 <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs">Computing report from all sources…</span>
+                <span className="text-xs">Loading balance sheet…</span>
               </div>
             </div>
           )}

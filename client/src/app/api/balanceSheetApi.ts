@@ -106,6 +106,13 @@ export async function computeBalanceSheet(cache?: {
       continue;
     }
 
+    // Exclude nominal/closing stock transfer ledgers from the Balance Sheet
+    const ledgerNameLower = row.ledgerName.toLowerCase();
+    const isStockGroup = gNameLower.includes("stock") || gNameLower.includes("inventory");
+    if (isStockGroup && (ledgerNameLower.includes("opening") || ledgerNameLower.includes("closing"))) {
+      continue;
+    }
+
     // Accumulate all partner capital account balances into a single totalCapitalBalance
     // and skip listing them individually on the Balance Sheet table.
     // Note: Profit & Loss A/c represents Net Profit/Loss and is handled separately.

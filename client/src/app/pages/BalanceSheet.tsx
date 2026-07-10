@@ -276,18 +276,29 @@ function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, stri
 
     if (isStockGroup || isStockLedger) {
       // 1a. Opening Stock: derived from opening Dr balance, or if name contains "opening" and has a balance
-      // To prevent double counting, only include openingDr of original ledger or transferred balance if no other exists
-      if (r.openingDr > 0 && !ledgerName.includes("opening")) {
-        openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
-      } else if (r.openingDr === 0 && ledgerName.includes("opening") && r.closingDr > 0) {
-        const otherHasOpeningDr = rows.some((other) => {
-          const otherGroup = other.group.toLowerCase();
-          const otherLedger = other.ledgerName.toLowerCase();
-          const isOtherStock = otherGroup.includes("stock") || otherGroup.includes("inventory") || otherLedger.includes("stock") || otherLedger.includes("inventory");
-          return isOtherStock && other.openingDr > 0 && !otherLedger.includes("opening");
-        });
-        if (!otherHasOpeningDr) {
-          openingStockRows.push({ name: r.ledgerName, amount: r.closingDr });
+      if (ledgerName.includes("opening")) {
+        const amount = r.openingDr > 0 ? r.openingDr : r.closingDr;
+        if (amount > 0) {
+          openingStockRows.push({ name: r.ledgerName, amount });
+        }
+      } else {
+        if (r.openingDr > 0) {
+          // Check if this opening balance was transferred to a dedicated "opening" stock ledger
+          const isTransferred = rows.some((other) => {
+            const otherLedger = other.ledgerName.toLowerCase();
+            if (!otherLedger.includes("opening")) return false;
+            const otherAmount = other.openingDr > 0 ? other.openingDr : other.closingDr;
+            if (otherAmount <= 0) return false;
+            
+            // Clean names to check relationship
+            const cleanR = r.ledgerName.toLowerCase().replace("opening", "").replace(/\s+/g, "").trim();
+            const cleanOther = other.ledgerName.toLowerCase().replace("opening", "").replace(/\s+/g, "").trim();
+            return cleanR === cleanOther || cleanR.includes(cleanOther) || cleanOther.includes(cleanR) || Math.abs(otherAmount - r.openingDr) < 0.01;
+          });
+          
+          if (!isTransferred) {
+            openingStockRows.push({ name: r.ledgerName, amount: r.openingDr });
+          }
         }
       }
 
@@ -390,98 +401,31 @@ function computeTradingPL(rows: TrialRow[], groupParentsMap: Record<string, stri
 
 function computePartnerCapital(
   ledger: any,
-  bankEntries: any[],
-  journalEntries: any[],
-  bankAccounts: any[],
+  tbRows: TrialRow[],
   capitalLedgerNames: Set<string>
 ): PartnerCapitalAccount {
   const name = ledger.ledgerName;
-  const openingBalance = ledger.openingCr - ledger.openingDr;
-
-  // Build a map of accountId -> bank account name for label lookup
-  const bankAccountNameMap = new Map<string, string>();
-  bankAccounts.forEach((a: any) => {
-    if (a._id) bankAccountNameMap.set(a._id.toString(), a.name);
-  });
-
-  // Use maps to GROUP entries by account/ledger name and SUM amounts
-  const debitMap = new Map<string, number>();
-  const creditMap = new Map<string, number>();
-
-  // Bank/Cash entries — group by the capital ledger name
-  bankEntries.forEach((e) => {
-    if (e.contraAccountName === name) {
-      if (e.withdrawal > 0) {
-        debitMap.set(name, (debitMap.get(name) || 0) + e.withdrawal);
-      }
-      if (e.deposit > 0) {
-        creditMap.set(name, (creditMap.get(name) || 0) + e.deposit);
-      }
+  
+  const tbRow = tbRows.find(r => r.ledgerName.toLowerCase() === name.toLowerCase());
+  const openingBalance = tbRow ? (tbRow.openingCr - tbRow.openingDr) : (ledger.openingCr - ledger.openingDr);
+  const closingBalance = tbRow ? (tbRow.closingCr - tbRow.closingDr) : 0;
+  
+  const debits: CapitalTxn[] = [];
+  const credits: CapitalTxn[] = [];
+  
+  if (name.toLowerCase() === "opening balance" || name.toLowerCase().includes("capital")) {
+    credits.push({ particulars: "BY OPENING BALANCE", amount: Math.abs(openingBalance) });
+  } else {
+    if (closingBalance > 0) {
+      credits.push({ particulars: `BY ${name.toUpperCase()}`, amount: closingBalance });
+    } else if (closingBalance < 0) {
+      debits.push({ particulars: `TO ${name.toUpperCase()}`, amount: Math.abs(closingBalance) });
     }
-  });
-
-  // Journal entries — group by the CONTRA ACCOUNT NAME
-  journalEntries.forEach((e) => {
-    const items = e.items && e.items.length > 0
-      ? e.items
-      : [
-          { type: "Db", accountName: e.debitAccount,  amount: e.debitAmount  },
-          { type: "Cr", accountName: e.creditAccount, amount: e.creditAmount }
-        ];
-
-    const capitalLegs = items.filter((it: any) => it.accountName === name);
-    if (capitalLegs.length === 0) return;
-
-    capitalLegs.forEach((leg: any) => {
-      // Contra = the other side(s) of this journal entry
-      const contraNames = items
-        .filter((it: any) => it.accountName !== name)
-        .map((it: any) => it.accountName as string)
-        .filter(Boolean);
-
-      // If all contra accounts are capital accounts, this is an internal transfer.
-      // Group it under the ledger's own name to merge the transfer into the main capital account line.
-      const isInternalCapitalTransfer = contraNames.length > 0 && contraNames.every((cName: string) => 
-        capitalLedgerNames.has(cName.toLowerCase())
-      );
-      const contraLabel = isInternalCapitalTransfer 
-        ? name 
-        : (contraNames.length > 0 ? contraNames.join(", ") : (e.narration || "JOURNAL"));
-
-      const amt = Number(leg.amount || 0);
-      if (leg.type === "Db") {
-        debitMap.set(contraLabel, (debitMap.get(contraLabel) || 0) + amt);
-      } else {
-        creditMap.set(contraLabel, (creditMap.get(contraLabel) || 0) + amt);
-      }
-    });
-  });
-
-  // Convert grouped maps → formatted arrays
-  const formattedDebits: CapitalTxn[] = Array.from(debitMap.entries()).map(([key, amt]) => ({
-    particulars: `TO ${key.toUpperCase()}`,
-    amount: amt
-  }));
-
-  const formattedCredits: CapitalTxn[] = Array.from(creditMap.entries()).map(([key, amt]) => ({
-    particulars: `BY ${key.toUpperCase()}`,
-    amount: amt
-  }));
-
-  const finalCredits = [
-    { particulars: "BY OPENING BALANCE", amount: Math.abs(openingBalance) },
-    ...formattedCredits
-  ];
-
-  const creditsSum = finalCredits.reduce((s, c) => s + (c.amount ?? 0), 0);
-  const debitsSum = formattedDebits.reduce((s, d) => s + (d.amount ?? 0), 0);
-  const closingBalance = creditsSum - debitsSum;
-
-  const finalDebits = [
-    ...formattedDebits,
-    { particulars: "TO CLOSING BALANCE", amount: closingBalance }
-  ];
-
+  }
+  
+  const finalCredits = [...credits];
+  const finalDebits = [...debits];
+  
   return {
     ledgerName: name.toUpperCase(),
     debits: finalDebits,
@@ -566,9 +510,9 @@ export async function prefetchBalanceSheetData(fyId: string, force = false) {
       return true;
     });
 
-    const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
-      computePartnerCapital(ledger, bankEntries, journalEntries, bankAccounts, capitalLedgerNames)
-    ));
+    const accounts = capitalLedgerAccounts.map(ledger => 
+      computePartnerCapital(ledger, trialSummary.rows, capitalLedgerNames)
+    );
 
     cachedData = result;
     cachedCapitalAccounts = accounts;
@@ -731,9 +675,9 @@ export default function BalanceSheet() {
         return true;
       });
 
-      const accounts = await Promise.all(capitalLedgerAccounts.map(ledger => 
-        computePartnerCapital(ledger, bankEntries, journalEntries, bankAccounts, capitalLedgerNames)
-      ));
+      const accounts = capitalLedgerAccounts.map(ledger => 
+        computePartnerCapital(ledger, trialSummary.rows, capitalLedgerNames)
+      );
 
       setTradingPLData(tpl);
       setCapitalAccounts(accounts);
@@ -1024,7 +968,7 @@ export default function BalanceSheet() {
             if (tpl.totalClosingStock > 0) {
               tradingRight.push({ label: "BY INVENTORY", isHeader: true, depth: 0 });
               tpl.closingStockRows.forEach((r: any) => {
-                tradingRight.push({ label: "STOCK IN TRADE", amount: r.amount, depth: 1, ledgerName: r.name });
+                tradingRight.push({ label: r.name, amount: r.amount, depth: 1, ledgerName: r.name });
               });
             }
             if (tpl.grossProfit < 0) {

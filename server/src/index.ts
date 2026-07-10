@@ -16,6 +16,16 @@ const PORT = process.env.PORT || 5000;
 // Enable CORS for frontend requests
 app.use(cors());
 
+// Request timing logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    console.log(`[REQ] ${req.method} ${req.originalUrl} - Status: ${res.statusCode} - Duration: ${duration}ms`);
+  });
+  next();
+});
+
 // Parse incoming JSON and URL-encoded requests with limits
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));

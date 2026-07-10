@@ -14,4 +14,6 @@ const importedTransactionSchema = new Schema(
   { timestamps: true }
 );
 
+importedTransactionSchema.index({ companyId: 1, date: 1 });
+
 export const ImportedTransaction = model("ImportedTransaction", importedTransactionSchema);

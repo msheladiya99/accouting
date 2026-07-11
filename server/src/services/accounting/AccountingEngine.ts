@@ -19,6 +19,7 @@ import { BankCashAccount } from "../../models/BankCashAccount";
 import { Ledger } from "../../models/Ledger";
 import { AccountGroup } from "../../models/AccountGroup";
 import { FinancialYear } from "../../models/FinancialYear";
+import { ReportCacheService } from "./ReportCacheService";
 
 // ── Shared Types ────────────────────────────────────────────────────────────────
 
@@ -220,105 +221,175 @@ export async function computeTrialBalance(
       .lean(),
   ]);
 
-  // Compute prior-year opening balance adjustments (same logic as backend ledgerController)
-  const priorFYExists = await FinancialYear.exists({
-    companyId: cidFilter,
-    startDate: { $lt: fy.startDate },
-  });
-
-  // Build adjusted opening balances map (account for carry-forward from prior years)
-  const adjustedOpenings = new Map<string, { dr: number; cr: number; group: string }>();
-
-  if (priorFYExists) {
-    // For non-first FY: compute carry-forward from all prior-year transactions
-    const [priorJournals, priorBankEntries] = await Promise.all([
-      JournalEntry.find({
-        companyId: cidFilter,
-        date: { $lt: fy.startDate },
-        status: "Posted",
-      }).select("items debitAccount debitGroup debitAmount creditAccount creditGroup creditAmount").lean(),
-
-      BankCashEntry.find({
-        companyId: cidFilter,
-        date: { $lt: fy.startDate },
-      }).select("accountId deposit withdrawal contraAccountName contraAccountGroup").lean(),
-    ]);
-
-    const bankAccIdToName = new Map(bankAccounts.map((a) => [a._id.toString(), a.name]));
-
-    // Build a running ledger map from prior transactions
-    const priorLedgerMap = new Map<string, { dr: number; cr: number }>();
-    ledgers.forEach((l) => priorLedgerMap.set(l.ledgerName, { dr: 0, cr: 0 }));
-
-    for (const e of priorJournals as any[]) {
-      const items = e.items?.length > 0
-        ? e.items
-        : [
-            { type: "Db", accountName: e.debitAccount, amount: e.debitAmount },
-            { type: "Cr", accountName: e.creditAccount, amount: e.creditAmount },
-          ];
-      for (const item of items) {
-        if (!priorLedgerMap.has(item.accountName)) priorLedgerMap.set(item.accountName, { dr: 0, cr: 0 });
-        const b = priorLedgerMap.get(item.accountName)!;
-        if (item.type === "Db") b.dr += Number(item.amount || 0);
-        else b.cr += Number(item.amount || 0);
-      }
-    }
-
-    for (const e of priorBankEntries as any[]) {
-      if (priorLedgerMap.has(e.contraAccountName)) {
-        const b = priorLedgerMap.get(e.contraAccountName)!;
-        if (e.withdrawal > 0) b.dr += e.withdrawal;
-        if (e.deposit > 0) b.cr += e.deposit;
-      }
-      const accName = bankAccIdToName.get(e.accountId);
-      if (accName && priorLedgerMap.has(accName)) {
-        const b = priorLedgerMap.get(accName)!;
-        if (e.deposit > 0) b.dr += e.deposit;
-        if (e.withdrawal > 0) b.cr += e.withdrawal;
-      }
-    }
-
-    // Compute prior P&L for carry-forward
-    const groupCategoryMap = new Map<string, string>();
-    groups.forEach((g) => groupCategoryMap.set(g.groupName, SUPER_GROUP_PARENTS[g.superGroup] || "Assets"));
-
-    let priorRevenue = 0;
-    let priorExpenses = 0;
-    for (const l of ledgers) {
-      const cat = groupCategoryMap.get(l.groupName) || "Assets";
-      const txns = priorLedgerMap.get(l.ledgerName) || { dr: 0, cr: 0 };
-      if (cat === "Income") priorRevenue += (l.openingCr - l.openingDr) + txns.cr - txns.dr;
-      else if (cat === "Expense") priorExpenses += (l.openingDr - l.openingCr) + txns.dr - txns.cr;
-    }
-    const priorNetProfit = priorRevenue - priorExpenses;
-
-    // Now build adjusted opening balances
-    for (const l of ledgers) {
-      const cat = groupCategoryMap.get(l.groupName) || "Assets";
-      const txns = priorLedgerMap.get(l.ledgerName) || { dr: 0, cr: 0 };
-
-      let oDr = l.openingDr;
-      let oCr = l.openingCr;
-
-      if (cat === "Income" || cat === "Expense") {
-        oDr = 0; oCr = 0;
-      } else if (l.ledgerName.toUpperCase() === "PROFIT & LOSS A/C" || l.groupName.toUpperCase() === "PROFIT & LOSS A/C") {
-        const netPL = (oCr - oDr) + (txns.cr - txns.dr) + priorNetProfit;
-        oDr = netPL < 0 ? Math.abs(netPL) : 0;
-        oCr = netPL >= 0 ? netPL : 0;
-      } else {
-        const totalDr = oDr + txns.dr;
-        const totalCr = oCr + txns.cr;
-        if (totalDr > totalCr) { oDr = totalDr - totalCr; oCr = 0; }
-        else { oCr = totalCr - totalDr; oDr = 0; }
-      }
-      adjustedOpenings.set(l.ledgerName, { dr: oDr, cr: oCr, group: l.groupName });
-    }
+  // Check if we already have calculated prior-year carry-forward openings cached
+  let adjustedOpenings: Map<string, { dr: number; cr: number; group: string }>;
+  const cachedOpenings = ReportCacheService.get<[string, { dr: number; cr: number; group: string }][]>(
+    companyId,
+    fy.id,
+    "prior-openings"
+  );
+  if (cachedOpenings) {
+    adjustedOpenings = new Map(cachedOpenings);
   } else {
-    // First FY: use openingDr / openingCr directly
-    for (const l of ledgers) {
-      adjustedOpenings.set(l.ledgerName, { dr: l.openingDr, cr: l.openingCr, group: l.groupName });
+    adjustedOpenings = new Map<string, { dr: number; cr: number; group: string }>();
+
+    // Compute prior-year opening balance adjustments (same logic as backend ledgerController)
+    const priorFYExists = await FinancialYear.exists({
+      companyId: cidFilter,
+      startDate: { $lt: fy.startDate },
+    });
+
+    if (priorFYExists) {
+      // For non-first FY: compute carry-forward from all prior-year transactions
+      // Using high-performance MongoDB aggregations instead of full scans in Node
+      const [priorJournals, contraMovements, bankMovements] = await Promise.all([
+        JournalEntry.aggregate([
+          {
+            $match: {
+              companyId: cidFilter,
+              date: { $lt: fy.startDate },
+              status: "Posted",
+            }
+          },
+          {
+            $project: {
+              items: {
+                $cond: [
+                  { $and: [{ $isArray: "$items" }, { $gt: [{ $size: "$items" }, 0] }] },
+                  "$items",
+                  [
+                    { type: "Db", accountName: "$debitAccount", amount: "$debitAmount" },
+                    { type: "Cr", accountName: "$creditAccount", amount: "$creditAmount" }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            $unwind: "$items"
+          },
+          {
+            $group: {
+              _id: "$items.accountName",
+              dr: {
+                $sum: {
+                  $cond: [{ $eq: ["$items.type", "Db"] }, { $toDouble: "$items.amount" }, 0]
+                }
+              },
+              cr: {
+                $sum: {
+                  $cond: [{ $eq: ["$items.type", "Cr"] }, { $toDouble: "$items.amount" }, 0]
+                }
+              }
+            }
+          }
+        ]),
+        BankCashEntry.aggregate([
+          {
+            $match: {
+              companyId: cidFilter,
+              date: { $lt: fy.startDate }
+            }
+          },
+          {
+            $group: {
+              _id: "$contraAccountName",
+              dr: { $sum: "$withdrawal" },
+              cr: { $sum: "$deposit" }
+            }
+          }
+        ]),
+        BankCashEntry.aggregate([
+          {
+            $match: {
+              companyId: cidFilter,
+              date: { $lt: fy.startDate }
+            }
+          },
+          {
+            $group: {
+              _id: "$accountId",
+              dr: { $sum: "$deposit" },
+              cr: { $sum: "$withdrawal" }
+            }
+          }
+        ])
+      ]);
+
+      const priorLedgerMap = new Map<string, { dr: number; cr: number }>();
+      ledgers.forEach((l) => priorLedgerMap.set(l.ledgerName, { dr: 0, cr: 0 }));
+
+      // Load journals
+      for (const res of priorJournals) {
+        if (res._id) {
+          priorLedgerMap.set(res._id, { dr: res.dr || 0, cr: res.cr || 0 });
+        }
+      }
+
+      // Load bank entries contra
+      for (const cm of contraMovements) {
+        if (cm._id && priorLedgerMap.has(cm._id)) {
+          const b = priorLedgerMap.get(cm._id)!;
+          b.dr += cm.dr || 0;
+          b.cr += cm.cr || 0;
+        }
+      }
+
+      // Load bank entries bank
+      const bankAccIdToName = new Map(bankAccounts.map((a) => [a._id.toString(), a.name]));
+      for (const bm of bankMovements) {
+        const accName = bankAccIdToName.get(bm._id?.toString());
+        if (accName && priorLedgerMap.has(accName)) {
+          const b = priorLedgerMap.get(accName)!;
+          b.dr += bm.dr || 0;
+          b.cr += bm.cr || 0;
+        }
+      }
+
+      // Compute prior P&L for carry-forward
+      const groupCategoryMap = new Map<string, string>();
+      groups.forEach((g) => groupCategoryMap.set(g.groupName, SUPER_GROUP_PARENTS[g.superGroup] || "Assets"));
+
+      let priorRevenue = 0;
+      let priorExpenses = 0;
+      for (const l of ledgers) {
+        const cat = groupCategoryMap.get(l.groupName) || "Assets";
+        const txns = priorLedgerMap.get(l.ledgerName) || { dr: 0, cr: 0 };
+        if (cat === "Income") priorRevenue += (l.openingCr - l.openingDr) + txns.cr - txns.dr;
+        else if (cat === "Expense") priorExpenses += (l.openingDr - l.openingCr) + txns.dr - txns.cr;
+      }
+      const priorNetProfit = priorRevenue - priorExpenses;
+
+      // Now build adjusted opening balances
+      for (const l of ledgers) {
+        const cat = groupCategoryMap.get(l.groupName) || "Assets";
+        const txns = priorLedgerMap.get(l.ledgerName) || { dr: 0, cr: 0 };
+
+        let oDr = l.openingDr;
+        let oCr = l.openingCr;
+
+        if (cat === "Income" || cat === "Expense") {
+          oDr = 0; oCr = 0;
+        } else if (l.ledgerName.toUpperCase() === "PROFIT & LOSS A/C" || l.groupName.toUpperCase() === "PROFIT & LOSS A/C") {
+          const netPL = (oCr - oDr) + (txns.cr - txns.dr) + priorNetProfit;
+          oDr = netPL < 0 ? Math.abs(netPL) : 0;
+          oCr = netPL >= 0 ? netPL : 0;
+        } else {
+          const totalDr = oDr + txns.dr;
+          const totalCr = oCr + txns.cr;
+          if (totalDr > totalCr) { oDr = totalDr - totalCr; oCr = 0; }
+          else { oCr = totalCr - totalDr; oDr = 0; }
+        }
+        adjustedOpenings.set(l.ledgerName, { dr: oDr, cr: oCr, group: l.groupName });
+      }
+
+      // Cache the computed openings as array for storage
+      ReportCacheService.set(companyId, fy.id, "prior-openings", [...adjustedOpenings.entries()]);
+    } else {
+      // First FY: use openingDr / openingCr directly
+      for (const l of ledgers) {
+        adjustedOpenings.set(l.ledgerName, { dr: l.openingDr, cr: l.openingCr, group: l.groupName });
+      }
     }
   }
 
@@ -737,8 +808,14 @@ export async function computeBalanceSheet(
 ): Promise<BalanceSheetData> {
   const cidFilter = companyIdFilter(companyId);
 
-  const [trialSummary, groups, ledgers] = await Promise.all([
-    computeTrialBalance(companyId, fy),
+  // Reuse cached trial balance if available to avoid triple calculations
+  let trialSummary = ReportCacheService.get<TrialSummary>(companyId, fy.id, "trial-balance");
+  if (!trialSummary) {
+    trialSummary = await computeTrialBalance(companyId, fy);
+    ReportCacheService.set(companyId, fy.id, "trial-balance", trialSummary);
+  }
+
+  const [groups, ledgers] = await Promise.all([
     AccountGroup.find({ companyId: cidFilter }).select("groupName superGroup").lean(),
     Ledger.find({ companyId: cidFilter }).select("ledgerName groupName openingDr openingCr").lean(),
   ]);
@@ -983,8 +1060,13 @@ export async function computeDashboard(
   companyId: string,
   fy: { id: string; startDate: string; endDate: string }
 ): Promise<DashboardData> {
-  // Dashboard reuses trial balance data — call that and extract the key numbers
-  const { rows } = await computeTrialBalance(companyId, fy);
+  // Dashboard reuses trial balance data — retrieve from cache if available
+  let trialSummary = ReportCacheService.get<TrialSummary>(companyId, fy.id, "trial-balance");
+  if (!trialSummary) {
+    trialSummary = await computeTrialBalance(companyId, fy);
+    ReportCacheService.set(companyId, fy.id, "trial-balance", trialSummary);
+  }
+  const { rows } = trialSummary;
 
   const cidFilter = companyIdFilter(companyId);
   const groups = await AccountGroup.find({ companyId: cidFilter })

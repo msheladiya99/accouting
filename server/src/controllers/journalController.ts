@@ -117,6 +117,7 @@ export async function createJournalEntry(req: AuthenticatedRequest, res: Respons
     // Invalidate all cached reports for this company+FY so next read is fresh
     if (req.financialYear?.id) {
       ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+      ReportCacheService.warmup(req.companyId as string, req.financialYear);
     }
     res.status(201).json(entry);
   } catch (error: any) {
@@ -237,6 +238,7 @@ export async function updateJournalEntry(req: AuthenticatedRequest, res: Respons
     // Invalidate cached reports
     if (req.financialYear?.id) {
       ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+      ReportCacheService.warmup(req.companyId as string, req.financialYear);
     }
     res.json(entry);
   } catch (error: any) {
@@ -257,6 +259,7 @@ export async function deleteJournalEntry(req: AuthenticatedRequest, res: Respons
     // Invalidate cached reports
     if (req.financialYear?.id) {
       ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+      ReportCacheService.warmup(req.companyId as string, req.financialYear);
     }
     res.json({ message: "Journal entry deleted successfully" });
   } catch (error: any) {

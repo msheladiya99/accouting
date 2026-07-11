@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   Download, Printer, TrendingUp, TrendingDown, Scale, RefreshCw,
   CheckCircle2, AlertTriangle, BookOpen, ArrowLeftRight, FileText, X,
@@ -10,7 +10,10 @@ import { FYBanner } from "../components/FYBanner";
 import { BalanceSheetData } from "../api/balanceSheetApi";
 import { LedgerStatementModal } from "./TrialBalance";
 import { exportBalanceSheetDirect } from "../api/exportApi";
-import { fetchBalanceSheet } from "../api/reportsApi";
+import { useBalanceSheet } from "../hooks/useReportQueries";
+import { BalanceSheetSkeleton, RefreshingBadge } from "../components/SkeletonLoaders";
+import { useQueryClient } from "@tanstack/react-query";
+import { QUERY_KEYS } from "../api/queryClient";
 
 const fmt = (v: number) =>
   `\u20B9${Math.abs(v).toLocaleString("en-IN")}`;
@@ -435,39 +438,37 @@ function computePartnerCapital(
 // ── Main component ─────────────────────────────────────────────────────────
 export default function BalanceSheet() {
   const { selectedFY, company } = useApp();
+  const qc = useQueryClient();
   const financialYear = selectedFY?.label ?? "—";
 
-  const [data, setData]       = useState<BalanceSheetData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  // React Query hook — stale-while-revalidate: previous data shown instantly,
+  // fresh data loaded in background. No full-page spinner on re-navigation.
+  const {
+    data: rawData,
+    isLoading,
+    isFetching,
+    isError,
+    error: queryError,
+    refetch,
+  } = useBalanceSheet();
+
+  const data: BalanceSheetData | null = rawData ?? null;
+  const loading   = isLoading;
+  const refreshing = isFetching && !isLoading;
+  const error     = isError ? (queryError as any)?.message ?? "Failed to load balance sheet" : null;
+
   const [selectedLedger, setSelectedLedger] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const printAreaRef = useRef<HTMLDivElement>(null);
 
-  const [capitalAccounts, setCapitalAccounts] = useState<any[]>([]);
-  const [tradingPLData, setTradingPLData] = useState<any>(null);
+  const capitalAccounts = data?.capitalAccounts ?? [];
+  const tradingPLData   = data?.tradingPL ?? null;
 
-  const load = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-    setError(null);
-    try {
-      const result = await fetchBalanceSheet();
-      setData(result);
-      setCapitalAccounts(result.capitalAccounts || []);
-      setTradingPLData(result.tradingPL || null);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to load balance sheet");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load, selectedFY?._id]);
+  // Manual refresh — invalidates cache then refetches
+  const handleRefresh = () => {
+    qc.invalidateQueries({ queryKey: [...QUERY_KEYS.balanceSheet, selectedFY?._id] });
+    refetch();
+  };
 
   const triggerExport = useCallback(async () => {
     if (!data) {
@@ -543,7 +544,7 @@ export default function BalanceSheet() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => load(true)}
+            onClick={handleRefresh}
             disabled={refreshing}
             className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
@@ -575,19 +576,21 @@ export default function BalanceSheet() {
         </div>
       </div>
 
-      {/* Loading */}
-      {loading && (
-        <div className="flex items-center justify-center h-64 text-slate-500 text-sm gap-2">
-          <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-          Loading balance sheet…
-        </div>
-      )}
+      {/* Skeleton shown only on first load (no previous data) */}
+      {loading && <BalanceSheetSkeleton />}
 
       {/* Error */}
       {error && !loading && (
         <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
           <AlertTriangle size={16} className="shrink-0" />
           {error}
+        </div>
+      )}
+
+      {/* Background refresh badge — subtle, non-blocking */}
+      {refreshing && !loading && (
+        <div className="fixed top-4 right-4 z-50">
+          <RefreshingBadge visible={refreshing} />
         </div>
       )}
 

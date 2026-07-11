@@ -19,13 +19,17 @@ import * as XLSX from "xlsx";
 import toast from "react-hot-toast";
 import {
   type Ledger, type LedgerPayload, LEDGER_GROUPS,
-  getAllLedgers, createLedger, updateLedger, deleteLedger, bulkDeleteLedgers, mergeLedgers,
+  createLedger, updateLedger, deleteLedger, bulkDeleteLedgers, mergeLedgers,
   saveBulkOpeningBalances,
 } from "../api/ledgerApi";
 import {
-  getAllGroups, createGroup, SUPER_GROUPS, type AccountGroup, mergeGroups,
+  createGroup, SUPER_GROUPS, type AccountGroup, mergeGroups,
   updateGroup, deleteGroup, SUPER_GROUP_PARENTS, SUPER_GROUP_STATEMENT
 } from "../api/accountGroupApi";
+import { useLedgersRaw, useGroups as useQueryGroups } from "../hooks/useReportQueries";
+import { LedgerMasterSkeleton, RefreshingBadge } from "../components/SkeletonLoaders";
+import { useQueryClient } from "@tanstack/react-query";
+import { QUERY_KEYS, invalidateAllReports } from "../api/queryClient";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -995,9 +999,14 @@ function MergeGroupsModal({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function LedgerMaster() {
+  const qc = useQueryClient();
+
+  // React Query hooks — raw ledgers and groups list (cached and fast)
+  const { data: qLedgers, refetch: refetchLedgers, isLoading: isLoadingLedgers, isFetching: isFetchingLedgers } = useLedgersRaw();
+  const { data: qGroups, refetch: refetchGroups, isLoading: isLoadingGroups, isFetching: isFetchingGroups } = useQueryGroups();
+
   const [rows, setRows]         = useState<Ledger[]>([]);
   const [groups, setGroups]     = useState<AccountGroup[]>([]);
-  const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
   const [groupSaving, setGroupSaving] = useState(false);
   const [search, setSearch]     = useState("");
@@ -1042,13 +1051,15 @@ export default function LedgerMaster() {
   }, [ignoredGroups]);
 
   // Compute duplicate groups dynamically (excluding ignored groups)
+  // OPTIMIZATION: Only run O(n^2) duplicate search when suggestions panel is expanded.
   const duplicateGroups = useMemo(() => {
+    if (!suggestionsExpanded) return [];
     const allGroups = findDuplicateGroups(rows, similarityThreshold);
     return allGroups.filter((group) => {
       const key = group.map((l) => l._id).sort().join(",");
       return !ignoredGroups.includes(key);
     });
-  }, [rows, similarityThreshold, ignoredGroups]);
+  }, [rows, similarityThreshold, ignoredGroups, suggestionsExpanded]);
 
   // Duplicate Groups Matching States
   const [groupSimilarityThreshold, setGroupSimilarityThreshold] = useState<number>(0.5); // Default 50%
@@ -1075,35 +1086,47 @@ export default function LedgerMaster() {
   }, [ignoredGroupSuggestions]);
 
   // Compute duplicate account groups dynamically (excluding ignored suggestions)
+  // OPTIMIZATION: Only run O(n^2) duplicate search when group suggestions panel is expanded.
   const duplicateAccountGroups = useMemo(() => {
+    if (!groupSuggestionsExpanded) return [];
     const clusters = findDuplicateAccountGroups(groups, groupSimilarityThreshold);
     return clusters.filter((cluster) => {
       const key = cluster.map((g) => g._id).sort().join(",");
       return !ignoredGroupSuggestions.includes(key);
     });
-  }, [groups, groupSimilarityThreshold, ignoredGroupSuggestions]);
+  }, [groups, groupSimilarityThreshold, ignoredGroupSuggestions, groupSuggestionsExpanded]);
 
-  // ── Load ────────────────────────────────────────────────────────────────────
-  const load = useCallback(async () => {
-    setLoading(true);
-    setSelectedIds([]);
-    try {
-      const [ledgersData, groupsData] = await Promise.all([getAllLedgers(), getAllGroups()]);
-      setRows(ledgersData);
-      setGroups(groupsData);
+  // Synchronize local states with React Query cache
+  useEffect(() => {
+    if (qLedgers) {
+      setRows(qLedgers);
+    }
+  }, [qLedgers]);
+
+  useEffect(() => {
+    if (qGroups) {
+      setGroups(qGroups);
       // Update dynamic map
       DYNAMIC_SUPER_GROUP_MAP = {};
-      groupsData.forEach((g) => {
+      qGroups.forEach((g) => {
         DYNAMIC_SUPER_GROUP_MAP[g.groupName] = g.superGroup;
       });
-    } catch {
-      toast.error("Failed to load ledgers");
-    } finally {
-      setLoading(false);
     }
-  }, []);
+  }, [qGroups]);
 
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(async () => {
+    setSelectedIds([]);
+    await Promise.all([refetchLedgers(), refetchGroups()]);
+  }, [refetchLedgers, refetchGroups]);
+
+  const loading = (isLoadingLedgers && !rows.length) || (isLoadingGroups && !groups.length);
+  const refreshing = isFetchingLedgers || isFetchingGroups;
+
+  useEffect(() => {
+    // Initial sync
+    if (qLedgers) setRows(qLedgers);
+    if (qGroups) setGroups(qGroups);
+  }, []);
 
   const handleSaveGroup = useCallback(async (data: { groupName: string; superGroup: any }) => {
     setGroupSaving(true);
@@ -1544,8 +1567,19 @@ export default function LedgerMaster() {
     },
   ], [handleDelete, groups]);
 
+  if (loading && !rows.length) {
+    return <LedgerMasterSkeleton />;
+  }
+
   return (
     <div className="p-4 lg:p-6 space-y-5">
+      {/* Background refresh badge — subtle, non-blocking */}
+      {refreshing && !loading && (
+        <div className="fixed top-4 right-4 z-50">
+          <RefreshingBadge visible={refreshing} />
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -1560,10 +1594,11 @@ export default function LedgerMaster() {
         <div className="flex items-center gap-2">
           <button
             onClick={load}
+            disabled={refreshing}
             title="Refresh"
-            className="p-2 border border-slate-200 bg-white rounded-lg text-slate-500 hover:bg-slate-50 transition-colors"
+            className="p-2 border border-slate-200 bg-white rounded-lg text-slate-500 hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
-            <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+            <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} />
           </button>
           
           {activeTab === "ledgers" ? (
@@ -1840,12 +1875,7 @@ export default function LedgerMaster() {
 
           {/* AG Grid */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-            {loading ? (
-              <div className="flex items-center justify-center py-24 gap-3 text-slate-400">
-                <RefreshCw size={18} className="animate-spin" />
-                <span className="text-sm">Loading ledgers…</span>
-              </div>
-            ) : filtered.length === 0 ? (
+            {filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-24 gap-3">
                 <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center">
                   <BookMarked size={24} className="text-slate-400" />

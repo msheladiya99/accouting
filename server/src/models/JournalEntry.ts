@@ -29,5 +29,9 @@ journalEntrySchema.index({ companyId: 1, voucherNo: 1 }, { unique: true });
 journalEntrySchema.index({ companyId: 1, date: 1 });
 journalEntrySchema.index({ companyId: 1, "items.accountName": 1 });
 journalEntrySchema.index({ companyId: 1, status: 1, date: 1 });
+journalEntrySchema.index(
+  { companyId: 1, status: 1, date: 1 },
+  { partialFilterExpression: { status: "Posted" }, name: "idx_company_posted_date" }
+); // hot path: every TB/BS/PL compute filters status=Posted
 
 export const JournalEntry = model("JournalEntry", journalEntrySchema);

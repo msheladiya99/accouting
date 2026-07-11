@@ -113,6 +113,7 @@ export interface LedgerStatementRow {
   particulars: string;
   voucherNo: string;
   voucherType: string;
+  refId?: string;   // source entry ID for editing
   debit: number;
   credit: number;
   balance: number;

@@ -906,21 +906,25 @@ export async function computeBookReport(
     BankCashAccount.find({ companyId: cidFilter, group })
       .select("name group openingBalance")
       .lean(),
+    // Fetch only within the requested display range (prior-year aggregate handles opening balance).
+    // This avoids pulling the entire FY worth of entries when the user filters to a single month.
     BankCashEntry.find({
       companyId: cidFilter,
-      date: { $gte: fy.startDate, $lte: fy.endDate },
+      date: { $gte: dateFrom, $lte: dateTo },
     })
       .select("accountId date particulars withdrawal deposit contraAccountName contraAccountGroup createdAt")
       .lean(),
   ]);
 
-  // Get prior-year opening balances for each account
+  // Compute running balance up to (but not including) dateFrom so opening balance is correct
+  // for the displayed date range. This covers both prior-year entries and intra-FY entries
+  // that precede the display window.
   const priorEntries = await BankCashEntry.aggregate([
     {
       $match: {
         companyId: { $in: [new mongoose.Types.ObjectId(companyId), companyId] },
         accountId: { $in: accounts.map((a) => a._id.toString()) },
-        date: { $lt: fy.startDate },
+        date: { $lt: dateFrom },
       },
     },
     {
@@ -951,7 +955,7 @@ export async function computeBookReport(
 
     let running = openingBalance;
     for (const e of sorted) {
-      if (e.date < dateFrom || e.date > dateTo) { running += e.deposit - e.withdrawal; continue; }
+      // All entries are already within dateFrom–dateTo (query is now pre-filtered)
       running += e.deposit - e.withdrawal;
       rows.push({
         srNo: 0,

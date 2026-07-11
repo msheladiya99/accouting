@@ -13,7 +13,6 @@ import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { computeTrialBalance, TrialRow, TrialSummary } from "../api/trialBalanceApi";
-import { fetchTrialBalance } from "../api/reportsApi";
 import { getLedgerStatement, getAllLedgers, LedgerStatement, LedgerStatementRow, Ledger, createLedger, LEDGER_GROUPS } from "../api/ledgerApi";
 import { createJournalEntry, getAllJournalEntries, updateJournalEntry, deleteJournalEntry, type JournalPayload, type JournalEntry } from "../api/journalVoucherApi";
 import { getAllEntries, getAllAccounts, updateEntry, bulkDeleteEntries, type BankCashAccount, type BankCashRow, type EntryPayload } from "../api/bankCashBookApi";
@@ -22,6 +21,10 @@ import { JournalModal } from "./JournalVoucher";
 import { SmartDateInput } from "../components/ui/SmartDateInput";
 import { parseSmartDate } from "../utils/dateUtils";
 import { exportTrialBalanceDirect, exportLedgerStatementDirect } from "../api/exportApi";
+import { useTrialBalance } from "../hooks/useReportQueries";
+import { TrialBalanceSkeleton, RefreshingBadge } from "../components/SkeletonLoaders";
+import { useQueryClient } from "@tanstack/react-query";
+import { QUERY_KEYS, invalidateAllReports } from "../api/queryClient";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -1040,34 +1043,33 @@ export function LedgerStatementModal({
 // ── Main Trial Balance Page ────────────────────────────────────────────────────
 export default function TrialBalance() {
   const { selectedFY, company } = useApp();
+  const qc = useQueryClient();
   const financialYear = selectedFY?.label ?? "—";
 
-  const [summary, setSummary] = useState<TrialSummary | null>(null);
-  const [loading, setLoading]  = useState(true);
-  const [error, setError]      = useState<string | null>(null);
+  // React Query hook — stale-while-revalidate
+  const {
+    data: rawResult,
+    isLoading,
+    isFetching,
+    isError,
+    error: queryError,
+    refetch,
+  } = useTrialBalance();
+
+  const summary: TrialSummary | null = rawResult ?? null;
+  const loading   = isLoading;
+  const refreshing = isFetching && !isLoading;
+  const error     = isError ? (queryError as any)?.message ?? "Failed to load trial balance" : null;
+
   const [search, setSearch]    = useState("");
   const [groupFilter, setGroupFilter] = useState<string>("All");
   const [selectedLedger, setSelectedLedger] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
-
-
-  const load = useCallback(async (isRefresh = false) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await fetchTrialBalance();
-      setSummary(result);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to load trial balance");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load, selectedFY?._id]);
+  const handleRefresh = () => {
+    qc.invalidateQueries({ queryKey: [...QUERY_KEYS.trialBalance, selectedFY?._id] });
+    refetch();
+  };
 
   const allGroups = useMemo(() => {
     if (!summary) return [];
@@ -1343,6 +1345,10 @@ export default function TrialBalance() {
     },
   ], []);
 
+  if (loading && !summary) {
+    return <TrialBalanceSkeleton />;
+  }
+
   const pinnedBottom = useMemo(() => [{
     ledgerName: "TOTALS",
     group: "",
@@ -1365,6 +1371,13 @@ export default function TrialBalance() {
     <div className="p-4 lg:p-6 space-y-5">
       <FYBanner />
 
+      {/* Background refresh badge — subtle, non-blocking */}
+      {refreshing && !loading && (
+        <div className="fixed top-4 right-4 z-50">
+          <RefreshingBadge visible={refreshing} />
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -1374,6 +1387,14 @@ export default function TrialBalance() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? "Refreshing..." : "Refresh"}
+          </button>
           <button
             onClick={() => triggerPrint(false)}
             disabled={!summary || loading}
@@ -1447,8 +1468,8 @@ export default function TrialBalance() {
                 <Icon size={16} className={color} />
               </div>
               <div>
-                <p className="text-xs text-slate-500">{label}</p>
-                <p className={`font-bold ${color}`}>{value}</p>
+                <p className="text-xs text-slate-400">{label}</p>
+                <p className={`text-sm font-bold ${color}`}>{value}</p>
               </div>
             </div>
           ))}
@@ -1493,12 +1514,7 @@ export default function TrialBalance() {
 
       {/* Grid */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-        {loading ? (
-          <div className="flex items-center justify-center h-64 text-slate-500 text-sm gap-2">
-            <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-            Loading trial balance…
-          </div>
-        ) : error ? (
+        {error ? (
           <div className="flex items-center justify-center h-64 text-red-500 text-sm gap-2">
             <AlertTriangle size={16} />
             {error}

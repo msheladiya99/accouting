@@ -19,5 +19,7 @@ bankCashEntrySchema.index({ companyId: 1, date: 1 });
 bankCashEntrySchema.index({ accountId: 1 });
 bankCashEntrySchema.index({ companyId: 1, contraAccountName: 1 });
 bankCashEntrySchema.index({ companyId: 1, accountId: 1, date: 1 });
+bankCashEntrySchema.index({ companyId: 1, date: 1, deposit: 1, withdrawal: 1 }); // prior-year aggregate coverage
+bankCashEntrySchema.index({ companyId: 1, contraAccountName: 1, date: 1 }); // ledger statement date-filtered
 
 export const BankCashEntry = model("BankCashEntry", bankCashEntrySchema);

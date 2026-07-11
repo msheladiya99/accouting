@@ -8,6 +8,18 @@ export const axiosClient = axios.create({
   }
 });
 
+// ── In-flight GET deduplication ────────────────────────────────────────────────
+// Prevents duplicate HTTP requests when two components simultaneously call the
+// same endpoint (e.g., during page mount). Only one real request is made;
+// subsequent callers receive the same promise. React Query already deduplicates
+// at the hook level, but this covers any remaining axiosClient.get() call sites.
+const inflightGets = new Map<string, Promise<any>>();
+
+function makeInflightKey(url: string, params?: Record<string, any>): string {
+  const paramStr = params ? JSON.stringify(params) : "";
+  return `${url}::${paramStr}`;
+}
+
 // Request interceptor to automatically add JWT bearer tokens and company ID scoping headers
 axiosClient.interceptors.request.use(
   (config) => {
@@ -87,4 +99,26 @@ axiosClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+/**
+ * GET with automatic in-flight deduplication.
+ * If two callers request the same URL+params simultaneously, only one HTTP
+ * request fires. Both callers receive the same response data.
+ * React Query already does this at the hook level; this is a fallback for
+ * direct axiosClient.get() usage outside of hooks.
+ */
+export async function deduplicatedGet<T>(url: string, params?: Record<string, any>): Promise<T> {
+  const key = makeInflightKey(url, params);
+  if (inflightGets.has(key)) {
+    const data = await inflightGets.get(key)!;
+    return data as T;
+  }
+  const promise = axiosClient.get<T>(url, params ? { params } : undefined)
+    .then((r) => r.data)
+    .finally(() => inflightGets.delete(key));
+  inflightGets.set(key, promise);
+  return promise;
+}
+
 export default axiosClient;
+

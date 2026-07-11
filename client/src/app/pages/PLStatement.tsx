@@ -10,7 +10,10 @@ import { FYBanner } from "../components/FYBanner";
 import { buildPresets, PLData, PLSection, DatePreset } from "../api/plStatementApi";
 import type { FinancialYear } from "../api/financialYearApi";
 import { exportPLDirect } from "../api/exportApi";
-import { fetchProfitLoss } from "../api/reportsApi";
+import { useProfitLoss } from "../hooks/useReportQueries";
+import { PLStatementSkeleton, RefreshingBadge } from "../components/SkeletonLoaders";
+import { useQueryClient } from "@tanstack/react-query";
+import { QUERY_KEYS } from "../api/queryClient";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (v: number) =>
@@ -124,6 +127,7 @@ function ProfitLine({
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function PLStatement() {
   const { selectedFY, setSelectedFY, availableFYs, company } = useApp();
+  const qc = useQueryClient();
 
   const [activeFY, setActiveFY]   = useState<FinancialYear | undefined>(undefined);
   const [presets, setPresets]     = useState<DatePreset[]>([]);
@@ -132,10 +136,6 @@ export default function PLStatement() {
   const [dateTo, setDateTo]       = useState("");
   const [isCustom, setIsCustom]   = useState(false);
 
-  const [data, setData]           = useState<PLData | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError]         = useState<string | null>(null);
   const printAreaRef              = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -207,28 +207,29 @@ export default function PLStatement() {
     }
   };
 
-  const load = useCallback(
-    async (isRefresh = false) => {
-      if (!dateFrom || !dateTo) return;
-      if (isRefresh) setRefreshing(true);
-      else setLoading(true);
-      setError(null);
-      try {
-        const result = await fetchProfitLoss(dateFrom, dateTo);
-        setData(result);
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to load Profit & Loss");
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [dateFrom, dateTo],
-  );
+  // React Query hook — stale-while-revalidate
+  const {
+    data: rawData,
+    isLoading,
+    isFetching,
+    isError,
+    error: queryError,
+    refetch,
+  } = useProfitLoss(dateFrom, dateTo);
 
-  useEffect(() => {
-    if (dateFrom && dateTo) load();
-  }, [load]);
+  const data: PLData | null = rawData ?? null;
+  const loading   = isLoading;
+  const refreshing = isFetching && !isLoading;
+  const error     = isError ? (queryError as any)?.message ?? "Failed to load Profit & Loss" : null;
+
+  const handleRefresh = () => {
+    qc.invalidateQueries({ queryKey: QUERY_KEYS.profitLoss(dateFrom, dateTo) });
+    refetch();
+  };
+
+  const handleApply = () => {
+    refetch();
+  };
 
   const periodLabel = useMemo(() => {
     if (!dateFrom || !dateTo) return "";
@@ -249,7 +250,7 @@ export default function PLStatement() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => load(true)}
+            onClick={handleRefresh}
             disabled={refreshing || loading}
             className="flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
@@ -341,7 +342,7 @@ export default function PLStatement() {
             />
           </div>
           <button
-            onClick={() => load()}
+            onClick={handleApply}
             disabled={loading || !dateFrom || !dateTo}
             className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 font-medium"
           >
@@ -350,11 +351,13 @@ export default function PLStatement() {
         </div>
       </div>
 
-      {/* Loading */}
-      {loading && (
-        <div className="flex items-center justify-center h-56 text-slate-500 text-sm gap-2">
-          <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-          Loading Profit & Loss…
+      {/* Skeleton shown only on initial load (no previous data) */}
+      {loading && !data && <PLStatementSkeleton />}
+
+      {/* Background refresh badge — subtle, non-blocking */}
+      {refreshing && !loading && (
+        <div className="fixed top-4 right-4 z-50">
+          <RefreshingBadge visible={refreshing} />
         </div>
       )}
 

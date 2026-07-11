@@ -25,6 +25,7 @@ import BankImport from "./BankImport";
 import { getAllGroups } from "../api/accountGroupApi";
 import { getAllLedgers, type Ledger } from "../api/ledgerApi";
 import { exportBankCashBookFiltered } from "../api/exportApi";
+import { invalidateAllReports } from "../api/queryClient";
 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1775,7 +1776,7 @@ export default function BankCashBook() {
       setModal(null);
       clearFilters();
       await loadRows(accountFilter);
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      invalidateAllReports();
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Operation failed");
     } finally {
@@ -1801,7 +1802,7 @@ export default function BankCashBook() {
       setAccountFilter(newAcc._id);
       setGroupTypeFilter("all");
       setShowCreateAccModal(false);
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      invalidateAllReports();
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to create account");
     } finally {
@@ -1815,7 +1816,7 @@ export default function BankCashBook() {
       await deleteEntry(row._id);
       toast.success("Entry deleted");
       await loadRows(accountFilter);
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      invalidateAllReports();
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to delete entry");
     }
@@ -1833,7 +1834,7 @@ export default function BankCashBook() {
       } else {
         await loadRows(accountFilter);
       }
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      invalidateAllReports();
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to clear entries");
     }
@@ -1854,7 +1855,7 @@ export default function BankCashBook() {
       ]);
       setRows(entriesData);
       setAccounts(accountsData);
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      invalidateAllReports();
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to delete account");
     }
@@ -1922,7 +1923,7 @@ export default function BankCashBook() {
       toast.success("Saved", { duration: 1200, icon: "✓" });
       clearFilters();
       await loadRows(accountFilter, true); // silent background load
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      invalidateAllReports();
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to save");
       await loadRows(accountFilter); // full reload to reset state on error
@@ -1940,7 +1941,7 @@ export default function BankCashBook() {
       const [freshAccounts] = await Promise.all([getAllAccounts()]);
       setAccounts(freshAccounts);
       await loadRows(accountFilter);
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      invalidateAllReports();
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to update opening balance");
     }
@@ -1968,7 +1969,7 @@ export default function BankCashBook() {
       setBulkAccGroup("");
       clearFilters();
       await loadRows(accountFilter);
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      invalidateAllReports();
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Bulk update failed");
     } finally {
@@ -1987,7 +1988,7 @@ export default function BankCashBook() {
       setSelectedIds(new Set());
       clearFilters();
       await loadRows(accountFilter);
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      invalidateAllReports();
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Bulk deletion failed");
     } finally {
@@ -2005,7 +2006,7 @@ export default function BankCashBook() {
       setSelectedIds(new Set());
       clearFilters();
       await loadRows(accountFilter);
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      invalidateAllReports();
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Bulk approval failed");
     } finally {
@@ -2450,7 +2451,7 @@ export default function BankCashBook() {
                 clearFilters();
                 // Reload entries
                 await loadRows("all");
-                window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+                invalidateAllReports();
               }}
             />
           </div>

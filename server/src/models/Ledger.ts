@@ -15,5 +15,6 @@ const ledgerSchema = new Schema(
 );
 
 ledgerSchema.index({ companyId: 1, ledgerName: 1 }, { unique: true });
+ledgerSchema.index({ companyId: 1, groupName: 1 }); // covers TB/BS group-based selects
 
 export const Ledger = model("Ledger", ledgerSchema);

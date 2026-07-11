@@ -456,6 +456,7 @@ export async function createEntry(req: AuthenticatedRequest, res: Response): Pro
     // Invalidate reports cache
     if (req.financialYear?.id) {
       ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+      ReportCacheService.warmup(req.companyId as string, req.financialYear);
     }
     res.status(201).json(entry);
   } catch (error: any) {
@@ -558,6 +559,7 @@ export async function updateEntry(req: AuthenticatedRequest, res: Response): Pro
     // Invalidate reports cache
     if (req.financialYear?.id) {
       ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+      ReportCacheService.warmup(req.companyId as string, req.financialYear);
     }
     res.json(entry);
   } catch (error: any) {
@@ -578,6 +580,7 @@ export async function deleteEntry(req: AuthenticatedRequest, res: Response): Pro
     // Invalidate reports cache
     if (req.financialYear?.id) {
       ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+      ReportCacheService.warmup(req.companyId as string, req.financialYear);
     }
     res.json({ message: "Entry deleted successfully" });
   } catch (error: any) {
@@ -599,6 +602,7 @@ export async function bulkDeleteEntries(req: AuthenticatedRequest, res: Response
     // Invalidate reports cache
     if (req.financialYear?.id) {
       ReportCacheService.invalidate(req.companyId as string, req.financialYear.id);
+      ReportCacheService.warmup(req.companyId as string, req.financialYear);
     }
     res.json({ message: `Successfully deleted ${result.deletedCount} entries`, deletedCount: result.deletedCount });
   } catch (error: any) {

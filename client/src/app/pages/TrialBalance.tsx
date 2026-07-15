@@ -13,7 +13,7 @@ import {
 import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
-import { computeTrialBalance, TrialRow, TrialSummary } from "../api/trialBalanceApi";
+import { TrialRow, TrialSummary } from "../api/trialBalanceApi";
 import { getLedgerStatement, getAllLedgers, LedgerStatement, LedgerStatementRow, Ledger, createLedger, LEDGER_GROUPS } from "../api/ledgerApi";
 import { createJournalEntry, getAllJournalEntries, updateJournalEntry, deleteJournalEntry, type JournalPayload, type JournalEntry } from "../api/journalVoucherApi";
 import { getAllEntries, getAllAccounts, updateEntry, bulkDeleteEntries, type BankCashAccount, type BankCashRow, type EntryPayload } from "../api/bankCashBookApi";
@@ -847,10 +847,10 @@ export function LedgerStatementModal({
                     <th className="bg-[#cfe3f5] text-slate-800 font-bold border border-slate-400 px-3 py-2 text-center w-10">
                       <input
                         type="checkbox"
-                        checked={filtered.length > 0 && filtered.every(r => selectedRows.has(r.refId))}
+                        checked={filtered.length > 0 && filtered.every(r => r.refId ? selectedRows.has(r.refId) : false)}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setSelectedRows(new Set(filtered.map(r => r.refId).filter(Boolean)));
+                            setSelectedRows(new Set(filtered.map(r => r.refId).filter((id): id is string => !!id)));
                           } else {
                             setSelectedRows(new Set());
                           }
@@ -911,13 +911,13 @@ export function LedgerStatementModal({
                           {row.refId ? (
                             <input
                               type="checkbox"
-                              checked={selectedRows.has(row.refId)}
+                              checked={selectedRows.has(row.refId!)}
                               onChange={(e) => {
                                 const next = new Set(selectedRows);
                                 if (e.target.checked) {
-                                  next.add(row.refId);
+                                  next.add(row.refId!);
                                 } else {
-                                  next.delete(row.refId);
+                                  next.delete(row.refId!);
                                 }
                                 setSelectedRows(next);
                               }}

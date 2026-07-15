@@ -131,7 +131,7 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
         setOpen(false);
         setQuery("");
       } else if (query.trim() && !isExactMatch && onQuickCreate) {
-        onQuickCreate(query.trim(), (newLedger) => {
+        onQuickCreate(query.trim().toUpperCase(), (newLedger) => {
           onChange(newLedger.ledgerName, newLedger.groupName);
         });
         setOpen(false);
@@ -166,7 +166,7 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
         <input
           value={open ? query : (selected?.ledgerName ?? "")}
           onFocus={() => { setOpen(true); setQuery(""); }}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => setQuery(e.target.value.toUpperCase())}
           onKeyDown={handleKeyDown}
           placeholder={open ? "Search ledger…" : (placeholder ?? "Select ledger")}
           className={`bg-transparent outline-none text-slate-800 placeholder-slate-400 w-full ${compact ? "text-xs font-sans" : "text-sm"}`}
@@ -217,7 +217,7 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
                   type="button"
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    onQuickCreate?.(query.trim(), (newLedger) => {
+                    onQuickCreate?.(query.trim().toUpperCase(), (newLedger) => {
                       onChange(newLedger.ledgerName, newLedger.groupName);
                     });
                     setOpen(false);
@@ -225,7 +225,7 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
                   }}
                   className="w-full text-left px-4 py-2.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 border-t border-slate-100 flex items-center gap-1.5 sticky bottom-0 bg-white"
                 >
-                  <Plus size={12} /> Create "{query.trim()}"
+                  <Plus size={12} /> Create "{query.trim().toUpperCase()}"
                 </button>
               )}
             </>
@@ -430,7 +430,7 @@ function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY, onQuickCre
                             type="text"
                             value={dropOpen === idx ? search[idx] : row.accountName}
                             onFocus={() => { setDropOpen(idx); setSearch((s) => { const n=[...s]; n[idx]=row.accountName; return n; }); }}
-                            onChange={(e) => setSearch((s) => { const n=[...s]; n[idx]=e.target.value; return n; })}
+                            onChange={(e) => setSearch((s) => { const n=[...s]; n[idx]=e.target.value.toUpperCase(); return n; })}
                             onBlur={() => setTimeout(() => setDropOpen(null), 150)}
                             placeholder={isDb ? "Select Debit Account" : "Select Credit Account"}
                             className="w-full border border-slate-300 rounded px-2 py-1 text-xs outline-none bg-white focus:border-indigo-400"
@@ -457,7 +457,7 @@ function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY, onQuickCre
                                   type="button"
                                   onMouseDown={(e) => {
                                     e.preventDefault();
-                                    onQuickCreate?.(search[idx].trim(), (newLedger) => {
+                                    onQuickCreate?.(search[idx].trim().toUpperCase(), (newLedger) => {
                                       updateRow(idx, { accountName: newLedger.ledgerName, groupName: newLedger.groupName });
                                       setSearch((s) => { const n=[...s]; n[idx]=newLedger.ledgerName; return n; });
                                     });
@@ -465,7 +465,7 @@ function InlineVoucherEntry({ ledgers, loading, onSubmit, selectedFY, onQuickCre
                                   }}
                                   className="w-full text-left px-3 py-2 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 border-t border-slate-100 flex items-center gap-1.5 sticky bottom-0 bg-white"
                                 >
-                                  <Plus size={12} /> Create "{search[idx].trim()}"
+                                  <Plus size={12} /> Create "{search[idx].trim().toUpperCase()}"
                                 </button>
                               )}
                               {filteredLedgers.length === 0 && !search[idx]?.trim() && (

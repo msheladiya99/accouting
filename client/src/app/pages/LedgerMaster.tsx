@@ -352,9 +352,12 @@ function LedgerModal({ mode, ledger, loading, groups, onClose, onSubmit }: Modal
                 required: "Ledger name is required",
                 minLength: { value: 2, message: "Minimum 2 characters" },
                 maxLength: { value: 100, message: "Maximum 100 characters" },
+                onChange: (e) => {
+                  e.target.value = e.target.value.toUpperCase();
+                }
               })}
-              placeholder="e.g. Cash in Hand, HDFC Bank, ABC Corp…"
-              className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-all border
+              placeholder="e.g. CASH IN HAND, HDFC BANK, ABC CORP…"
+              className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none transition-all border uppercase
                 ${errors.ledgerName
                   ? "border-red-300 bg-red-50 focus:ring-2 focus:ring-red-100 focus:border-red-400"
                   : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"

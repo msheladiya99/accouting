@@ -8,6 +8,7 @@ import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import { BalanceSheetData } from "../api/balanceSheetApi";
+import { TrialRow } from "../api/trialBalanceApi";
 import { LedgerStatementModal } from "./TrialBalance";
 import { exportBalanceSheetDirect } from "../api/exportApi";
 import { useBalanceSheet } from "../hooks/useReportQueries";
@@ -234,6 +235,7 @@ function flattenUnmatched(unmatchedGroups: any[]): ReportRow[] {
 interface CapitalTxn {
   particulars: string;
   amount?: number;
+  ledgerName?: string;
 }
 
 interface PartnerCapitalAccount {

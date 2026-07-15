@@ -65,7 +65,9 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
 }) {
   const [open,  setOpen]  = useState(false);
   const [query, setQuery] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
@@ -89,18 +91,73 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [filtered, open]);
+
+  useEffect(() => {
+    if (open && listRef.current && highlightedIndex >= 0) {
+      const activeEl = listRef.current.querySelector(`[data-index="${highlightedIndex}"]`);
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }, [highlightedIndex, open]);
+
   const selected = ledgers.find((l) => l.ledgerName === value);
   const isExactMatch = useMemo(() => {
     return ledgers.some((l) => l.ledgerName.trim().toLowerCase() === query.trim().toLowerCase());
   }, [ledgers, query]);
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!open) {
+      if (e.key === "ArrowDown" || e.key === "Enter") {
+        setOpen(true);
+      }
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev < filtered.length - 1 ? prev + 1 : prev));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (filtered.length > 0 && highlightedIndex >= 0 && highlightedIndex < filtered.length) {
+        const item = filtered[highlightedIndex];
+        onChange(item.ledgerName, item.groupName);
+        setOpen(false);
+        setQuery("");
+      } else if (query.trim() && !isExactMatch && onQuickCreate) {
+        onQuickCreate(query.trim(), (newLedger) => {
+          onChange(newLedger.ledgerName, newLedger.groupName);
+        });
+        setOpen(false);
+        setQuery("");
+      }
+    } else if (e.key === "Tab") {
+      if (filtered.length > 0 && highlightedIndex >= 0 && highlightedIndex < filtered.length) {
+        const item = filtered[highlightedIndex];
+        onChange(item.ledgerName, item.groupName);
+      }
+      setOpen(false);
+      setQuery("");
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      setQuery("");
+    }
+  };
+
   return (
     <div ref={ref} className="relative">
-      <div className={compact ? `flex items-center gap-1.5 border border-slate-400 rounded-none px-2 py-0.5 transition-all ${
+      <div className={compact ? `flex items-center gap-1.5 border border-slate-400 rounded-none px-2 py-0.5 transition-all focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/30 ${
         open ? "bg-white" :
         hasError ? "border-red-400 bg-red-50" :
         "bg-white"
-      }` : `flex items-center gap-2 border rounded-lg px-3 py-2.5 transition-all ${
+      }` : `flex items-center gap-2 border rounded-lg px-3 py-2.5 transition-all focus-within:border-indigo-450 focus-within:ring-2 focus-within:ring-indigo-100 ${
         open ? "border-indigo-400 ring-2 ring-indigo-100 bg-white" :
         hasError ? "border-red-300 bg-red-50" :
         "border-slate-200 bg-slate-50"
@@ -110,15 +167,7 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
           value={open ? query : (selected?.ledgerName ?? "")}
           onFocus={() => { setOpen(true); setQuery(""); }}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              if (open) {
-                e.stopPropagation();
-                setOpen(false);
-                setQuery("");
-              }
-            }
-          }}
+          onKeyDown={handleKeyDown}
           placeholder={open ? "Search ledger…" : (placeholder ?? "Select ledger")}
           className={`bg-transparent outline-none text-slate-800 placeholder-slate-400 w-full ${compact ? "text-xs font-sans" : "text-sm"}`}
         />
@@ -130,7 +179,7 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
       </div>
       {selected && !open && !compact && <div className="mt-1"><GroupBadge group={selected.groupName} /></div>}
       {open && (
-        <div className="absolute z-50 w-full bg-white border border-slate-200 rounded-xl shadow-xl mt-1 max-h-56 overflow-y-auto">
+        <div ref={listRef} className="absolute z-50 w-full bg-white border border-slate-200 rounded-xl shadow-xl mt-1 max-h-56 overflow-y-auto">
           {filtered.length === 0 && !query.trim() ? (
             <p className="px-4 py-3 text-xs text-slate-400 text-center">No ledgers match "{query}"</p>
           ) : (
@@ -140,16 +189,27 @@ function LedgerCombobox({ ledgers, value, onChange, placeholder, hasError, compa
                   <p className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider sticky top-0 ${GROUP_COLORS[group]?.bg ?? "bg-slate-50"} ${GROUP_COLORS[group]?.text ?? "text-slate-600"}`}>
                     {group}
                   </p>
-                  {items.map((l) => (
-                    <button
-                      key={l._id}
-                      onMouseDown={(e) => { e.preventDefault(); onChange(l.ledgerName, l.groupName); setOpen(false); setQuery(""); }}
-                      className={`w-full flex items-center justify-between px-4 py-2 text-left text-sm hover:bg-slate-50 transition-colors ${l.ledgerName === value ? "bg-indigo-50 text-indigo-700 font-medium" : "text-slate-700"}`}
-                    >
-                      <span>{l.ledgerName}</span>
-                      {l.ledgerName === value && <CheckCircle2 size={12} className="text-indigo-500" />}
-                    </button>
-                  ))}
+                  {items.map((l) => {
+                    const flatIndex = filtered.indexOf(l);
+                    const isHighlighted = flatIndex === highlightedIndex;
+                    return (
+                      <button
+                        key={l._id}
+                        data-index={flatIndex}
+                        onMouseDown={(e) => { e.preventDefault(); onChange(l.ledgerName, l.groupName); setOpen(false); setQuery(""); }}
+                        className={`w-full flex items-center justify-between px-4 py-2 text-left text-sm hover:bg-slate-50 transition-colors ${
+                          isHighlighted 
+                            ? "bg-indigo-50 text-indigo-700 font-semibold border-l-2 border-indigo-600" 
+                            : l.ledgerName === value 
+                              ? "bg-slate-50 text-indigo-700 font-medium" 
+                              : "text-slate-700"
+                        }`}
+                      >
+                        <span>{l.ledgerName}</span>
+                        {l.ledgerName === value && <CheckCircle2 size={12} className="text-indigo-500" />}
+                      </button>
+                    );
+                  })}
                 </div>
               ))}
               {query.trim() && !isExactMatch && (
@@ -615,6 +675,39 @@ export function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selec
     }
   };
 
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Tab") {
+      if (!modalRef.current) return;
+      const focusableSelectors = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+      const elements = modalRef.current.querySelectorAll(focusableSelectors);
+      const focusable = Array.from(elements).filter((el) => {
+        const htmlEl = el as HTMLElement;
+        const isVisible = htmlEl.offsetWidth > 0 && htmlEl.offsetHeight > 0;
+        const isNotDisabled = !(htmlEl as any).disabled;
+        const isNotTabIndexMinus1 = htmlEl.getAttribute("tabindex") !== "-1";
+        return isVisible && isNotDisabled && isNotTabIndexMinus1;
+      }) as HTMLElement[];
+
+      if (focusable.length === 0) return;
+      const firstEl = focusable[0];
+      const lastEl = focusable[focusable.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === firstEl) {
+          e.preventDefault();
+          lastEl.focus();
+        }
+      } else {
+        if (document.activeElement === lastEl) {
+          e.preventDefault();
+          firstEl.focus();
+        }
+      }
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -650,7 +743,7 @@ export function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selec
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/45 backdrop-blur-xs" onClick={onClose} />
       
-      <div className="relative bg-[#eaf2f9] border border-slate-400 w-full max-w-5xl overflow-hidden max-h-[96vh] flex flex-col font-sans text-xs select-none shadow-2xl">
+      <div ref={modalRef} onKeyDown={handleModalKeyDown} className="relative bg-[#eaf2f9] border border-slate-400 w-full max-w-5xl overflow-hidden max-h-[96vh] flex flex-col font-sans text-xs select-none shadow-2xl">
         <div className="bg-[#b0d2ec] px-4 py-1.5 border-b border-slate-400 flex items-center justify-between">
           <span className="font-bold text-slate-800 text-[11px] tracking-wide">
             Transaction -{">"} Journal Entry -{">"} Add Journal
@@ -742,35 +835,38 @@ export function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selec
                 </tr>
               </thead>
               <tbody>
-                {gridRows.map((row, idx) => {
-                  const isDb = row.type === "Db";
-                  const isCr = row.type === "Cr";
-                  
-                  const availableLedgers = ledgers.filter((l) => {
-                    const otherSelected = gridRows
-                      .filter((_, rIdx) => rIdx !== idx)
-                      .map((r) => r.accountName.toLowerCase());
-                    return !otherSelected.includes(l.ledgerName.toLowerCase());
-                  });
+                {(() => {
+                  const firstEmptyIdx = gridRows.findIndex((r) => r.type === "");
+                  return gridRows.map((row, idx) => {
+                    const isDb = row.type === "Db";
+                    const isCr = row.type === "Cr";
+                    
+                    const availableLedgers = ledgers.filter((l) => {
+                      const otherSelected = gridRows
+                        .filter((_, rIdx) => rIdx !== idx)
+                        .map((r) => r.accountName.toLowerCase());
+                      return !otherSelected.includes(l.ledgerName.toLowerCase());
+                    });
 
-                  return (
-                    <tr key={idx} className="hover:bg-slate-50 border-b border-slate-300 h-8">
-                      <td className="border border-slate-400 p-0.5 text-center w-16">
-                        <select
-                          value={row.type}
-                          onChange={(e) => {
-                            const newType = e.target.value as "Db" | "Cr" | "";
-                            updateRow(idx, { type: newType, debit: "", credit: "" });
-                          }}
-                          className={`w-full bg-transparent border-0 outline-none text-center font-bold text-xs cursor-pointer ${
-                            isDb ? "text-indigo-700" : isCr ? "text-emerald-700" : "text-slate-400"
-                          }`}
-                        >
-                          <option value="">—</option>
-                          <option value="Db">Db</option>
-                          <option value="Cr">Cr</option>
-                        </select>
-                      </td>
+                    return (
+                      <tr key={idx} className="hover:bg-slate-50 border-b border-slate-300 h-8">
+                        <td className="border border-slate-400 p-0.5 text-center w-16">
+                          <select
+                            value={row.type}
+                            tabIndex={firstEmptyIdx !== -1 && idx > firstEmptyIdx ? -1 : undefined}
+                            onChange={(e) => {
+                              const newType = e.target.value as "Db" | "Cr" | "";
+                              updateRow(idx, { type: newType, debit: "", credit: "" });
+                            }}
+                            className={`w-full bg-transparent border-0 outline-none text-center font-bold text-xs cursor-pointer focus:bg-indigo-50/70 focus:ring-2 focus:ring-indigo-500/40 focus:outline-none focus:rounded-sm ${
+                              isDb ? "text-indigo-700" : isCr ? "text-emerald-700" : "text-slate-400"
+                            }`}
+                          >
+                            <option value="">—</option>
+                            <option value="Db">Db</option>
+                            <option value="Cr">Cr</option>
+                          </select>
+                        </td>
                       <td className="border border-slate-400 p-0.5">
                         {row.type ? (
                           <LedgerCombobox
@@ -796,7 +892,7 @@ export function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selec
                             value={row.debit}
                             onChange={(e) => updateRow(idx, { debit: e.target.value })}
                             placeholder="0.00"
-                            className="w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-red-700 bg-white"
+                            className="w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-red-700 bg-white focus:bg-indigo-50/40 focus:ring-2 focus:ring-indigo-500/40 focus:outline-none"
                           />
                         ) : (
                           <span className="block w-full text-right px-3 py-1 text-slate-400 bg-slate-50 select-none">NIL</span>
@@ -811,15 +907,16 @@ export function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selec
                             value={row.credit}
                             onChange={(e) => updateRow(idx, { credit: e.target.value })}
                             placeholder="0.00"
-                            className="w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-emerald-700 bg-white"
+                            className="w-full border-0 outline-none text-right px-2 py-1 font-mono font-semibold text-emerald-700 bg-white focus:bg-indigo-50/40 focus:ring-2 focus:ring-indigo-500/40 focus:outline-none"
                           />
                         ) : (
                           <span className="block w-full text-right px-3 py-1 text-slate-400 bg-slate-50 select-none">NIL</span>
                         )}
                       </td>
                     </tr>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </tbody>
             </table>
           </div>
@@ -844,12 +941,16 @@ export function JournalModal({ entry, ledgers, loading, onClose, onSubmit, selec
                     narrationRegisterRef(e);
                     if (e) narrationRef.current = e as any;
                   }}
-                  className="bg-white border border-slate-400 text-slate-800 text-xs px-2 py-1 outline-none w-[380px] h-14 resize-none"
+                  className="bg-white border border-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 focus:outline-none text-slate-800 text-xs px-2 py-1 outline-none w-[380px] h-14 resize-none"
                 />
               </div>
             </div>
             <div className="flex items-end justify-end gap-2.5">
-              <button type="submit" disabled={loading} className="bg-white hover:bg-slate-100 disabled:opacity-50 text-slate-800 border border-slate-400 px-8 py-1 text-xs font-semibold shadow-xs cursor-pointer min-w-[80px]">
+              <button 
+                type="submit" 
+                disabled={loading} 
+                className="bg-white hover:bg-indigo-600 hover:text-white focus:bg-indigo-600 focus:text-white focus:ring-4 focus:ring-indigo-200 focus:outline-none disabled:opacity-50 text-slate-800 border border-slate-400 focus:border-indigo-600 px-8 py-1 text-xs font-semibold shadow-xs cursor-pointer min-w-[80px] transition-all"
+              >
                 {loading ? "Saving..." : "OK"}
               </button>
             </div>

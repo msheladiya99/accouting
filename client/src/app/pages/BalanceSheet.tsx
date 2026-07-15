@@ -457,6 +457,70 @@ export default function BalanceSheet() {
   const refreshing = isFetching && !isLoading;
   const error     = isError ? (queryError as any)?.message ?? "Failed to load balance sheet" : null;
 
+  const handleReportKeyDown = useCallback((
+    e: React.KeyboardEvent<HTMLElement>,
+    section: string,
+    row: number,
+    col: number
+  ) => {
+    const isArrow = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key);
+    if (!isArrow) return;
+
+    e.preventDefault();
+
+    const elements = Array.from(
+      document.querySelectorAll("[data-report-section]")
+    ) as HTMLElement[];
+
+    const sectionElements = elements.filter(
+      (el) => el.getAttribute("data-report-section") === section
+    );
+
+    let target: HTMLElement | undefined;
+
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      const targetCol = col === 0 ? 1 : 0;
+      const colElements = sectionElements.filter(
+        (el) => Number(el.getAttribute("data-report-col")) === targetCol
+      );
+      
+      if (colElements.length > 0) {
+        colElements.sort((a, b) => {
+          const aRow = Number(a.getAttribute("data-report-row"));
+          const bRow = Number(b.getAttribute("data-report-row"));
+          return Math.abs(aRow - row) - Math.abs(bRow - row);
+        });
+        target = colElements[0];
+      }
+    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      const colElements = sectionElements.filter(
+        (el) => Number(el.getAttribute("data-report-col")) === col
+      );
+
+      colElements.sort((a, b) => {
+        const aRow = Number(a.getAttribute("data-report-row"));
+        const bRow = Number(b.getAttribute("data-report-row"));
+        return aRow - bRow;
+      });
+
+      const currentIndex = colElements.findIndex(
+        (el) => Number(el.getAttribute("data-report-row")) === row
+      );
+
+      if (currentIndex !== -1) {
+        if (e.key === "ArrowUp" && currentIndex > 0) {
+          target = colElements[currentIndex - 1];
+        } else if (e.key === "ArrowDown" && currentIndex < colElements.length - 1) {
+          target = colElements[currentIndex + 1];
+        }
+      }
+    }
+
+    if (target) {
+      target.focus();
+    }
+  }, []);
+
   const [selectedLedger, setSelectedLedger] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const printAreaRef = useRef<HTMLDivElement>(null);
@@ -794,7 +858,7 @@ export default function BalanceSheet() {
             const tradingTotalAmount = tpl.totalOpeningStock + tpl.totalPurchases + tpl.totalDirectExp + (tpl.grossProfit > 0 ? tpl.grossProfit : 0);
             const plTotalAmount = (tpl.grossProfit < 0 ? Math.abs(tpl.grossProfit) : 0) + tpl.totalFinancialExp + tpl.totalDepreciation + tpl.totalIndirectExp + (tpl.netProfit > 0 ? tpl.netProfit : 0);
 
-            const renderPLRowHelper = (rows: any[]) => {
+            const renderPLRowHelper = (rows: any[], sectionName: string, colIdx: number) => {
               return rows.map((row, idx) => {
                 if (row.label === "") {
                   return <div key={idx} className="min-h-[22px] py-0.5" />;
@@ -807,26 +871,41 @@ export default function BalanceSheet() {
                       ? "font-bold text-slate-800 text-xs" 
                       : "font-normal text-slate-600 text-xs";
 
+                const isClickable = !!row.ledgerName;
                 return (
-                  <div key={idx} className={`flex py-0.5 items-center min-h-[22px] ${fontClass}`}>
-                    <div
-                      onClick={() => row.ledgerName && setSelectedLedger(row.ledgerName)}
-                      onKeyDown={(e) => {
-                        if (row.ledgerName && (e.key === "Enter" || e.key === " ")) {
+                  <div
+                    key={idx}
+                    onClick={() => isClickable && setSelectedLedger(row.ledgerName!)}
+                    onKeyDown={(e) => {
+                      if (isClickable) {
+                        if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
-                          setSelectedLedger(row.ledgerName);
+                          setSelectedLedger(row.ledgerName!);
+                        } else {
+                          handleReportKeyDown(e, sectionName, idx, colIdx);
                         }
-                      }}
-                      tabIndex={row.ledgerName ? 0 : undefined}
+                      }
+                    }}
+                    tabIndex={isClickable ? 0 : undefined}
+                    data-report-section={sectionName}
+                    data-report-row={idx}
+                    data-report-col={colIdx}
+                    role={isClickable ? "button" : undefined}
+                    aria-label={isClickable ? `Open ledger statement: ${row.label}` : undefined}
+                    className={`flex py-0.5 items-center min-h-[22px] ${fontClass} rounded-sm outline-none group ${
+                      isClickable
+                        ? 'cursor-pointer focus:bg-indigo-500 focus:text-white focus:ring-0 hover:bg-indigo-50 transition-colors'
+                        : ''
+                    }`}
+                  >
+                    <div
                       className={`flex-1 pr-2 uppercase ${indentClass} ${
                         row.isHeader ? 'underline decoration-slate-300 underline-offset-2' : ''
-                      } ${
-                        row.ledgerName ? 'cursor-pointer hover:text-indigo-600 hover:underline transition-colors focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:bg-indigo-50/50 rounded-sm' : ''
-                      }`}
+                      } group-focus:text-white`}
                     >
                       {row.label}
                     </div>
-                    <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
+                    <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900 group-focus:text-white">
                       {row.amount !== undefined ? fmtReport(row.amount) : ""}
                     </div>
                   </div>
@@ -863,7 +942,7 @@ export default function BalanceSheet() {
                             <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
                           </div>
                           <div className="py-3 relative z-10 space-y-1">
-                            {renderPLRowHelper(tradingLeft)}
+                            {renderPLRowHelper(tradingLeft, "trading", 0)}
                           </div>
                         </div>
                         <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10">
@@ -885,7 +964,7 @@ export default function BalanceSheet() {
                             <div className="w-[140px] shrink-0 py-3 text-right pr-4 text-slate-800 uppercase tracking-wider font-bold">AMOUNT</div>
                           </div>
                           <div className="py-3 relative z-10 space-y-1">
-                            {renderPLRowHelper(tradingRight)}
+                            {renderPLRowHelper(tradingRight, "trading", 1)}
                           </div>
                         </div>
                         <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10">
@@ -907,7 +986,7 @@ export default function BalanceSheet() {
                       <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
                       <div className="flex-grow flex flex-col justify-between">
                         <div className="py-3 relative z-10 space-y-1">
-                          {renderPLRowHelper(plLeft)}
+                          {renderPLRowHelper(plLeft, "pl", 0)}
                         </div>
                         <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10">
                           <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
@@ -923,7 +1002,7 @@ export default function BalanceSheet() {
                       <div className="absolute top-0 bottom-0 right-[140px] border-l border-slate-800 pointer-events-none" />
                       <div className="flex-grow flex flex-col justify-between">
                         <div className="py-3 relative z-10 space-y-1">
-                          {renderPLRowHelper(plRight)}
+                          {renderPLRowHelper(plRight, "pl", 1)}
                         </div>
                         <div className="flex border-t border-slate-800 font-bold text-slate-900 text-xs bg-slate-50/50 relative z-10">
                           <div className="flex-1 py-3 pl-4 uppercase tracking-wider font-bold">TOTAL</div>
@@ -955,24 +1034,33 @@ export default function BalanceSheet() {
             capitalAccounts.forEach((account: PartnerCapitalAccount) => {
               // For each capital ledger, add its opening balance with ledger name prefix
               const openingRow = account.credits.find(c => c.particulars === "BY OPENING BALANCE");
+              const mainName = account.ledgerName || "Capital Account";
               if (openingRow && (openingRow.amount ?? 0) > 0) {
                 if (capitalAccounts.length === 1 || account.ledgerName === "OPENING BALANCE") {
-                  openingBalanceCredits.push({ particulars: "BY OPENING BALANCE", amount: openingRow.amount });
+                  openingBalanceCredits.push({ particulars: "BY OPENING BALANCE", amount: openingRow.amount, ledgerName: mainName });
                 } else {
-                  openingBalanceCredits.push({ particulars: `BY OPENING BALANCE (${account.ledgerName})`, amount: openingRow.amount });
+                  openingBalanceCredits.push({ particulars: `BY OPENING BALANCE (${mainName})`, amount: openingRow.amount, ledgerName: mainName });
                 }
               }
               // Other credits (not opening balance)
               account.credits
                 .filter(c => c.particulars !== "BY OPENING BALANCE")
                 .forEach(c => {
-                  otherCredits.push(c);
+                  let cleanName = c.particulars;
+                  if (cleanName.startsWith("BY ")) {
+                    cleanName = cleanName.slice(3);
+                  }
+                  otherCredits.push({ ...c, ledgerName: cleanName });
                 });
               // Debits (not closing balance)
               account.debits
                 .filter(d => !d.particulars.includes("TO CLOSING BALANCE"))
                 .forEach(d => {
-                  allDebits.push(d);
+                  let cleanName = d.particulars;
+                  if (cleanName.startsWith("TO ")) {
+                    cleanName = cleanName.slice(3);
+                  }
+                  allDebits.push({ ...d, ledgerName: cleanName });
                 });
             });
 
@@ -982,7 +1070,8 @@ export default function BalanceSheet() {
             const creditsSum = allCredits.reduce((s, c) => s + (c.amount ?? 0), 0);
             const debitsSum = allDebits.reduce((s, d) => s + (d.amount ?? 0), 0);
             const closingBalance = creditsSum - debitsSum;
-            allDebits.push({ particulars: "TO CLOSING BALANCE", amount: closingBalance });
+            const mainLedgerName = capitalAccounts[0]?.ledgerName || "Capital Account";
+            allDebits.push({ particulars: "TO CLOSING BALANCE", amount: closingBalance, ledgerName: mainLedgerName });
             combinedTotal = Math.max(
               allDebits.reduce((s, d) => s + (d.amount ?? 0), 0),
               allCredits.reduce((s, c) => s + (c.amount ?? 0), 0)
@@ -1022,11 +1111,37 @@ export default function BalanceSheet() {
                         <div className="flex-grow py-3 relative z-10 space-y-1 pb-6">
                           {paddedDebits.map((row, idx) => {
                             if (row.particulars === "") return <div key={idx} className="min-h-[22px] py-0.5" />;
+                            const isClickable = !!row.ledgerName;
                             const isClosing = row.particulars.includes("CLOSING BALANCE");
+                            const fontClass = isClosing ? "font-bold text-slate-800 text-xs" : "font-normal text-slate-600 text-xs";
                             return (
-                              <div key={idx} className={`flex py-0.5 items-center min-h-[22px] text-xs ${isClosing ? "font-bold text-slate-800" : "font-normal text-slate-600"}`}>
-                                <div className="flex-1 pr-2 uppercase pl-4">{row.particulars}</div>
-                                <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
+                              <div
+                                key={idx}
+                                onClick={() => isClickable && setSelectedLedger(row.ledgerName!)}
+                                onKeyDown={(e) => {
+                                  if (isClickable) {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      setSelectedLedger(row.ledgerName!);
+                                    } else {
+                                      handleReportKeyDown(e, "capital", idx, 0);
+                                    }
+                                  }
+                                }}
+                                tabIndex={isClickable ? 0 : undefined}
+                                data-report-section="capital"
+                                data-report-row={idx}
+                                data-report-col={0}
+                                role={isClickable ? "button" : undefined}
+                                aria-label={isClickable ? `Open ledger statement: ${row.particulars}` : undefined}
+                                className={`flex py-0.5 items-center min-h-[22px] ${fontClass} rounded-sm outline-none group ${
+                                  isClickable
+                                    ? 'cursor-pointer focus:bg-indigo-500 focus:text-white focus:ring-0 hover:bg-indigo-50 transition-colors'
+                                    : ''
+                                }`}
+                              >
+                                <div className="flex-1 pr-2 uppercase pl-4 group-focus:text-white">{row.particulars}</div>
+                                <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900 group-focus:text-white">
                                   {row.amount !== undefined ? fmtReport(row.amount) : ""}
                                 </div>
                               </div>
@@ -1053,11 +1168,37 @@ export default function BalanceSheet() {
                         <div className="flex-grow py-3 relative z-10 space-y-1 pb-6">
                           {paddedCredits.map((row, idx) => {
                             if (row.particulars === "") return <div key={idx} className="min-h-[22px] py-0.5" />;
+                            const isClickable = !!row.ledgerName;
                             const isOpening = row.particulars.includes("OPENING BALANCE");
+                            const fontClass = isOpening ? "font-bold text-slate-800 text-xs" : "font-normal text-slate-600 text-xs";
                             return (
-                              <div key={idx} className={`flex py-0.5 items-center min-h-[22px] text-xs ${isOpening ? "font-bold text-slate-800" : "font-normal text-slate-600"}`}>
-                                <div className="flex-1 pr-2 uppercase pl-4">{row.particulars}</div>
-                                <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900">
+                              <div
+                                key={idx}
+                                onClick={() => isClickable && setSelectedLedger(row.ledgerName!)}
+                                onKeyDown={(e) => {
+                                  if (isClickable) {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      setSelectedLedger(row.ledgerName!);
+                                    } else {
+                                      handleReportKeyDown(e, "capital", idx, 1);
+                                    }
+                                  }
+                                }}
+                                tabIndex={isClickable ? 0 : undefined}
+                                data-report-section="capital"
+                                data-report-row={idx}
+                                data-report-col={1}
+                                role={isClickable ? "button" : undefined}
+                                aria-label={isClickable ? `Open ledger statement: ${row.particulars}` : undefined}
+                                className={`flex py-0.5 items-center min-h-[22px] ${fontClass} rounded-sm outline-none group ${
+                                  isClickable
+                                    ? 'cursor-pointer focus:bg-indigo-500 focus:text-white focus:ring-0 hover:bg-indigo-50 transition-colors'
+                                    : ''
+                                }`}
+                              >
+                                <div className="flex-1 pr-2 uppercase pl-4 group-focus:text-white">{row.particulars}</div>
+                                <div className="w-[140px] shrink-0 text-right pr-4 font-mono text-xs tabular-nums text-slate-900 group-focus:text-white">
                                   {row.amount !== undefined ? fmtReport(row.amount) : ""}
                                 </div>
                               </div>
@@ -1123,12 +1264,19 @@ export default function BalanceSheet() {
                             key={idx}
                             onClick={() => isClickable && setSelectedLedger(row.ledgerName!)}
                             onKeyDown={(e) => {
-                              if (isClickable && (e.key === "Enter" || e.key === " ")) {
-                                e.preventDefault();
-                                setSelectedLedger(row.ledgerName!);
+                              if (isClickable) {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  setSelectedLedger(row.ledgerName!);
+                                } else {
+                                  handleReportKeyDown(e, "balance-sheet", idx, 0);
+                                }
                               }
                             }}
                             tabIndex={isClickable ? 0 : undefined}
+                            data-report-section="balance-sheet"
+                            data-report-row={idx}
+                            data-report-col={0}
                             role={isClickable ? "button" : undefined}
                             aria-label={isClickable ? `Open ledger statement: ${row.label}` : undefined}
                             className={`flex py-0.5 items-center ${fontClass} rounded-sm outline-none group ${
@@ -1184,12 +1332,19 @@ export default function BalanceSheet() {
                             key={idx}
                             onClick={() => isClickable && setSelectedLedger(row.ledgerName!)}
                             onKeyDown={(e) => {
-                              if (isClickable && (e.key === "Enter" || e.key === " ")) {
-                                e.preventDefault();
-                                setSelectedLedger(row.ledgerName!);
+                              if (isClickable) {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  setSelectedLedger(row.ledgerName!);
+                                } else {
+                                  handleReportKeyDown(e, "balance-sheet", idx, 1);
+                                }
                               }
                             }}
                             tabIndex={isClickable ? 0 : undefined}
+                            data-report-section="balance-sheet"
+                            data-report-row={idx}
+                            data-report-col={1}
                             role={isClickable ? "button" : undefined}
                             aria-label={isClickable ? `Open ledger statement: ${row.label}` : undefined}
                             className={`flex py-0.5 items-center ${fontClass} rounded-sm outline-none group ${

@@ -8,6 +8,7 @@ import {
   Download, Printer, Search, CheckCircle2, AlertTriangle,
   BookOpen, ArrowLeftRight, FileText, Layers, X, ExternalLink,
   TrendingUp, TrendingDown, Minus, ChevronRight, Plus, Loader2, Save, Trash2,
+  RefreshCw,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
@@ -1345,10 +1346,6 @@ export default function TrialBalance() {
     },
   ], []);
 
-  if (loading && !summary) {
-    return <TrialBalanceSkeleton />;
-  }
-
   const pinnedBottom = useMemo(() => [{
     ledgerName: "TOTALS",
     group: "",
@@ -1366,6 +1363,10 @@ export default function TrialBalance() {
     }
     return undefined;
   }, []);
+
+  if (loading && !summary) {
+    return <TrialBalanceSkeleton />;
+  }
 
   return (
     <div className="p-4 lg:p-6 space-y-5">

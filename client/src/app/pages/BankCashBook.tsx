@@ -23,7 +23,7 @@ import {
 
 import BankImport from "./BankImport";
 import { getAllGroups } from "../api/accountGroupApi";
-import { getAllLedgers, type Ledger } from "../api/ledgerApi";
+import { getAllLedgers, type Ledger, createLedger } from "../api/ledgerApi";
 import { exportBankCashBookFiltered } from "../api/exportApi";
 import { invalidateAllReports } from "../api/queryClient";
 
@@ -112,7 +112,7 @@ const GROUP_COLORS: Record<AccountGroup, { bg: string; text: string; icon: React
 
 // ── Entry Modal ───────────────────────────────────────────────────────────────
 export function EntryModal({
-  accounts, entry, loading, onClose, onSubmit, contraGroups, ledgers, selectedFY,
+  accounts, entry, loading, onClose, onSubmit, contraGroups, ledgers, selectedFY, onQuickCreate
 }: {
   accounts: BankCashAccount[];
   entry?: BankCashRow;
@@ -122,6 +122,7 @@ export function EntryModal({
   contraGroups: string[];
   ledgers?: Ledger[];
   selectedFY: FinancialYear | null;
+  onQuickCreate?: (name: string, callback: (newLedger: Ledger) => void, defaultGroup?: string) => void;
 }) {
   const { register, handleSubmit, watch, setValue, control, formState: { errors } } = useForm<EntryPayload>({
     defaultValues: {
@@ -298,11 +299,12 @@ export function EntryModal({
                   onChange={(val) => setValue("contraAccountName", val, { shouldValidate: true })}
                   onSelect={(val) => setValue("contraAccountName", val, { shouldValidate: true })}
                   placeholder="Search or select ledger..."
-                  className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all ${
+                  className={`w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-all uppercase ${
                     errors.contraAccountName
                       ? "border-red-300 bg-red-50"
                       : "border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 font-medium text-slate-800"
                   }`}
+                  onQuickCreate={(name, cb) => onQuickCreate?.(name, cb, watch("contraAccountGroup"))}
                 />
                 <input type="hidden" {...register("contraAccountName", {
                   required: "Account name is required",
@@ -510,6 +512,7 @@ function LedgerAutocomplete({
   autoFocus = false,
   onBlur,
   onKeyDown,
+  onQuickCreate,
 }: {
   value: string;
   onChange: (val: string) => void;
@@ -520,6 +523,7 @@ function LedgerAutocomplete({
   autoFocus?: boolean;
   onBlur?: () => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onQuickCreate?: (name: string, callback: (newLedger: Ledger) => void, defaultGroup?: string) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -592,12 +596,12 @@ function LedgerAutocomplete({
         value={value}
         placeholder={placeholder}
         onChange={(e) => {
-          onChange(e.target.value);
+          onChange(e.target.value.toUpperCase());
           setIsOpen(true);
         }}
         onFocus={() => setIsOpen(true)}
         onKeyDown={handleKeyDownLocal}
-        className={className}
+        className={`${className} uppercase`}
       />
       {isOpen && (
         <div className="absolute left-0 right-0 mt-1 z-50 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-xl py-1 text-sm">
@@ -638,6 +642,21 @@ function LedgerAutocomplete({
               );
             })
           )}
+          {value.trim() && !ledgers.some((l) => l.ledgerName.trim().toLowerCase() === value.trim().toLowerCase()) && onQuickCreate && (
+            <button
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onQuickCreate(value.trim().toUpperCase(), (newLedger) => {
+                  onSelect(newLedger.ledgerName);
+                });
+                setIsOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 border-t border-slate-100 flex items-center gap-1.5 sticky bottom-0 bg-white"
+            >
+              <Plus size={12} /> Create "{value.trim().toUpperCase()}"
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -652,6 +671,7 @@ function ExcelTable({
   isAllView, accounts,
   ledgers,
   selectedFY,
+  onQuickCreate,
 }: {
   rows: BankCashRow[];
   openingBalance: number;
@@ -678,6 +698,7 @@ function ExcelTable({
   accounts?: BankCashAccount[];
   ledgers?: Ledger[];
   selectedFY?: FinancialYear | null;
+  onQuickCreate?: (name: string, callback: (newLedger: Ledger) => void, defaultGroup?: string) => void;
 }) {
   const [editCell, setEditCell]         = useState<EditCell | null>(null);
   const [focusedCell, setFocusedCell]   = useState<{ id: string; field: string } | null>(null);
@@ -1000,6 +1021,7 @@ function ExcelTable({
               onKeyDown={(e) => handleKeyDown(e, row, field, "text")}
               placeholder="Search..."
               className={CELL_INPUT}
+              onQuickCreate={onQuickCreate}
             />
           </td>
         );
@@ -1620,6 +1642,17 @@ export default function BankCashBook() {
   const [bulkAccGroup,    setBulkAccGroup]    = useState("");
   const [bulkSaving,      setBulkSaving]      = useState(false);
   const [exporting,       setExporting]       = useState(false);
+  const [quickCreateName, setQuickCreateName] = useState<string | null>(null);
+  const [quickCreateCallback, setQuickCreateCallback] = useState<((newLedger: Ledger) => void) | null>(null);
+  const [quickCreateDefaultGroup, setQuickCreateDefaultGroup] = useState<string>("Expense");
+
+  const onQuickCreate = (name: string, callback: (newLedger: Ledger) => void, defaultGroup?: string) => {
+    setQuickCreateName(name);
+    setQuickCreateCallback(() => callback);
+    if (defaultGroup) {
+      setQuickCreateDefaultGroup(defaultGroup);
+    }
+  };
 
   useEffect(() => {
     if (!bulkAccName.trim() || !ledgers || ledgers.length === 0) return;
@@ -2401,6 +2434,7 @@ export default function BankCashBook() {
             accounts={accounts}
             ledgers={ledgers}
             selectedFY={selectedFY}
+            onQuickCreate={onQuickCreate}
           />
         )}
       </div>
@@ -2415,6 +2449,7 @@ export default function BankCashBook() {
           contraGroups={groupNames}
           ledgers={ledgers}
           selectedFY={selectedFY}
+          onQuickCreate={onQuickCreate}
         />
       )}
 
@@ -2423,6 +2458,23 @@ export default function BankCashBook() {
           loading={creatingAcc}
           onClose={() => setShowCreateAccModal(false)}
           onSubmit={handleCreateAccountSubmit}
+        />
+      )}
+
+      {quickCreateName !== null && (
+        <QuickCreateLedgerModal
+          initialName={quickCreateName}
+          defaultGroup={quickCreateDefaultGroup}
+          onClose={() => {
+            setQuickCreateName(null);
+            setQuickCreateCallback(null);
+          }}
+          onCreated={(newLedger) => {
+            setLedgers((prev) => [newLedger, ...prev]);
+            quickCreateCallback?.(newLedger);
+            setQuickCreateName(null);
+            setQuickCreateCallback(null);
+          }}
         />
       )}
 
@@ -2457,6 +2509,126 @@ export default function BankCashBook() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Quick Create Ledger Modal ──────────────────────────────────────────────────
+function QuickCreateLedgerModal({
+  initialName,
+  defaultGroup = "Expense",
+  onClose,
+  onCreated,
+}: {
+  initialName: string;
+  defaultGroup?: string;
+  onClose: () => void;
+  onCreated: (newLedger: Ledger) => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [group, setGroup] = useState<string>(defaultGroup);
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast.error("Ledger name is required");
+      return;
+    }
+    setSaving(true);
+    try {
+      const created = await createLedger({
+        ledgerName: name.trim().toUpperCase(),
+        groupName: group as any,
+      });
+      toast.success(`Ledger "${created.ledgerName}" created!`);
+      onCreated(created);
+      onClose();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to create ledger");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-xs" onClick={onClose} />
+      <div className="relative bg-white border border-slate-300 rounded-xl w-full max-w-md overflow-hidden shadow-2xl font-sans text-xs text-slate-800">
+        <div className="bg-indigo-600 px-4 py-2 flex items-center justify-between">
+          <span className="text-white font-bold text-xs tracking-wide">
+            Create New Account
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-white hover:text-red-200 text-xs font-bold"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          <div>
+            <label className="block text-slate-600 font-semibold mb-1">
+              Account / Ledger Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value.toUpperCase())}
+              className="w-full border border-slate-300 rounded px-2 py-1.5 outline-none text-xs uppercase"
+              placeholder="e.g. ABC Trading Co."
+              required
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="block text-slate-600 font-semibold mb-1">
+              Group Name
+            </label>
+            <select
+              value={group}
+              onChange={(e) => setGroup(e.target.value)}
+              className="w-full border border-slate-300 rounded px-2 py-1.5 outline-none text-xs bg-white text-slate-800"
+            >
+              {[
+                "DIRECT EXPENSES", "INCOME (TRADING)", "PURCHASE ACCOUNT", "SALES ACCOUNT",
+                "EXPENSE ACCOUNT", "FINANCIAL EXPENSES", "INCOME", "INCOME (OTHER THEN SALES)",
+                "INDIRECT EXPENSES", "PARTNER INTEREST", "PARTNER REMUNERATION",
+                "ADVANCES FROM CUSTOMERS", "BANK ACCOUNTS (BANKS)", "BANK OCC A/C",
+                "CAPITAL ACCOUNT", "CASH LEDGER A/C.", "CASH-IN-HAND", "CURRENT CAPITAL ACCOUNT",
+                "CURRENT LIABILITIES", "DEPOSITS (ASSET)", "DUTIES & TAXES", "FIXED ASSETS",
+                "INVESTMENTS", "LOANS & ADVANCES (ASSET)", "LOANS (LIABILITY)", "MISC. EXPENSES (ASSET)",
+                "PROFIT & LOSS A/C", "PROVISIONS", "RESERVES & SURPLUS", "SUB CAPITAL",
+                "SALARY EXPENSES PAYABLE", "SECURED LOANS", "STOCK-IN-HAND", "SUNDRY CREDITORS",
+                "SUNDRY CREDITORS - MATERIAL", "SUNDRY CREDITORS - SERVICES", "SUNDRY DEBTORS",
+                "SUSPENSE ACCOUNT", "UNSECURED LOANS"
+              ].map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 border border-slate-300 rounded text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-semibold disabled:opacity-50"
+            >
+              {saving ? "Creating..." : "Create"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

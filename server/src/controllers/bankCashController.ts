@@ -395,7 +395,7 @@ export async function getAllEntries(req: AuthenticatedRequest, res: Response): P
 export async function createEntry(req: AuthenticatedRequest, res: Response): Promise<void> {
   const { accountId, date, particulars, withdrawal, deposit, contraAccountName, contraAccountGroup } = req.body;
   try {
-    if (!accountId || !date || !particulars || !contraAccountName || !contraAccountGroup) {
+    if (!accountId || !date || !contraAccountName || !contraAccountGroup) {
       res.status(400).json({ message: "Required fields missing" });
       return;
     }
@@ -502,7 +502,7 @@ export async function updateEntry(req: AuthenticatedRequest, res: Response): Pro
 
     if (accountId) entry.accountId = accountId;
     if (date) entry.date = date;
-    if (particulars) entry.particulars = particulars;
+    if (particulars !== undefined) entry.particulars = particulars;
     if (withdrawal !== undefined) entry.withdrawal = withdrawal;
     if (deposit !== undefined) entry.deposit = deposit;
     

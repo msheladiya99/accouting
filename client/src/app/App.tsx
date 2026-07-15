@@ -6,6 +6,7 @@ import { AppProvider } from "./context/AppContext";
 import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { queryClient } from "./api/queryClient";
+import FloatingCalculator from "./components/FloatingCalculator";
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
       <AuthProvider>
       <AppProvider>
         <RouterProvider router={router} />
+        <FloatingCalculator />
         <Toaster
           position="top-right"
           toastOptions={{

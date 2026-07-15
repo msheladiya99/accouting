@@ -296,6 +296,15 @@ export default function AdminLayout() {
               )}
             </div>
 
+            {/* Calculator Toggle */}
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent("toggle-calculator"))}
+              className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
+              title="Open Calculator (Alt + C)"
+            >
+              <Calculator size={18} />
+            </button>
+
             {/* Notifications */}
             <button className="relative p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors">
               <Bell size={18} />

@@ -1052,7 +1052,8 @@ export default function BalanceSheet() {
                   if (cleanName.startsWith("BY ")) {
                     cleanName = cleanName.slice(3);
                   }
-                  otherCredits.push({ ...c, ledgerName: cleanName });
+                  const isSpecial = cleanName === "NET PROFIT" || cleanName === "NET LOSS";
+                  otherCredits.push({ ...c, ledgerName: isSpecial ? undefined : cleanName });
                 });
               // Debits (not closing balance)
               account.debits
@@ -1062,11 +1063,20 @@ export default function BalanceSheet() {
                   if (cleanName.startsWith("TO ")) {
                     cleanName = cleanName.slice(3);
                   }
-                  allDebits.push({ ...d, ledgerName: cleanName });
+                  const isSpecial = cleanName === "NET PROFIT" || cleanName === "NET LOSS";
+                  allDebits.push({ ...d, ledgerName: isSpecial ? undefined : cleanName });
                 });
             });
 
             const allCredits = [...openingBalanceCredits, ...otherCredits];
+
+            // Add Net Profit/Loss once to the combined lists
+            const netProfit = data?.netProfit ?? 0;
+            if (netProfit > 0.001) {
+              allCredits.push({ particulars: "BY NET PROFIT", amount: netProfit });
+            } else if (netProfit < -0.001) {
+              allDebits.push({ particulars: "TO NET LOSS", amount: Math.abs(netProfit) });
+            }
 
             // Compute combined closing balance
             const creditsSum = allCredits.reduce((s, c) => s + (c.amount ?? 0), 0);

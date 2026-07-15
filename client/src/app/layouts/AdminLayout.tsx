@@ -23,7 +23,7 @@ const ALL_NAV_ITEMS = [
   { path: "/ledger-master",  icon: BookMarked,      label: "Ledger Master"    },
   { path: "/opening-balances",icon: BookOpen,       label: "Opening Balances" },
   { path: "/bank-cash-book", icon: Landmark,        label: "Bank / Cash Book" },
-  { path: "/journal-voucher",icon: FileText,        label: "Journal Voucher"  },
+  { path: "/journal-voucher",icon: FileText,        label: "Dual Entry"  },
   { path: "/balance-sheet",  icon: BarChart3,       label: "Balance Sheet"    },
   { path: "/trial-balance",  icon: TrendingUp,      label: "Trial Balance"    },
   { path: "/export",         icon: Download,        label: "Export"           },

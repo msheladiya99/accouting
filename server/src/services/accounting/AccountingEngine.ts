@@ -873,26 +873,19 @@ export async function computeBalanceSheet(
     }
   }
 
-  // Inject combined capital balance
-  if (Math.abs(totalCapitalBalance) > 0.001) {
-    const tg = "Capital Account";
-    if (totalCapitalBalance > 0) {
-      if (!capitalMap.has(tg)) capitalMap.set(tg, []);
-      capitalMap.get(tg)!.push({ ledgerName: "Capital Account", amount: totalCapitalBalance });
-    } else {
-      if (!assetMap.has(tg)) assetMap.set(tg, []);
-      assetMap.get(tg)!.push({ ledgerName: "Capital Account", amount: -totalCapitalBalance });
-    }
-  }
-
   const netProfit = totalRevenue - totalExpense;
 
-  if (netProfit > 0.001) {
-    if (!capitalMap.has("Capital")) capitalMap.set("Capital", []);
-    capitalMap.get("Capital")!.push({ ledgerName: "Net Profit (Current Year)", amount: netProfit });
-  } else if (netProfit < -0.001) {
-    if (!assetMap.has("Profit & Loss A/c")) assetMap.set("Profit & Loss A/c", []);
-    assetMap.get("Profit & Loss A/c")!.push({ ledgerName: "Net Loss (Current Year)", amount: Math.abs(netProfit) });
+  // Inject combined capital balance (adjusted with netProfit)
+  const adjustedCapitalBalance = totalCapitalBalance + netProfit;
+  if (Math.abs(adjustedCapitalBalance) > 0.001) {
+    const tg = "Capital Account";
+    if (adjustedCapitalBalance > 0) {
+      if (!capitalMap.has(tg)) capitalMap.set(tg, []);
+      capitalMap.get(tg)!.push({ ledgerName: "Capital Account", amount: adjustedCapitalBalance });
+    } else {
+      if (!assetMap.has(tg)) assetMap.set(tg, []);
+      assetMap.get(tg)!.push({ ledgerName: "Capital Account", amount: -adjustedCapitalBalance });
+    }
   }
 
   // Build asset section

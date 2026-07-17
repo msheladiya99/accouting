@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import type { FinancialYear } from "../api/financialYearApi";
 import { BalanceSheetPanel } from "../components/BalanceSheetPanel";
-import { usePrefetch } from "../hooks/useReportQueries";
+import { usePrefetch, usePrefetchAll } from "../hooks/useReportQueries";
 
 const BS_PANEL_PATHS = new Set([
   "/bank-cash-book", "/journal-voucher",
@@ -45,6 +45,7 @@ export default function AdminLayout() {
   const { user, isAuthenticated, isLoading: authLoading, logout, canView } = useAuth();
   const navigate = useNavigate();
   const { prefetchBalanceSheet, prefetchTrialBalance } = usePrefetch();
+  usePrefetchAll();
 
 
   const location   = useLocation();

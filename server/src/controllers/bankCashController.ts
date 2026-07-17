@@ -92,10 +92,14 @@ export async function getAllAccounts(req: AuthenticatedRequest, res: Response): 
       accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
     }
 
+    const initialBalancesMap = req.financialYear
+      ? await getOpeningBalancesForAccountsAt(accounts, req.financialYear.startDate, req.companyId as string)
+      : new Map<string, number>();
+
     const results = [];
     for (const acc of accounts) {
-      const initialBalance = req.financialYear
-        ? await getOpeningBalanceAt(acc, req.financialYear.startDate, req.companyId as string)
+      const initialBalance = req.financialYear 
+        ? (initialBalancesMap.get(acc._id.toString()) ?? acc.openingBalance)
         : acc.openingBalance;
       
       const accObj = acc.toObject();
@@ -375,9 +379,20 @@ export async function getAllEntries(req: AuthenticatedRequest, res: Response): P
       ? await getOpeningBalancesForAccountsAt(accounts, req.financialYear.startDate, req.companyId as string)
       : new Map<string, number>(accounts.map((acc) => [acc._id.toString(), acc.openingBalance]));
 
+    const entriesByAccount = new Map<string, any[]>();
+    for (const entry of allEntries) {
+      const accId = entry.accountId;
+      let list = entriesByAccount.get(accId);
+      if (!list) {
+        list = [];
+        entriesByAccount.set(accId, list);
+      }
+      list.push(entry);
+    }
+
     for (const acc of accounts) {
       const initialBalance = initialBalancesMap.get(acc._id.toString()) ?? acc.openingBalance;
-      const acctEntries = allEntries.filter((e) => e.accountId === acc._id.toString());
+      const acctEntries = entriesByAccount.get(acc._id.toString()) || [];
       rows.push(...computeRows({ ...acc.toObject(), openingBalance: initialBalance }, acctEntries));
     }
 

@@ -7,6 +7,7 @@
  *
  * Accounting logic is entirely on the server. These hooks are pure transport.
  */
+import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { QUERY_KEYS } from "../api/queryClient";
 import {
@@ -186,4 +187,39 @@ export function usePrefetch() {
       });
     },
   };
+}
+
+/**
+ * Prefetches all critical reports and master data as soon as the financial year is known.
+ * Can be placed in AppContext or AdminLayout to eagerly load everything.
+ */
+export function usePrefetchAll() {
+  const qc = useQueryClient();
+  const { selectedFY } = useApp();
+
+  useEffect(() => {
+    if (!selectedFY) return;
+    const staleTime = 5 * 60 * 1000;
+
+    // Reports
+    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.dashboard, selectedFY._id], queryFn: fetchDashboard, staleTime });
+    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.balanceSheet, selectedFY._id], queryFn: fetchBalanceSheet, staleTime });
+    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.trialBalance, selectedFY._id], queryFn: fetchTrialBalance, staleTime });
+    
+    // Master data
+    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.ledgers, selectedFY._id], queryFn: getAllLedgers, staleTime });
+    qc.prefetchQuery({ queryKey: QUERY_KEYS.ledgersRaw, queryFn: () => getAllLedgersRaw({ raw: true }), staleTime });
+    qc.prefetchQuery({ queryKey: QUERY_KEYS.groups, queryFn: getAllGroups, staleTime });
+    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.journalEntries, selectedFY._id], queryFn: getAllJournalEntries, staleTime });
+    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.bankEntries, selectedFY._id], queryFn: getAllEntries, staleTime });
+    qc.prefetchQuery({ queryKey: QUERY_KEYS.bankAccounts, queryFn: getAllAccounts, staleTime });
+
+    // Date-range specific reports (prefetch for full year)
+    const from = selectedFY.startDate;
+    const to = selectedFY.endDate;
+    qc.prefetchQuery({ queryKey: QUERY_KEYS.profitLoss(from, to), queryFn: () => fetchProfitLoss(from, to), staleTime });
+    qc.prefetchQuery({ queryKey: QUERY_KEYS.cashBook(from, to), queryFn: () => getCashBook(from, to), staleTime });
+    qc.prefetchQuery({ queryKey: QUERY_KEYS.bankBook(from, to), queryFn: () => getBankBook(from, to), staleTime });
+    
+  }, [selectedFY, qc]);
 }

@@ -640,97 +640,140 @@ export function BalanceSheetPanel({ open, onToggle }: { open: boolean; onToggle:
               <div className="border-t border-slate-200" />
 
               {/* 2. PARTNER CAPITAL ACCOUNTS */}
-              {capitalAccounts.length > 0 && (
-                <div className="space-y-4">
-                  {capitalAccounts.map((account, index) => {
-                    const debits = account.debits;
-                    const credits = account.credits;
-                    
-                    const maxLen = Math.max(debits.length, credits.length);
-                    const paddedDebits = [...debits];
-                    const paddedCredits = [...credits];
-                    while (paddedDebits.length < maxLen) paddedDebits.push({ particulars: "", amount: undefined });
-                    while (paddedCredits.length < maxLen) paddedCredits.push({ particulars: "", amount: undefined });
+              {capitalAccounts.length > 0 && (() => {
+                const allDebits: any[] = [];
+                const openingBalanceCredits: any[] = [];
+                const otherCredits: any[] = [];
+                let combinedTotal = 0;
 
-                    return (
-                      <div key={index} className="space-y-2">
-                        <div className="text-center py-2 border-b border-slate-100">
-                          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">{company?.name || "XYZ COMPANY"}</h3>
-                          <p className="text-[10px] font-semibold text-slate-700 uppercase tracking-wider">
-                            CAPITAL ACCOUNT OF {account.ledgerName}
-                          </p>
+                capitalAccounts.forEach(account => {
+                  const mainName = account.ledgerName || "Capital Account";
+                  const openingRow = account.credits.find((c: any) => c.particulars === "BY OPENING BALANCE" || c.particulars === "OPENING BALANCE");
+                  if (openingRow && (openingRow.amount ?? 0) > 0) {
+                    if (capitalAccounts.length === 1 || account.ledgerName === "OPENING BALANCE") {
+                      openingBalanceCredits.push({ particulars: "BY OPENING BALANCE", amount: openingRow.amount });
+                    } else {
+                      openingBalanceCredits.push({ particulars: `BY OPENING BALANCE (${mainName})`, amount: openingRow.amount });
+                    }
+                  }
+                  account.credits
+                    .filter((c: any) => !c.particulars.includes("OPENING BALANCE") && !c.particulars.includes("CLOSING BALANCE"))
+                    .forEach((c: any) => {
+                      let cleanName = c.particulars;
+                      if (cleanName.startsWith("BY ")) cleanName = cleanName.slice(3);
+                      otherCredits.push({ ...c, particulars: cleanName });
+                    });
+                  account.debits
+                    .filter((d: any) => !d.particulars.includes("CLOSING BALANCE"))
+                    .forEach((d: any) => {
+                      let cleanName = d.particulars;
+                      if (cleanName.startsWith("TO ")) cleanName = cleanName.slice(3);
+                      allDebits.push({ ...d, particulars: cleanName });
+                    });
+                });
+
+                const allCredits = [...openingBalanceCredits, ...otherCredits];
+
+                const netProfit = data?.netProfit ?? 0;
+                if (netProfit > 0.001) {
+                  allCredits.push({ particulars: "NET PROFIT", amount: netProfit });
+                } else if (netProfit < -0.001) {
+                  allDebits.push({ particulars: "NET LOSS", amount: Math.abs(netProfit) });
+                }
+
+                const creditsSum = allCredits.reduce((s, c) => s + (c.amount ?? 0), 0);
+                const debitsSum = allDebits.reduce((s, d) => s + (d.amount ?? 0), 0);
+                const closingBalance = creditsSum - debitsSum;
+                allDebits.push({ particulars: "CLOSING BALANCE", amount: closingBalance });
+                
+                combinedTotal = Math.max(
+                  allDebits.reduce((s, d) => s + (d.amount ?? 0), 0),
+                  allCredits.reduce((s, c) => s + (c.amount ?? 0), 0)
+                );
+
+                const maxLen = Math.max(allDebits.length, allCredits.length);
+                const paddedDebits = [...allDebits];
+                const paddedCredits = [...allCredits];
+                while (paddedDebits.length < maxLen) paddedDebits.push({ particulars: "", amount: undefined });
+                while (paddedCredits.length < maxLen) paddedCredits.push({ particulars: "", amount: undefined });
+
+                return (
+                  <div className="space-y-2">
+                    <div className="text-center py-2 border-b border-slate-100">
+                      <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wide">{company?.name || "XYZ COMPANY"}</h3>
+                      <p className="text-[10px] font-semibold text-slate-700 uppercase tracking-wider">
+                        CAPITAL ACCOUNT FOR THE YEAR ENDING ON {selectedFY ? new Date(selectedFY.endDate).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : today}
+                      </p>
+                    </div>
+
+                    <div className="bg-white border border-slate-800 rounded-none shadow-sm text-[10px]">
+                      <div className="grid grid-cols-2 divide-x divide-slate-800 min-h-[100px]">
+                        {/* LEFT SIDE: DEBITS */}
+                        <div className="relative flex flex-col justify-between h-full">
+                          <div className="absolute top-0 bottom-0 right-[100px] border-l border-slate-800 pointer-events-none" />
+                          <div className="flex-grow flex flex-col">
+                            <div className="flex border-b border-slate-800 font-bold bg-slate-50 relative z-10">
+                              <div className="flex-1 py-1.5 pl-2 text-slate-800 uppercase font-bold">PARTICULARS</div>
+                              <div className="w-[100px] shrink-0 py-1.5 text-right pr-2 text-slate-800 uppercase font-bold">AMOUNT</div>
+                            </div>
+                            <div className="flex-grow py-2 relative z-10 space-y-0.5 pb-4">
+                              {paddedDebits.map((row, idx) => {
+                                if (row.particulars === "") return <div key={idx} className="min-h-[18px] py-0.5" />;
+                                const isClosing = row.particulars.includes("CLOSING BALANCE");
+                                return (
+                                  <div key={idx} className={`flex py-0.5 items-center min-h-[18px] ${isClosing ? "font-bold text-slate-800" : "font-normal text-slate-600"}`}>
+                                    <div className="flex-1 pr-2 uppercase pl-2">{row.particulars}</div>
+                                    <div className="w-[100px] shrink-0 text-right pr-2 font-mono tabular-nums text-slate-900">
+                                      {row.amount !== undefined ? fmtReport(row.amount) : ""}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex border-t border-slate-800 font-bold text-slate-900 bg-slate-50 relative z-10 mt-auto">
+                            <div className="flex-1 py-1.5 pl-2 uppercase font-bold">TOTAL</div>
+                            <div className="w-[100px] shrink-0 py-1.5 text-right pr-2 font-mono tabular-nums font-bold">
+                              {fmtReport(combinedTotal)}
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="bg-white border border-slate-800 rounded-none shadow-sm text-[10px]">
-                          <div className="grid grid-cols-2 divide-x divide-slate-800 min-h-[100px]">
-                            {/* LEFT SIDE: DEBITS */}
-                            <div className="relative flex flex-col justify-between h-full">
-                              <div className="absolute top-0 bottom-0 right-[100px] border-l border-slate-800 pointer-events-none" />
-                              <div className="flex-grow flex flex-col">
-                                <div className="flex border-b border-slate-800 font-bold bg-slate-50 relative z-10">
-                                  <div className="flex-1 py-1.5 pl-2 text-slate-800 uppercase font-bold">PARTICULARS</div>
-                                  <div className="w-[100px] shrink-0 py-1.5 text-right pr-2 text-slate-800 uppercase font-bold">AMOUNT</div>
-                                </div>
-                                <div className="flex-grow py-2 relative z-10 space-y-0.5 pb-4">
-                                  {paddedDebits.map((row, idx) => {
-                                    if (row.particulars === "") return <div key={idx} className="min-h-[18px] py-0.5" />;
-                                    const isClosing = row.particulars.includes("CLOSING BALANCE");
-                                    return (
-                                      <div key={idx} className={`flex py-0.5 items-center min-h-[18px] ${isClosing ? "font-bold text-slate-800" : "font-normal text-slate-600"}`}>
-                                        <div className="flex-1 pr-2 uppercase pl-2">{row.particulars}</div>
-                                        <div className="w-[100px] shrink-0 text-right pr-2 font-mono tabular-nums text-slate-900">
-                                          {row.amount !== undefined ? fmtReport(row.amount) : ""}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                              <div className="flex border-t border-slate-800 font-bold text-slate-900 bg-slate-50 relative z-10 mt-auto">
-                                <div className="flex-1 py-1.5 pl-2 uppercase font-bold">TOTAL</div>
-                                <div className="w-[100px] shrink-0 py-1.5 text-right pr-2 font-mono tabular-nums font-bold">
-                                  {fmtReport(account.total)}
-                                </div>
-                              </div>
+                        {/* RIGHT SIDE: CREDITS */}
+                        <div className="relative flex flex-col justify-between h-full">
+                          <div className="absolute top-0 bottom-0 right-[100px] border-l border-slate-800 pointer-events-none" />
+                          <div className="flex-grow flex flex-col">
+                            <div className="flex border-b border-slate-800 font-bold bg-slate-50 relative z-10">
+                              <div className="flex-1 py-1.5 pl-2 text-slate-800 uppercase font-bold">PARTICULARS</div>
+                              <div className="w-[100px] shrink-0 py-1.5 text-right pr-2 text-slate-800 uppercase font-bold">AMOUNT</div>
                             </div>
-
-                            {/* RIGHT SIDE: CREDITS */}
-                            <div className="relative flex flex-col justify-between h-full">
-                              <div className="absolute top-0 bottom-0 right-[100px] border-l border-slate-800 pointer-events-none" />
-                              <div className="flex-grow flex flex-col">
-                                <div className="flex border-b border-slate-800 font-bold bg-slate-50 relative z-10">
-                                  <div className="flex-1 py-1.5 pl-2 text-slate-800 uppercase font-bold">PARTICULARS</div>
-                                  <div className="w-[100px] shrink-0 py-1.5 text-right pr-2 text-slate-800 uppercase font-bold">AMOUNT</div>
-                                </div>
-                                <div className="flex-grow py-2 relative z-10 space-y-0.5 pb-4">
-                                  {paddedCredits.map((row, idx) => {
-                                    if (row.particulars === "") return <div key={idx} className="min-h-[18px] py-0.5" />;
-                                    const isOpening = row.particulars.includes("OPENING BALANCE");
-                                    return (
-                                      <div key={idx} className={`flex py-0.5 items-center min-h-[18px] ${isOpening ? "font-bold text-slate-800" : "font-normal text-slate-600"}`}>
-                                        <div className="flex-1 pr-2 uppercase pl-2">{row.particulars}</div>
-                                        <div className="w-[100px] shrink-0 text-right pr-2 font-mono tabular-nums text-slate-900">
-                                          {row.amount !== undefined ? fmtReport(row.amount) : ""}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                              <div className="flex border-t border-slate-800 font-bold text-slate-900 bg-slate-50 relative z-10 mt-auto">
-                                <div className="flex-1 py-1.5 pl-2 uppercase font-bold">TOTAL</div>
-                                <div className="w-[100px] shrink-0 py-1.5 text-right pr-2 font-mono tabular-nums font-bold">
-                                  {fmtReport(account.total)}
-                                </div>
-                              </div>
+                            <div className="flex-grow py-2 relative z-10 space-y-0.5 pb-4">
+                              {paddedCredits.map((row, idx) => {
+                                if (row.particulars === "") return <div key={idx} className="min-h-[18px] py-0.5" />;
+                                const isOpening = row.particulars.includes("OPENING BALANCE");
+                                return (
+                                  <div key={idx} className={`flex py-0.5 items-center min-h-[18px] ${isOpening ? "font-bold text-slate-800" : "font-normal text-slate-600"}`}>
+                                    <div className="flex-1 pr-2 uppercase pl-2">{row.particulars}</div>
+                                    <div className="w-[100px] shrink-0 text-right pr-2 font-mono tabular-nums text-slate-900">
+                                      {row.amount !== undefined ? fmtReport(row.amount) : ""}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex border-t border-slate-800 font-bold text-slate-900 bg-slate-50 relative z-10 mt-auto">
+                            <div className="flex-1 py-1.5 pl-2 uppercase font-bold">TOTAL</div>
+                            <div className="w-[100px] shrink-0 py-1.5 text-right pr-2 font-mono tabular-nums font-bold">
+                              {fmtReport(combinedTotal)}
                             </div>
                           </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Divider */}
               <div className="border-t border-slate-200" />

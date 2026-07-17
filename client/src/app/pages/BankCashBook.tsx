@@ -1841,9 +1841,9 @@ export default function BankCashBook() {
           await createEntry({ ...data, withdrawal: w, deposit: d });
         }
         
-        // 3. Reload rows silently and invalidate reports
-        await loadRows(accountFilter, true); // true for silent load
+        // 3. Invalidate reports immediately, then reload rows silently
         invalidateAllReports();
+        await loadRows(accountFilter, true); // true for silent load
       } catch (e: any) {
         toast.error(e.response?.data?.message || e.message || "Background save failed");
       }

@@ -62,4 +62,6 @@ export function invalidateAllReports() {
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ledgersRaw });
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.journalEntries });
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.bankEntries });
+  // Notify manual fetchers (like BalanceSheetPanel) to update silently
+  window.dispatchEvent(new CustomEvent("accounting-data-updated"));
 }

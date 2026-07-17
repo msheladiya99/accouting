@@ -1718,8 +1718,8 @@ export default function JournalVoucher() {
         } else {
           await createJournalEntry(data);
         }
-        await load(true);
         invalidateAllReports();
+        await load(true);
       } catch (err: any) {
         toast.error(err.response?.data?.message || err.message || "Background save failed");
         // Revert optimistic update on failure by reloading

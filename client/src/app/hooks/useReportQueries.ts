@@ -91,7 +91,7 @@ export function useLedgers() {
   const { selectedFY } = useApp();
   return useQuery({
     queryKey: [...QUERY_KEYS.ledgers, selectedFY?._id],
-    queryFn:  getAllLedgers,
+    queryFn:  () => getAllLedgers(),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -211,9 +211,9 @@ export function usePrefetchAll() {
     }, 1000);
     
     setTimeout(() => {
-      qc.prefetchQuery({ queryKey: [...QUERY_KEYS.ledgers, selectedFY._id], queryFn: getAllLedgers, staleTime });
+      qc.prefetchQuery({ queryKey: [...QUERY_KEYS.ledgers, selectedFY._id], queryFn: () => getAllLedgers(), staleTime });
       qc.prefetchQuery({ queryKey: QUERY_KEYS.ledgersRaw, queryFn: () => getAllLedgersRaw({ raw: true }), staleTime });
-      qc.prefetchQuery({ queryKey: QUERY_KEYS.groups, queryFn: getAllGroups, staleTime });
+      qc.prefetchQuery({ queryKey: QUERY_KEYS.groups, queryFn: () => getAllGroups(), staleTime });
     }, 2000);
 
     setTimeout(() => {

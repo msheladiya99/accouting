@@ -1808,7 +1808,7 @@ export default function JournalVoucher() {
             {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
             Export
           </button>
-          <button onClick={load} title="Refresh"
+          <button onClick={() => load()} title="Refresh"
             className="p-2 border border-slate-200 bg-white rounded-lg text-slate-500 hover:bg-slate-50 transition-colors">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>

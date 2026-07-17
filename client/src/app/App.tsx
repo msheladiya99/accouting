@@ -1,6 +1,8 @@
 import { RouterProvider } from "react-router";
 import { Toaster } from "react-hot-toast";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 import { router } from "./routes";
 import { AppProvider } from "./context/AppContext";
 import { AuthProvider } from "./context/AuthContext";
@@ -8,9 +10,13 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { queryClient } from "./api/queryClient";
 import FloatingCalculator from "./components/FloatingCalculator";
 
+const persister = createSyncStoragePersister({
+  storage: window.localStorage,
+});
+
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
+    <PersistQueryClientProvider client={queryClient} persistOptions={{ persister }}>
       <ThemeProvider>
       <AuthProvider>
       <AppProvider>
@@ -35,6 +41,6 @@ export default function App() {
       </AppProvider>
       </AuthProvider>
       </ThemeProvider>
-    </QueryClientProvider>
+    </PersistQueryClientProvider>
   );
 }

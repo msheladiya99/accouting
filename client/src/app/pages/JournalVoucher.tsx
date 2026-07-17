@@ -22,7 +22,8 @@ import {
   exportJVEntriesToExcel, downloadJVImportTemplate, parseJVImportFile,
   type JVImportVoucher,
 } from "../api/exportApi";
-import { invalidateAllReports } from "../api/queryClient";
+import { invalidateAllReports, QUERY_KEYS } from "../api/queryClient";
+import { useQueryClient } from "@tanstack/react-query";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtAmt = (n: number) =>
@@ -1614,6 +1615,7 @@ function JVImportModal({
 export default function JournalVoucher() {
   const { selectedFY, company } = useApp();
   const financialYear  = selectedFY?.label ?? "—";
+  const qc = useQueryClient();
 
   const [entries,      setEntries]      = useState<JournalEntry[]>([]);
   const [ledgers,      setLedgers]      = useState<Ledger[]>([]);
@@ -1632,18 +1634,34 @@ export default function JournalVoucher() {
     setQuickCreateCallback(() => callback);
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    let hasCache = false;
+    if (!silent) {
+      const cachedEntries = qc.getQueryData([...QUERY_KEYS.journalEntries, selectedFY?._id]) as JournalEntry[] | undefined;
+      const cachedLedgers = qc.getQueryData([...QUERY_KEYS.ledgers, selectedFY?._id]) as Ledger[] | undefined;
+      if (cachedEntries && cachedLedgers) {
+        setEntries(cachedEntries);
+        setLedgers(cachedLedgers);
+        setLoading(false);
+        hasCache = true;
+      } else {
+        setLoading(true);
+      }
+    }
+
     try {
       const [e, l] = await Promise.all([getAllJournalEntries(), getAllLedgers()]);
       setEntries(e);
       setLedgers(l);
+      
+      qc.setQueryData([...QUERY_KEYS.journalEntries, selectedFY?._id], e);
+      qc.setQueryData([...QUERY_KEYS.ledgers, selectedFY?._id], l);
     } catch {
-      toast.error("Failed to load data");
+      if (!hasCache && !silent) toast.error("Failed to load data");
     } finally {
-      setLoading(false);
+      if (!hasCache && !silent) setLoading(false);
     }
-  }, [selectedFY?._id]);
+  }, [selectedFY?._id, qc]);
 
   useEffect(() => { load(); }, [load]);
 

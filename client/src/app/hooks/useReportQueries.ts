@@ -200,26 +200,35 @@ export function usePrefetchAll() {
   useEffect(() => {
     if (!selectedFY) return;
     const staleTime = 5 * 60 * 1000;
-
-    // Reports
-    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.dashboard, selectedFY._id], queryFn: fetchDashboard, staleTime });
-    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.balanceSheet, selectedFY._id], queryFn: fetchBalanceSheet, staleTime });
-    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.trialBalance, selectedFY._id], queryFn: fetchTrialBalance, staleTime });
     
-    // Master data
-    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.ledgers, selectedFY._id], queryFn: getAllLedgers, staleTime });
-    qc.prefetchQuery({ queryKey: QUERY_KEYS.ledgersRaw, queryFn: () => getAllLedgersRaw({ raw: true }), staleTime });
-    qc.prefetchQuery({ queryKey: QUERY_KEYS.groups, queryFn: getAllGroups, staleTime });
-    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.journalEntries, selectedFY._id], queryFn: getAllJournalEntries, staleTime });
-    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.bankEntries, selectedFY._id], queryFn: getAllEntries, staleTime });
-    qc.prefetchQuery({ queryKey: QUERY_KEYS.bankAccounts, queryFn: getAllAccounts, staleTime });
+    // First Priority: Dashboard (visible on login immediately)
+    qc.prefetchQuery({ queryKey: [...QUERY_KEYS.dashboard, selectedFY._id], queryFn: fetchDashboard, staleTime });
+    
+    // Stagger other heavy reports so the network/server isn't choked
+    setTimeout(() => {
+      qc.prefetchQuery({ queryKey: [...QUERY_KEYS.balanceSheet, selectedFY._id], queryFn: fetchBalanceSheet, staleTime });
+      qc.prefetchQuery({ queryKey: [...QUERY_KEYS.trialBalance, selectedFY._id], queryFn: fetchTrialBalance, staleTime });
+    }, 1000);
+    
+    setTimeout(() => {
+      qc.prefetchQuery({ queryKey: [...QUERY_KEYS.ledgers, selectedFY._id], queryFn: getAllLedgers, staleTime });
+      qc.prefetchQuery({ queryKey: QUERY_KEYS.ledgersRaw, queryFn: () => getAllLedgersRaw({ raw: true }), staleTime });
+      qc.prefetchQuery({ queryKey: QUERY_KEYS.groups, queryFn: getAllGroups, staleTime });
+    }, 2000);
 
-    // Date-range specific reports (prefetch for full year)
-    const from = selectedFY.startDate;
-    const to = selectedFY.endDate;
-    qc.prefetchQuery({ queryKey: QUERY_KEYS.profitLoss(from, to), queryFn: () => fetchProfitLoss(from, to), staleTime });
-    qc.prefetchQuery({ queryKey: QUERY_KEYS.cashBook(from, to), queryFn: () => getCashBook(from, to), staleTime });
-    qc.prefetchQuery({ queryKey: QUERY_KEYS.bankBook(from, to), queryFn: () => getBankBook(from, to), staleTime });
+    setTimeout(() => {
+      qc.prefetchQuery({ queryKey: [...QUERY_KEYS.journalEntries, selectedFY._id], queryFn: getAllJournalEntries, staleTime });
+      qc.prefetchQuery({ queryKey: [...QUERY_KEYS.bankEntries, selectedFY._id], queryFn: getAllEntries, staleTime });
+      qc.prefetchQuery({ queryKey: QUERY_KEYS.bankAccounts, queryFn: getAllAccounts, staleTime });
+    }, 3000);
+
+    setTimeout(() => {
+      const from = selectedFY.startDate;
+      const to = selectedFY.endDate;
+      qc.prefetchQuery({ queryKey: QUERY_KEYS.profitLoss(from, to), queryFn: () => fetchProfitLoss(from, to), staleTime });
+      qc.prefetchQuery({ queryKey: QUERY_KEYS.cashBook(from, to), queryFn: () => getCashBook(from, to), staleTime });
+      qc.prefetchQuery({ queryKey: QUERY_KEYS.bankBook(from, to), queryFn: () => getBankBook(from, to), staleTime });
+    }, 4000);
     
   }, [selectedFY, qc]);
 }

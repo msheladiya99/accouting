@@ -18,8 +18,10 @@ import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import * as XLSX from "xlsx";
-import { getAllLedgers, saveBulkOpeningBalances, LEDGER_GROUPS } from "../api/ledgerApi";
-import { getAllGroups } from "../api/accountGroupApi";
+import { saveBulkOpeningBalances, getAllLedgers, LEDGER_GROUPS, type Ledger } from "../api/ledgerApi";
+import { invalidateAllReports, QUERY_KEYS } from "../api/queryClient";
+import { useQueryClient } from "@tanstack/react-query";
+import { getAllGroups, type AccountGroup } from "../api/accountGroupApi";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -430,6 +432,7 @@ function parseOpeningBalancesSheetRows(
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function OpeningBalances() {
   const { selectedFY } = useApp();
+  const qc = useQueryClient();
   const [rows, setRows] = useState<OBRow[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -453,8 +456,27 @@ export default function OpeningBalances() {
   }, [rows, search, groupFilter]);
 
   // ── Load data ───────────────────────────────────────────────────────────────
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    let hasCache = false;
+    if (!silent) {
+      const cachedLedgers = qc.getQueryData([...QUERY_KEYS.ledgers, selectedFY?._id]) as Ledger[] | undefined;
+      const cachedGroups = qc.getQueryData(QUERY_KEYS.groups) as AccountGroup[] | undefined;
+      if (cachedLedgers && cachedGroups) {
+        setRows(cachedLedgers.map((l) => ({
+          id: l._id,
+          ledgerName: l.ledgerName,
+          group: l.groupName,
+          amountDr: l.openingDr || 0,
+          amountCr: l.openingCr || 0,
+        })));
+        setGroups(cachedGroups.map((g) => g.groupName).sort());
+        setLoading(false);
+        hasCache = true;
+      } else {
+        setLoading(true);
+      }
+    }
+    
     setSelectedIds([]);
     try {
       const [ledgers, groupsData] = await Promise.all([
@@ -470,12 +492,15 @@ export default function OpeningBalances() {
       }));
       setRows(mappedRows);
       setGroups(groupsData.map((g) => g.groupName).sort());
+      
+      qc.setQueryData([...QUERY_KEYS.ledgers, selectedFY?._id], ledgers);
+      qc.setQueryData(QUERY_KEYS.groups, groupsData);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || err.message || "Failed to load opening balances");
+      if (!hasCache && !silent) toast.error(err.response?.data?.message || err.message || "Failed to load opening balances");
     } finally {
-      setLoading(false);
+      if (!hasCache && !silent) setLoading(false);
     }
-  }, []);
+  }, [selectedFY?._id, qc]);
 
   useEffect(() => {
     load();

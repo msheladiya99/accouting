@@ -140,7 +140,6 @@ export default function CompanySelect() {
 
   const handleSelect = async (c: Company) => {
     setSelecting(c._id);
-    await new Promise((r) => setTimeout(r, 300));
     setCompany({
       id:       c._id,
       name:     c.companyName,

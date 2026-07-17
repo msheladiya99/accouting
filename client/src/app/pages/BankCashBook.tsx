@@ -25,7 +25,8 @@ import BankImport from "./BankImport";
 import { getAllGroups } from "../api/accountGroupApi";
 import { getAllLedgers, type Ledger, createLedger } from "../api/ledgerApi";
 import { exportBankCashBookFiltered } from "../api/exportApi";
-import { invalidateAllReports } from "../api/queryClient";
+import { invalidateAllReports, QUERY_KEYS } from "../api/queryClient";
+import { useQueryClient } from "@tanstack/react-query";
 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1620,6 +1621,7 @@ function ExcelTable({
 export default function BankCashBook() {
   const { selectedFY, company } = useApp();
   const financialYear  = selectedFY?.label ?? "—";
+  const qc = useQueryClient();
 
   const [accounts,        setAccounts]        = useState<BankCashAccount[]>([]);
   const [ledgers,         setLedgers]         = useState<Ledger[]>([]);
@@ -1755,7 +1757,27 @@ export default function BankCashBook() {
   }, [selectedFY?._id]);
 
   const loadRows = useCallback(async (accId: string, silent = false) => {
-    if (!silent) setLoading(true);
+    let hasCache = false;
+    if (!silent) {
+      const cachedAccounts = qc.getQueryData(QUERY_KEYS.bankAccounts) as BankCashAccount[] | undefined;
+      const cachedLedgers = qc.getQueryData([...QUERY_KEYS.ledgers, selectedFY?._id]) as Ledger[] | undefined;
+      const cachedEntries = qc.getQueryData([...QUERY_KEYS.bankEntries, selectedFY?._id]) as BankCashRow[] | undefined;
+
+      if (cachedAccounts && cachedLedgers && cachedEntries) {
+        setAccounts(cachedAccounts);
+        setLedgers(cachedLedgers);
+        if (accId === "all") {
+          setRows(cachedEntries);
+        } else {
+          setRows(cachedEntries.filter((e: any) => e.accountId === accId));
+        }
+        setLoading(false);
+        hasCache = true;
+      } else {
+        setLoading(true);
+      }
+    }
+
     try {
       const [entriesData, accountsData, ledgersData] = await Promise.all([
         accId === "all" ? getAllEntries() : getEntriesForAccount(accId),
@@ -1765,12 +1787,19 @@ export default function BankCashBook() {
       setRows(entriesData);
       setAccounts(accountsData);
       setLedgers(ledgersData);
+      
+      // Update cache
+      qc.setQueryData(QUERY_KEYS.bankAccounts, accountsData);
+      qc.setQueryData([...QUERY_KEYS.ledgers, selectedFY?._id], ledgersData);
+      if (accId === "all") {
+        qc.setQueryData([...QUERY_KEYS.bankEntries, selectedFY?._id], entriesData);
+      }
     } catch {
-      toast.error("Failed to load entries");
+      if (!hasCache && !silent) toast.error("Failed to load entries");
     } finally {
-      if (!silent) setLoading(false);
+      if (!hasCache && !silent) setLoading(false);
     }
-  }, [selectedFY?._id]);
+  }, [selectedFY?._id, qc]);
 
   useEffect(() => {
     getAllAccounts().then(setAccounts).catch(() => toast.error("Failed to load accounts"));

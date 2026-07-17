@@ -1689,8 +1689,23 @@ export default function JournalVoucher() {
     const isUpdate = !!modal?.entry;
     
     if (!isUpdate) {
+      // Optimistic insert
+      const tempEntry: any = {
+        _id: "temp_" + Date.now(),
+        voucherNo: "Saving...",
+        date: data.date,
+        narration: data.narration,
+        status: data.status,
+        items: data.items,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      setEntries((p) => [tempEntry, ...p]);
       toast.success("Entry added (saving...)");
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
+      // Optimistic update
+      setEntries((p) => p.map((e) => e._id === modal!.entry!._id ? { ...e, ...data } as any : e));
       toast.success("Entry updated (saving...)");
       setModal(null);
     }
@@ -1707,6 +1722,8 @@ export default function JournalVoucher() {
         invalidateAllReports();
       } catch (err: any) {
         toast.error(err.response?.data?.message || err.message || "Background save failed");
+        // Revert optimistic update on failure by reloading
+        await load(true);
       }
     })();
 
@@ -1891,6 +1908,8 @@ export default function JournalVoucher() {
         <span className="text-sm text-slate-400 ml-auto">{filtered.length} entries</span>
       </div>
 
+      <InlineVoucherEntry ledgers={ledgers} loading={saving} onSubmit={handleSubmit} selectedFY={selectedFY} onQuickCreate={handleQuickCreateOpen} />
+
       {/* Excel Table */}
       <div className="rounded-xl border border-slate-300 shadow-sm overflow-hidden">
         <div className="bg-[#217346] text-white px-4 py-2 flex items-center justify-between">
@@ -1920,8 +1939,6 @@ export default function JournalVoucher() {
           />
         )}
       </div>
-
-      <InlineVoucherEntry ledgers={ledgers} loading={saving} onSubmit={handleSubmit} selectedFY={selectedFY} onQuickCreate={handleQuickCreateOpen} />
 
       {modal !== null && (
         <JournalModal

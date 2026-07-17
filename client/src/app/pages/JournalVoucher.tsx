@@ -1686,26 +1686,31 @@ export default function JournalVoucher() {
         return false;
       }
     }
-    setSaving(true);
-    try {
-      if (modal?.entry) {
-        const updated = await updateJournalEntry(modal.entry._id, data);
-        setEntries((p) => p.map((e) => e._id === updated._id ? updated : e));
-        toast.success(`${updated.voucherNo} updated`);
-        setModal(null);
-      } else {
-        const created = await createJournalEntry(data);
-        setEntries((p) => [created, ...p]);
-        toast.success(`${created.voucherNo} created`);
-      }
-      invalidateAllReports();
-      return true;
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || err.message || "Failed to save journal entry");
-      return false;
-    } finally {
-      setSaving(false);
+    const isUpdate = !!modal?.entry;
+    
+    if (!isUpdate) {
+      toast.success("Entry added (saving...)");
+    } else {
+      toast.success("Entry updated (saving...)");
+      setModal(null);
     }
+    
+    // Background save
+    (async () => {
+      try {
+        if (isUpdate && modal?.entry) {
+          await updateJournalEntry(modal.entry._id, data);
+        } else {
+          await createJournalEntry(data);
+        }
+        await load(true);
+        invalidateAllReports();
+      } catch (err: any) {
+        toast.error(err.response?.data?.message || err.message || "Background save failed");
+      }
+    })();
+
+    return true;
   }, [modal]);
 
   const handleDelete = useCallback(async (entry: JournalEntry) => {

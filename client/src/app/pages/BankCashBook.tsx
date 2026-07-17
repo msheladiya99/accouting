@@ -1825,24 +1825,29 @@ export default function BankCashBook() {
       return;
     }
 
-    setSaving(true);
-    try {
-      if (modal?.entry) {
-        await updateEntry(modal.entry._id, { ...data, withdrawal: w, deposit: d });
-        toast.success("Entry updated");
-      } else {
-        await createEntry({ ...data, withdrawal: w, deposit: d });
-        toast.success("Entry added");
+    const isUpdate = !!modal?.entry;
+    
+    // 1. Close modal and show success instantly
+    setModal(null);
+    clearFilters();
+    toast.success(isUpdate ? "Entry updated" : "Entry added");
+
+    // 2. Perform API operations in background
+    (async () => {
+      try {
+        if (isUpdate && modal?.entry) {
+          await updateEntry(modal.entry._id, { ...data, withdrawal: w, deposit: d });
+        } else {
+          await createEntry({ ...data, withdrawal: w, deposit: d });
+        }
+        
+        // 3. Reload rows silently and invalidate reports
+        await loadRows(accountFilter, true); // true for silent load
+        invalidateAllReports();
+      } catch (e: any) {
+        toast.error(e.response?.data?.message || e.message || "Background save failed");
       }
-      setModal(null);
-      clearFilters();
-      await loadRows(accountFilter);
-      invalidateAllReports();
-    } catch (e: any) {
-      toast.error(e.response?.data?.message || e.message || "Operation failed");
-    } finally {
-      setSaving(false);
-    }
+    })();
   }, [modal, accountFilter, loadRows, clearFilters]);
 
   const handleCreateAccountSubmit = useCallback(async (data: { name: string; group: "Bank" | "Cash"; openingBalance: number }) => {
@@ -1883,23 +1888,11 @@ export default function BankCashBook() {
     }
   }, [accountFilter, loadRows]);
 
-  const handleClearEntries = useCallback(async (acc: BankCashAccount) => {
-    if (!window.confirm(
-      `⚠️ This will permanently delete ALL entries for "${acc.name}".\n\nThis cannot be undone. Are you sure?`
-    )) return;
-    try {
-      const res = await clearEntriesForAccount(acc._id);
-      toast.success(res.message || `Cleared all entries for ${acc.name}`);
-      if (accountFilter === acc._id) {
-        await loadRows(acc._id);
-      } else {
-        await loadRows(accountFilter);
-      }
-      invalidateAllReports();
-    } catch (e: any) {
-      toast.error(e.response?.data?.message || e.message || "Failed to clear entries");
-    }
-  }, [accountFilter, loadRows]);
+  const handleRefreshAccount = useCallback(async (acc: BankCashAccount) => {
+    invalidateAllReports();
+    await loadRows(acc._id);
+    toast.success(`Refreshed ${acc.name}`);
+  }, [loadRows]);
 
   const handleDeleteAccount = useCallback(async (acc: BankCashAccount) => {
     if (!window.confirm(
@@ -2243,8 +2236,8 @@ export default function BankCashBook() {
                     <Landmark size={13} /> {acc.name}
                   </button>
                   <button
-                    onClick={() => handleClearEntries(acc)}
-                    title={`Clear all entries for ${acc.name}`}
+                    onClick={() => handleRefreshAccount(acc)}
+                    title={`Refresh data for ${acc.name}`}
                     className="flex items-center px-2.5 py-2 border border-l-0 border-slate-200 bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                   >
                     <RefreshCw size={12} />
@@ -2275,8 +2268,8 @@ export default function BankCashBook() {
                     <Wallet size={13} /> {acc.name}
                   </button>
                   <button
-                    onClick={() => handleClearEntries(acc)}
-                    title={`Clear all entries for ${acc.name}`}
+                    onClick={() => handleRefreshAccount(acc)}
+                    title={`Refresh data for ${acc.name}`}
                     className="flex items-center px-2.5 py-2 border border-l-0 border-slate-200 bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                   >
                     <RefreshCw size={12} />

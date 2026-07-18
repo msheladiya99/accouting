@@ -30,7 +30,8 @@ const accountGroupSchema = new Schema(
         "Partner Remuneration",
         "Trading Account"
       ]
-    }
+    },
+    isLocked: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

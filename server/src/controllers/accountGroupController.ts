@@ -149,12 +149,23 @@ export async function mergeGroups(req: AuthenticatedRequest, res: Response): Pro
       res.status(404).json({ message: "Target group not found" });
       return;
     }
+    if (targetGroup.isLocked) {
+      res.status(400).json({ message: `Target group "${targetGroup.groupName}" is locked and cannot be modified.` });
+      return;
+    }
     const targetName = targetGroup.groupName;
 
     // Load source groups
     const sourceGroups = await AccountGroup.find({ _id: { $in: sourceIds }, companyId: req.companyId });
     if (sourceGroups.length === 0) {
       res.status(404).json({ message: "No source groups found" });
+      return;
+    }
+    const lockedSources = sourceGroups.filter(g => g.isLocked);
+    if (lockedSources.length > 0) {
+      res.status(400).json({
+        message: `Cannot merge because the following source groups are locked: ${lockedSources.map(g => g.groupName).join(", ")}`
+      });
       return;
     }
     const sourceNames = sourceGroups.map((g) => g.groupName);
@@ -242,6 +253,11 @@ export async function updateGroup(req: AuthenticatedRequest, res: Response): Pro
     const group = await AccountGroup.findOne({ _id: id, companyId: req.companyId });
     if (!group) {
       res.status(404).json({ message: "Account group not found" });
+      return;
+    }
+
+    if (group.isLocked) {
+      res.status(400).json({ message: `Group "${group.groupName}" is locked and cannot be modified.` });
       return;
     }
 
@@ -335,6 +351,11 @@ export async function deleteGroup(req: AuthenticatedRequest, res: Response): Pro
       return;
     }
 
+    if (group.isLocked) {
+      res.status(400).json({ message: `Group "${group.groupName}" is locked and cannot be deleted.` });
+      return;
+    }
+
     // Check if any Ledger is using this groupName
     const { Ledger } = await import("../models/Ledger");
     const count = await Ledger.countDocuments({ companyId: req.companyId, groupName: group.groupName });
@@ -350,5 +371,23 @@ export async function deleteGroup(req: AuthenticatedRequest, res: Response): Pro
     res.json({ message: `Account group "${group.groupName}" deleted successfully` });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to delete account group" });
+  }
+}
+
+export async function bulkLockGroups(req: AuthenticatedRequest, res: Response): Promise<void> {
+  const { ids, lock } = req.body;
+  try {
+    if (!Array.isArray(ids)) {
+      res.status(400).json({ message: "ids array is required under 'ids'" });
+      return;
+    }
+    await AccountGroup.updateMany(
+      { _id: { $in: ids }, companyId: req.companyId },
+      { $set: { isLocked: !!lock } }
+    );
+    ReportCacheService.invalidateCompany(req.companyId as string);
+    res.json({ message: `Groups ${lock ? "locked" : "unlocked"} successfully` });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || "Failed to bulk update group lock status" });
   }
 }

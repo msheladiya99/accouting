@@ -13,7 +13,7 @@ import { useForm } from "react-hook-form";
 import {
   Plus, Search, RefreshCw, Pencil, Trash2, X,
   Save, BookMarked, Layers, Filter, CheckCircle2, Loader2, GitMerge,
-  Download, Upload, FileSpreadsheet,
+  Download, Upload, FileSpreadsheet, Lock as LockIcon, Unlock as UnlockIcon,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import toast from "react-hot-toast";
@@ -24,7 +24,8 @@ import {
 } from "../api/ledgerApi";
 import {
   createGroup, SUPER_GROUPS, type AccountGroup, mergeGroups,
-  updateGroup, deleteGroup, SUPER_GROUP_PARENTS, SUPER_GROUP_STATEMENT
+  updateGroup, deleteGroup, SUPER_GROUP_PARENTS, SUPER_GROUP_STATEMENT,
+  bulkLockGroups
 } from "../api/accountGroupApi";
 import { useLedgersRaw, useGroups as useQueryGroups } from "../hooks/useReportQueries";
 import { LedgerMasterSkeleton, RefreshingBadge } from "../components/SkeletonLoaders";
@@ -1022,6 +1023,7 @@ export default function LedgerMaster() {
   const [mergeGroupsModalOpen, setMergeGroupsModalOpen] = useState(false);
   const [mergeGroupsSaving, setMergeGroupsSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [groupSearch, setGroupSearch] = useState("");
 
   const filteredGroups = useMemo(() => {
@@ -1171,6 +1173,36 @@ export default function LedgerMaster() {
       toast.error(e.response?.data?.message || e.message || "Failed to delete account group");
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const handleBulkLockGroups = useCallback(async (lock: boolean) => {
+    if (selectedGroupIds.length === 0) return;
+    const actionStr = lock ? "lock" : "unlock";
+    if (!window.confirm(`Are you sure you want to ${actionStr} the ${selectedGroupIds.length} selected group(s)?`)) return;
+    setSaving(true);
+    try {
+      await bulkLockGroups(selectedGroupIds, lock);
+      toast.success(`Selected group(s) ${lock ? "locked" : "unlocked"} successfully`);
+      setSelectedGroupIds([]);
+      await load();
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || e.message || "Failed to update lock status");
+    } finally {
+      setSaving(false);
+    }
+  }, [selectedGroupIds, load]);
+
+  const handleToggleSingleGroupLock = useCallback(async (group: AccountGroup) => {
+    const nextState = !group.isLocked;
+    try {
+      await bulkLockGroups([group._id], nextState);
+      setGroups((p) => p.map((g) => g._id === group._id ? { ...g, isLocked: nextState } : g));
+      toast.success(`Group "${group.groupName}" ${nextState ? "locked" : "unlocked"}`);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || e.message || "Failed to update lock status");
     }
   }, []);
 
@@ -2093,16 +2125,55 @@ export default function LedgerMaster() {
                 )}
               </div>
             ) : (
+              <>
+                {selectedGroupIds.length > 0 && (
+                <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl mb-4 transition-all duration-200">
+                  <span className="text-sm font-semibold text-slate-600">
+                    {selectedGroupIds.length} group(s) selected
+                  </span>
+                  <div className="flex items-center gap-2 ml-auto">
+                    <button
+                      onClick={() => handleBulkLockGroups(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                    >
+                      <LockIcon size={13} />
+                      Lock Selected
+                    </button>
+                    <button
+                      onClick={() => handleBulkLockGroups(false)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                    >
+                      <UnlockIcon size={13} />
+                      Unlock Selected
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-sm text-slate-700">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                      <th className="px-6 py-4 w-12 text-center">
+                        <input
+                          type="checkbox"
+                          checked={filteredGroups.length > 0 && selectedGroupIds.length === filteredGroups.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedGroupIds(filteredGroups.map(g => g._id));
+                            } else {
+                              setSelectedGroupIds([]);
+                            }
+                          }}
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                      </th>
                       <th className="px-6 py-4 w-16">#</th>
                       <th className="px-6 py-4">Group Name</th>
                       <th className="px-6 py-4">Supergroup Name</th>
                       <th className="px-6 py-4">B/S Side</th>
                       <th className="px-6 py-4">Affects Statement</th>
-                      <th className="px-6 py-4 text-right w-36">Actions</th>
+                      <th className="px-6 py-4 text-right w-44">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -2125,8 +2196,29 @@ export default function LedgerMaster() {
                       const sb = stmt ? stmtBadge[stmt] : null;
                       return (
                         <tr key={g._id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedGroupIds.includes(g._id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedGroupIds(prev => [...prev, g._id]);
+                                } else {
+                                  setSelectedGroupIds(prev => prev.filter(id => id !== g._id));
+                                }
+                              }}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            />
+                          </td>
                           <td className="px-6 py-4 text-slate-400 font-medium">{idx + 1}</td>
-                          <td className="px-6 py-4 font-semibold text-slate-900">{g.groupName}</td>
+                          <td className="px-6 py-4 font-semibold text-slate-900">
+                            <span className="flex items-center gap-1.5">
+                              {g.groupName}
+                              {g.isLocked && (
+                                <LockIcon size={12} className="text-amber-500" title="Locked" />
+                              )}
+                            </span>
+                          </td>
                           <td className="px-6 py-4">
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700">
                               {g.superGroup}
@@ -2151,26 +2243,52 @@ export default function LedgerMaster() {
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
                               <button
+                                onClick={() => handleToggleSingleGroupLock(g)}
+                                title={g.isLocked ? "Unlock Group" : "Lock Group"}
+                                className={`p-1.5 rounded-md transition-colors ${
+                                  g.isLocked
+                                    ? "bg-amber-50 text-amber-600 hover:bg-amber-100"
+                                    : "hover:bg-slate-100 text-slate-400 hover:text-slate-600"
+                                }`}
+                              >
+                                {g.isLocked ? <LockIcon size={14} /> : <UnlockIcon size={14} />}
+                              </button>
+                              <button
+                                disabled={g.isLocked}
                                 onClick={() => setGroupEditModal({ mode: "edit", group: g })}
-                                title="Edit Group"
-                                className="p-1.5 rounded-md hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
+                                title={g.isLocked ? "Group is locked" : "Edit Group"}
+                                className={`p-1.5 rounded-md transition-colors ${
+                                  g.isLocked
+                                    ? "opacity-40 cursor-not-allowed text-slate-300"
+                                    : "hover:bg-indigo-50 text-slate-400 hover:text-indigo-600"
+                                }`}
                               >
                                 <Pencil size={14} />
                               </button>
                               <button
+                                disabled={g.isLocked}
                                 onClick={() => {
                                   setPreSelectedTargetId(g._id);
                                   setMergeGroupsModalOpen(true);
                                 }}
-                                title="Merge Group"
-                                className="p-1.5 rounded-md hover:bg-purple-50 text-slate-400 hover:text-purple-600 transition-colors"
+                                title={g.isLocked ? "Group is locked" : "Merge Group"}
+                                className={`p-1.5 rounded-md transition-colors ${
+                                  g.isLocked
+                                    ? "opacity-40 cursor-not-allowed text-slate-300"
+                                    : "hover:bg-purple-50 text-slate-400 hover:text-purple-600"
+                                }`}
                               >
                                 <GitMerge size={14} />
                               </button>
                               <button
+                                disabled={g.isLocked}
                                 onClick={() => handleDeleteGroup(g)}
-                                title="Delete Group"
-                                className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+                                title={g.isLocked ? "Group is locked" : "Delete Group"}
+                                className={`p-1.5 rounded-md transition-colors ${
+                                  g.isLocked
+                                    ? "opacity-40 cursor-not-allowed text-slate-300"
+                                    : "hover:bg-red-50 text-slate-400 hover:text-red-500"
+                                }`}
                               >
                                 <Trash2 size={14} />
                               </button>
@@ -2182,6 +2300,7 @@ export default function LedgerMaster() {
                   </tbody>
                 </table>
               </div>
+            </>
             )}
           </div>
         </>

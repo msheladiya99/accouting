@@ -86,6 +86,7 @@ export interface AccountGroup {
   _id: string;
   groupName: string;
   superGroup: SuperGroup;
+  isLocked?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -117,5 +118,10 @@ export async function updateGroup(id: string, payload: AccountGroupPayload): Pro
 
 export async function deleteGroup(id: string): Promise<{ message: string }> {
   const res = await axiosClient.delete<{ message: string }>(`/account-group/${id}`);
+  return res.data;
+}
+
+export async function bulkLockGroups(ids: string[], lock: boolean): Promise<{ message: string }> {
+  const res = await axiosClient.post<{ message: string }>("/account-group/bulk-lock", { ids, lock });
   return res.data;
 }

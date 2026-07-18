@@ -5,6 +5,7 @@ import { Ledger } from "../models/Ledger";
 import { AccountGroup } from "../models/AccountGroup";
 import { BankCashAccount } from "../models/BankCashAccount";
 import { AuthenticatedRequest } from "../middleware/auth";
+import { ReportCacheService } from "../services/accounting/ReportCacheService";
 
 const DEFAULT_GROUPS_SEEDS = [
   // Trading

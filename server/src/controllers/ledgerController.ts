@@ -512,12 +512,6 @@ export async function createLedger(req: AuthenticatedRequest, res: Response): Pr
       return;
     }
 
-    const group = await AccountGroup.findOne({ groupName: groupName.toUpperCase(), companyId: req.companyId });
-    if (group && group.isLocked) {
-      res.status(400).json({ message: `Group "${groupName}" is locked. Cannot create ledgers in it.` });
-      return;
-    }
-
     const trimmedName = ledgerName.trim().toUpperCase();
     const exists = await Ledger.findOne({
       ledgerName: { $regex: new RegExp(`^${escapeRegExp(trimmedName)}$`, "i") },
@@ -565,22 +559,6 @@ export async function updateLedger(req: AuthenticatedRequest, res: Response): Pr
     if (!ledger) {
       res.status(404).json({ message: "Ledger not found" });
       return;
-    }
-
-    // Check if current group is locked
-    const currentGroup = await AccountGroup.findOne({ groupName: ledger.groupName, companyId: req.companyId });
-    if (currentGroup && currentGroup.isLocked) {
-      res.status(400).json({ message: `Current group "${ledger.groupName}" is locked. Cannot modify its ledgers.` });
-      return;
-    }
-
-    // Check if target group is locked (if moving)
-    if (groupName && groupName !== ledger.groupName) {
-      const newGroup = await AccountGroup.findOne({ groupName: groupName.toUpperCase(), companyId: req.companyId });
-      if (newGroup && newGroup.isLocked) {
-        res.status(400).json({ message: `Target group "${groupName}" is locked. Cannot move ledgers into it.` });
-        return;
-      }
     }
 
     const oldName = ledger.ledgerName;
@@ -632,12 +610,6 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
     const ledger = await Ledger.findOne({ _id: id, companyId: req.companyId });
     if (!ledger) {
       res.status(404).json({ message: "Ledger not found" });
-      return;
-    }
-
-    const group = await AccountGroup.findOne({ groupName: ledger.groupName, companyId: req.companyId });
-    if (group && group.isLocked) {
-      res.status(400).json({ message: `Group "${ledger.groupName}" is locked. Cannot delete ledgers from it.` });
       return;
     }
 

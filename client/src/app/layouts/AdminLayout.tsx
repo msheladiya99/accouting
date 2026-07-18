@@ -104,21 +104,25 @@ export default function AdminLayout() {
         `}
       >
         {/* Logo */}
-        <div className={`flex items-center gap-3 px-4 py-5 border-b border-white/10 ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}>
+        <NavLink
+          to="/company-select"
+          title="Switch Company"
+          className={`flex items-center gap-3 px-4 py-5 border-b border-white/10 hover:bg-white/5 transition-colors cursor-pointer ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
+        >
           <div className="flex-shrink-0 w-9 h-9 bg-indigo-500 rounded-lg flex items-center justify-center">
             <Calculator size={18} className="text-white" />
           </div>
           {!sidebarCollapsed && (
             <div className="lg:block hidden min-w-0 flex-1">
               <p className="text-white text-sm font-semibold leading-tight truncate" title={company.name}>{company.name}</p>
-              <p className="text-indigo-300 text-[10px] mt-0.5">Basic Accounting</p>
+              <p className="text-indigo-300 text-[10px] mt-0.5">Switch Company</p>
             </div>
           )}
           <div className="lg:hidden block min-w-0 flex-1">
             <p className="text-white text-sm font-semibold leading-tight truncate" title={company.name}>{company.name}</p>
-            <p className="text-indigo-300 text-[10px] mt-0.5">Basic Accounting</p>
+            <p className="text-indigo-300 text-[10px] mt-0.5">Switch Company</p>
           </div>
-        </div>
+        </NavLink>
 
         {/* Active FY pill (visible when sidebar is expanded) */}
         {!sidebarCollapsed && selectedFY && (
@@ -344,6 +348,13 @@ export default function AdminLayout() {
                       className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                     >
                       <Settings size={15} className="text-slate-400" /> Settings
+                    </NavLink>
+                    <NavLink
+                      to="/company-select"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                    >
+                      <Building2 size={15} className="text-slate-400" /> Switch Company
                     </NavLink>
                   </div>
                   <div className="border-t border-slate-100 py-1">

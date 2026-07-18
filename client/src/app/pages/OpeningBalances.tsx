@@ -18,7 +18,7 @@ import toast from "react-hot-toast";
 import { useApp } from "../context/AppContext";
 import { FYBanner } from "../components/FYBanner";
 import * as XLSX from "xlsx";
-import { saveBulkOpeningBalances, getAllLedgers, LEDGER_GROUPS, type Ledger } from "../api/ledgerApi";
+import { saveBulkOpeningBalances, getAllLedgers, deleteLedger, bulkDeleteLedgers, LEDGER_GROUPS, type Ledger } from "../api/ledgerApi";
 import { invalidateAllReports, QUERY_KEYS } from "../api/queryClient";
 import { useQueryClient } from "@tanstack/react-query";
 import { getAllGroups, type AccountGroup } from "../api/accountGroupApi";
@@ -510,7 +510,7 @@ export default function OpeningBalances() {
   const totalDr   = rows.reduce((s, r) => s + r.amountDr, 0);
   const totalCr   = rows.reduce((s, r) => s + r.amountCr, 0);
   const diff      = totalDr - totalCr;
-  const balanced  = Math.abs(diff) < 0.01 && totalDr > 0;
+  const balanced  = Math.abs(diff) < 0.01;
 
   // ── Row operations ──────────────────────────────────────────────────────────
   const addRow = () => {
@@ -548,10 +548,10 @@ export default function OpeningBalances() {
       const localTotalDr = targetRows.reduce((s, r) => s + r.amountDr, 0);
       const localTotalCr = targetRows.reduce((s, r) => s + r.amountCr, 0);
       const localDiff = localTotalDr - localTotalCr;
-      const localBalanced = Math.abs(localDiff) < 0.01 && localTotalDr > 0;
+      const localBalanced = Math.abs(localDiff) < 0.01;
 
       if (!localBalanced) {
-        toast.success(`Opening balances saved with a difference of ₹${Math.abs(localDiff).toLocaleString("en-IN")}!`, {
+        toast.success(`Opening balances saved with a difference of ₹${Math.abs(localDiff).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}!`, {
           icon: "⚠️",
           duration: 5000,
         });
@@ -568,29 +568,54 @@ export default function OpeningBalances() {
   }, [load]);
 
   const deleteRow = useCallback(async (id: string) => {
-    const remaining = rows.filter((r) => r.id !== id);
-    setRows(remaining);
-    try {
-      await saveBalancesDirect(remaining);
-    } catch {
-      // saveBalancesDirect already shows error toast; revert local state
-      setRows(rows);
+    // If it's a temporary row (starts with row-), just remove it from state
+    if (id.startsWith("row-")) {
+      setRows((prev) => prev.filter((r) => r.id !== id));
+      return;
     }
-  }, [rows, saveBalancesDirect]);
+
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+
+    if (!window.confirm(`Are you sure you want to delete the ledger "${row.ledgerName}"?`)) return;
+
+    setSaving(true);
+    try {
+      await deleteLedger(id);
+      toast.success(`Ledger "${row.ledgerName}" deleted successfully`);
+      setRows((prev) => prev.filter((r) => r.id !== id));
+      await load(true);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to delete ledger");
+    } finally {
+      setSaving(false);
+    }
+  }, [rows, load]);
 
   const handleBulkDelete = useCallback(async () => {
     if (selectedIds.length === 0) return;
-    if (!window.confirm(`Delete the ${selectedIds.length} selected row(s)? This will be saved to the database.`)) return;
-    const remaining = rows.filter((r) => !selectedIds.includes(r.id));
-    setRows(remaining);
-    setSelectedIds([]);
+    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected ledger(s)?`)) return;
+
+    const tempIds = selectedIds.filter((id) => id.startsWith("row-"));
+    const dbIds = selectedIds.filter((id) => !id.startsWith("row-"));
+
+    setSaving(true);
     try {
-      await saveBalancesDirect(remaining);
-    } catch {
-      // saveBalancesDirect already shows error toast; revert local state
-      setRows(rows);
+      if (dbIds.length > 0) {
+        await bulkDeleteLedgers(dbIds);
+      }
+      toast.success("Selected ledger(s) deleted successfully");
+      setRows((prev) => prev.filter((r) => !selectedIds.includes(r.id)));
+      setSelectedIds([]);
+      await load(true);
+      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || err.message || "Failed to delete ledgers");
+    } finally {
+      setSaving(false);
     }
-  }, [selectedIds, rows, saveBalancesDirect]);
+  }, [selectedIds, rows, load]);
 
   const onSelectionChanged = useCallback(() => {
     const selectedNodes = gridRef.current?.api.getSelectedNodes() || [];
@@ -914,12 +939,12 @@ export default function OpeningBalances() {
       </div>
 
       {/* Validation banner */}
-      {!balanced && totalDr > 0 && (
+      {!balanced && (totalDr > 0 || totalCr > 0) && (
         <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl shadow-sm">
           <AlertTriangle size={16} className="text-red-500 flex-shrink-0" />
           <p className="text-sm text-red-700">
             <strong>Not Balanced —</strong> Total Dr and Total Cr must be equal. Current difference:{" "}
-            <strong>₹{Math.abs(diff).toLocaleString("en-IN")}</strong>. Adjust entries before saving.
+            <strong>₹{Math.abs(diff).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>. Adjust entries before saving.
           </p>
         </div>
       )}

@@ -2098,9 +2098,19 @@ export default function BankCashBook() {
       
       if (colFilters.particulars && !row.particulars.toLowerCase().includes(colFilters.particulars.toLowerCase())) return false;
       
-      if (colFilters.withdrawal && !matchNumericFilter(row.withdrawal, colFilters.withdrawal)) return false;
+      if (colFilters.withdrawal) {
+        const cleanFilter = colFilters.withdrawal.trim();
+        const isFilteringZero = cleanFilter === "0" || cleanFilter === "=0" || cleanFilter === "<=0";
+        if (row.withdrawal === 0 && !isFilteringZero) return false;
+        if (!matchNumericFilter(row.withdrawal, colFilters.withdrawal)) return false;
+      }
       
-      if (colFilters.deposit && !matchNumericFilter(row.deposit, colFilters.deposit)) return false;
+      if (colFilters.deposit) {
+        const cleanFilter = colFilters.deposit.trim();
+        const isFilteringZero = cleanFilter === "0" || cleanFilter === "=0" || cleanFilter === "<=0";
+        if (row.deposit === 0 && !isFilteringZero) return false;
+        if (!matchNumericFilter(row.deposit, colFilters.deposit)) return false;
+      }
       
       if (colFilters.balance && !matchNumericFilter(row.balance, colFilters.balance)) return false;
       

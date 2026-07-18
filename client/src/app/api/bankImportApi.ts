@@ -471,7 +471,7 @@ const DATE_4_RE = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/;
 const DATE_2_RE = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2})/;
 const DATE_TEXT_1_RE = /(\d{1,2}[\s\-\/][a-zA-Z]{3,9}[\s\-\/]\d{2,4})/;
 const DATE_TEXT_2_RE = /([a-zA-Z]{3,9}[\s\-\/]\d{1,2},?\s*\d{2,4})/;
-const AMT_RE  = /[\d,]+\.\d{2}/g;
+const AMT_RE  = /[\d,]+\.\d{2}(?!\.\d+)/g;
 
 function isDepositNarration(narration: string): boolean {
   const text = narration.toLowerCase();

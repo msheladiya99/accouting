@@ -98,6 +98,7 @@ export async function createCompany(req: AuthenticatedRequest, res: Response): P
     const defaultGroups = DEFAULT_GROUPS_SEEDS.map((g) => ({
       groupName: g.groupName,
       superGroup: g.superGroup,
+      isLocked: true,
       companyId: company._id
     }));
     await AccountGroup.insertMany(defaultGroups);

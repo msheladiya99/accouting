@@ -8,23 +8,7 @@ import { BankCashAccount } from "../models/BankCashAccount";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { ReportCacheService } from "../services/accounting/ReportCacheService";
 
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
-const SYSTEM_LEDGER_NAMES = [
-  "DIRECT EXPENSES", "INCOME (TRADING)", "PURCHASE ACCOUNT", "SALES ACCOUNT",
-  "EXPENSE ACCOUNT", "FINANCIAL EXPENSES", "INCOME", "INCOME (OTHER THEN SALES)",
-  "INDIRECT EXPENSES", "PARTNER INTEREST", "PARTNER REMUNERATION", "ADVANCES FROM CUSTOMERS",
-  "BANK ACCOUNTS (BANKS)", "BANK OCC A/C", "CAPITAL ACCOUNT", "CASH LEDGER A/C.",
-  "CASH-IN-HAND", "CURRENT CAPITAL ACCOUNT", "CURRENT LIABILITIES", "DEPOSITS (ASSET)",
-  "DUTIES & TAXES", "FIXED ASSETS", "INVESTMENTS", "LOANS & ADVANCES (ASSET)",
-  "LOANS (LIABILITY)", "MISC. EXPENSES (ASSET)", "PROFIT & LOSS A/C", "PROVISIONS",
-  "RESERVES & SURPLUS", "SUB CAPITAL", "SALARY EXPENSES PAYABLE", "SECURED LOANS", "STOCK-IN-HAND",
-  "SUNDRY CREDITORS", "SUNDRY CREDITORS - MATERIAL", "SUNDRY CREDITORS - SERVICES",
-  "SUNDRY DEBTORS", "SUSPENSE ACCOUNT", "UNSECURED LOANS",
-  "CASH ACCOUNT", "Cash Account", "CASH ON HAND"
-];
 
 function computeStatus(startDate: string, endDate: string): "current" | "previous" | "future" | "closed" {
   const today = new Date();
@@ -177,14 +161,21 @@ export async function deleteFY(req: AuthenticatedRequest, res: Response): Promis
     // Clean up all custom ledgers and custom bank/cash accounts if no financial years remain
     const remainingYears = await FinancialYear.countDocuments({ companyId: req.companyId });
     if (remainingYears === 0) {
-      await Ledger.deleteMany({
-        companyId: req.companyId,
-        ledgerName: { $nin: SYSTEM_LEDGER_NAMES.map(name => new RegExp(`^${escapeRegExp(name)}$`, "i")) }
+      await Ledger.deleteMany({ companyId: req.companyId });
+      await BankCashAccount.deleteMany({ companyId: req.companyId });
+
+      // Automatically create default Cash account
+      const defaultCash = new BankCashAccount({
+        name: "CASH ACCOUNT",
+        group: "Cash",
+        openingBalance: 0,
+        companyId: req.companyId
       });
-      await BankCashAccount.deleteMany({
-        companyId: req.companyId,
-        name: { $nin: SYSTEM_LEDGER_NAMES.map(name => new RegExp(`^${escapeRegExp(name)}$`, "i")) }
-      });
+      await defaultCash.save();
+
+      // Sync corresponding ledger for default cash account
+      const { syncLedgerFromBankCashAccount } = await import("./bankCashController");
+      await syncLedgerFromBankCashAccount(defaultCash);
     }
 
     ReportCacheService.invalidateCompany(req.companyId as string);

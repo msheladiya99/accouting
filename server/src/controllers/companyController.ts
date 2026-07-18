@@ -102,30 +102,18 @@ export async function createCompany(req: AuthenticatedRequest, res: Response): P
     }));
     await AccountGroup.insertMany(defaultGroups);
 
-    // Automatically create default ledgers (excluding categories/super-categories from having active ledger accounts)
-    const excludedLedgerGroups = [
-      "EXPENSE ACCOUNT",
-      "INCOME",
-      "CURRENT LIABILITIES",
-      "CURRENT CAPITAL ACCOUNT",
-    ];
-    const defaultLedgers = DEFAULT_GROUPS_SEEDS
-      .filter((g) => !excludedLedgerGroups.includes(g.groupName))
-      .map((g) => ({
-        ledgerName: g.groupName,
-        groupName: g.groupName,
-        companyId: company._id
-      }));
-    await Ledger.insertMany(defaultLedgers);
-
     // Automatically create default Cash account
     const defaultCash = new BankCashAccount({
       name: "CASH ACCOUNT",
-      group: "CASH-IN-HAND",
+      group: "Cash",
       openingBalance: 0,
       companyId: company._id
     });
     await defaultCash.save();
+
+    // Sync corresponding ledger for default cash account
+    const { syncLedgerFromBankCashAccount } = await import("./bankCashController");
+    await syncLedgerFromBankCashAccount(defaultCash);
 
     res.status(201).json(company);
   } catch (error: any) {

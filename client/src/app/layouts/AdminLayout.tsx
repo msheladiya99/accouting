@@ -227,10 +227,10 @@ export default function AdminLayout() {
                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusColors[selectedFY.status]}`} />
                 )}
                 <span className="text-slate-800 font-semibold hidden sm:block">
-                  {selectedFY ? selectedFY.label : "Loading…"}
+                  {fyLoading ? "Loading…" : (selectedFY ? selectedFY.label : "No FY Selected")}
                 </span>
                 <span className="text-slate-800 font-semibold sm:hidden">
-                  {selectedFY ? selectedFY.financialYear : "…"}
+                  {fyLoading ? "…" : (selectedFY ? selectedFY.financialYear : "No FY")}
                 </span>
                 <ChevronDown size={13} className={`text-slate-400 transition-transform ${fyOpen ? "rotate-180" : ""}`} />
               </button>

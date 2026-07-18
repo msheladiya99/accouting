@@ -165,8 +165,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setFyLoading(true);
     (async () => {
       try {
-        const [all, current] = await Promise.all([getAllFYs(), getCurrentFY()]);
+        const all = await getAllFYs();
         setAvailableFYs(all);
+
+        if (all.length === 0) {
+          setSelectedFY(null);
+          localStorage.removeItem("ap_selected_fy");
+          setFyLoading(false);
+          return;
+        }
+
+        let current = null;
+        try {
+          current = await getCurrentFY();
+        } catch {
+          // Fallback to first available FY if current API fails
+          current = all[0] || null;
+        }
 
         // Restore from localStorage if possible
         const savedFYStr = localStorage.getItem("ap_selected_fy");
@@ -191,10 +206,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setSelectedFY(current);
           if (current) {
             localStorage.setItem("ap_selected_fy", JSON.stringify(current));
+          } else {
+            localStorage.removeItem("ap_selected_fy");
           }
         }
-      } catch {
-        // Fallback: build current FY on the client
+      } catch (err) {
+        console.error("Failed to load financial years from server:", err);
+        // Fallback: build current FY on the client only if there was a real network/server error
         const now = new Date();
         const aprilYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
         const fallback = buildFY(aprilYear, company.id);

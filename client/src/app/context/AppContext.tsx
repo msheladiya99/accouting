@@ -1,6 +1,7 @@
 import {
   createContext, useContext, useState, useEffect, ReactNode,
 } from "react";
+import { queryClient } from "../api/queryClient";
 import {
   type FinancialYear,
   getAllFYs,
@@ -105,6 +106,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (isDifferent) {
       // Clear selected FY when switching company so it gets re-resolved
       localStorage.removeItem("ap_selected_fy");
+      // Clear all React Query caches to prevent data leaking from the previous company
+      queryClient.clear();
     }
   };
 

@@ -31,7 +31,7 @@ const accountGroupSchema = new Schema(
         "Trading Account"
       ]
     },
-    isLocked: { type: Boolean, default: true }
+    isLocked: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

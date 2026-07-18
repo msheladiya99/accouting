@@ -26,13 +26,14 @@ const DEFAULT_GROUPS_SEEDS = [
   { groupName: "CAPITAL ACCOUNT", superGroup: "Capital Account" },
   { groupName: "CASH LEDGER A/C.", superGroup: "CASH LEDGER A/C." },
   { groupName: "CASH-IN-HAND", superGroup: "Current Assets" },
+  { groupName: "CASH AND BANK", superGroup: "Current Assets" },
   { groupName: "CURRENT CAPITAL ACCOUNT", superGroup: "Capital Account" },
   { groupName: "CURRENT LIABILITIES", superGroup: "Current Liabilities" },
   { groupName: "DEPOSITS (ASSET)", superGroup: "Current Assets" },
   { groupName: "DUTIES & TAXES", superGroup: "Current Liabilities" },
   { groupName: "FIXED ASSETS", superGroup: "Fixed Assets" },
   { groupName: "INVESTMENTS", superGroup: "Investments" },
-  { groupName: "LOANS & ADVANCES (ASSET)", superGroup: "Current Assets" },
+  { groupName: "LOANS AND ADVANCES (ASSETS)", superGroup: "Current Assets" },
   { groupName: "LOANS (LIABILITY)", superGroup: "Loans (Liability)" },
   { groupName: "MISC. EXPENSES (ASSET)", superGroup: "Misc. Expenses (Asset)" },
   { groupName: "PROFIT & LOSS A/C", superGroup: "Profit & Loss A/c" },
@@ -53,6 +54,18 @@ const DEFAULT_GROUPS_SEEDS = [
 
 export async function getAllGroups(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
+    // Fix existing CASH AND BANK groups to map to Current Assets (Asset side)
+    await AccountGroup.updateMany(
+      { groupName: "CASH AND BANK", superGroup: { $ne: "Current Assets" } },
+      { $set: { superGroup: "Current Assets" } }
+    );
+
+    // Fix existing LOANS AND ADVANCES (ASSETS) groups to map to Current Assets (Asset side)
+    await AccountGroup.updateMany(
+      { groupName: { $in: ["LOANS AND ADVANCES (ASSETS)", "LOANS & ADVANCES (ASSET)"] }, superGroup: { $ne: "Current Assets" } },
+      { $set: { superGroup: "Current Assets" } }
+    );
+
     let groups = await AccountGroup.find({ companyId: req.companyId }).sort({ groupName: 1 });
     
     // Automatically seed groups if none exist for this company
@@ -60,6 +73,7 @@ export async function getAllGroups(req: AuthenticatedRequest, res: Response): Pr
       const defaultGroups = DEFAULT_GROUPS_SEEDS.map((g) => ({
         groupName: g.groupName,
         superGroup: g.superGroup,
+        isLocked: true,
         companyId: req.companyId
       }));
       await AccountGroup.insertMany(defaultGroups);

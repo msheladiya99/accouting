@@ -167,7 +167,6 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
           companyId: req.companyId,
         });
         await newLedger.save();
-        await syncBankCashAccountFromLedger(newLedger);
       }
     }
 

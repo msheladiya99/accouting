@@ -928,7 +928,7 @@ export async function mergeLedgers(req: AuthenticatedRequest, res: Response): Pr
 
     // ── 5. Delete source bank/cash accounts (and move their transactions) ─────
     const sourceAccounts = await BankCashAccount.find({
-      name: { $in: sourceNames.map((n) => new RegExp(`^${n}$`, "i")) },
+      name: { $in: sourceNames.map((n) => new RegExp(`^${escapeRegExp(n.trim())}$`, "i")) },
       companyId: req.companyId,
     });
     if (sourceAccounts.length > 0) {
@@ -944,8 +944,17 @@ export async function mergeLedgers(req: AuthenticatedRequest, res: Response): Pr
           { accountId: { $in: sourceAccountIds }, companyId: companyIdFilter },
           { $set: { accountId: targetAccount._id.toString() } }
         );
+        // Update target account opening balance to include source account opening balances
+        const totalSourceOpeningBalance = sourceAccounts.reduce(
+          (sum, acc) => sum + (acc.openingBalance || 0),
+          0
+        );
+        await BankCashAccount.updateOne(
+          { _id: targetAccount._id },
+          { $inc: { openingBalance: totalSourceOpeningBalance } }
+        );
       } else {
-        // Delete entries if no target bank/cash account exists
+        // No target bank/cash account exists — just delete source entries
         await BankCashEntry.deleteMany({ accountId: { $in: sourceAccountIds }, companyId: companyIdFilter });
       }
       await BankCashAccount.deleteMany({ _id: { $in: sourceAccounts.map((a) => a._id) } });

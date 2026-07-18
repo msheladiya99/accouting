@@ -331,11 +331,19 @@ export default function BankImport({
           txns = res.transactions;
           parsedBankName = res.bankName;
         } else if (ext === "pdf") {
-          // Always use local parser for PDFs — AI hallucinated and duplicated entries.
-          // extractPDFText deduplicates lines across pages, giving correct transaction counts.
-          const rawText = await extractPDFText(f);
-          txns = await parsePDF(f);
-          parsedBankName = detectBankNameFromText(rawText);
+          // Always use local parser for PDFs first for exact counts.
+          // If the PDF catalog/page tree is malformed or corrupted (throwing pdf.js errors),
+          // fallback to AI statement parsing by uploading base64 to the backend directly.
+          try {
+            const rawText = await extractPDFText(f);
+            txns = await parsePDF(f);
+            parsedBankName = detectBankNameFromText(rawText);
+          } catch (err) {
+            console.warn("Local PDF parser failed. Falling back to AI statement parsing...", err);
+            const res = await parseStatementWithAI(f);
+            txns = res.transactions;
+            parsedBankName = res.bankName;
+          }
         } else {
           txns = await parseExcel(f);
         }

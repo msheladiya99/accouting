@@ -886,10 +886,16 @@ export async function parseStatementWithAI(file: File): Promise<ParseResult> {
     const base64Data = await fileToBase64(file);
     payload.fileBase64 = base64Data;
   } else if (ext === "pdf") {
-    const rawText = await extractPDFText(file);
-    if (rawText.trim() && rawText.length >= 50) {
-      payload.rawText = rawText;
-    } else {
+    try {
+      const rawText = await extractPDFText(file);
+      if (rawText.trim() && rawText.length >= 50) {
+        payload.rawText = rawText;
+      } else {
+        const base64Data = await fileToBase64(file);
+        payload.fileBase64 = base64Data;
+      }
+    } catch (e) {
+      // Fallback: read file directly as base64 if local text extraction fails
       const base64Data = await fileToBase64(file);
       payload.fileBase64 = base64Data;
     }

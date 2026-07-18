@@ -1,7 +1,30 @@
 import { Response } from "express";
 import { FinancialYear } from "../models/FinancialYear";
+import { JournalEntry } from "../models/JournalEntry";
+import { BankCashEntry } from "../models/BankCashEntry";
+import { ImportedTransaction } from "../models/ImportedTransaction";
+import { Ledger } from "../models/Ledger";
+import { BankCashAccount } from "../models/BankCashAccount";
 import { AuthenticatedRequest } from "../middleware/auth";
 import { ReportCacheService } from "../services/accounting/ReportCacheService";
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const SYSTEM_LEDGER_NAMES = [
+  "DIRECT EXPENSES", "INCOME (TRADING)", "PURCHASE ACCOUNT", "SALES ACCOUNT",
+  "EXPENSE ACCOUNT", "FINANCIAL EXPENSES", "INCOME", "INCOME (OTHER THEN SALES)",
+  "INDIRECT EXPENSES", "PARTNER INTEREST", "PARTNER REMUNERATION", "ADVANCES FROM CUSTOMERS",
+  "BANK ACCOUNTS (BANKS)", "BANK OCC A/C", "CAPITAL ACCOUNT", "CASH LEDGER A/C.",
+  "CASH-IN-HAND", "CURRENT CAPITAL ACCOUNT", "CURRENT LIABILITIES", "DEPOSITS (ASSET)",
+  "DUTIES & TAXES", "FIXED ASSETS", "INVESTMENTS", "LOANS & ADVANCES (ASSET)",
+  "LOANS (LIABILITY)", "MISC. EXPENSES (ASSET)", "PROFIT & LOSS A/C", "PROVISIONS",
+  "RESERVES & SURPLUS", "SUB CAPITAL", "SALARY EXPENSES PAYABLE", "SECURED LOANS", "STOCK-IN-HAND",
+  "SUNDRY CREDITORS", "SUNDRY CREDITORS - MATERIAL", "SUNDRY CREDITORS - SERVICES",
+  "SUNDRY DEBTORS", "SUSPENSE ACCOUNT", "UNSECURED LOANS",
+  "CASH ACCOUNT", "Cash Account", "CASH ON HAND"
+];
 
 function computeStatus(startDate: string, endDate: string): "current" | "previous" | "future" | "closed" {
   const today = new Date();
@@ -133,9 +156,39 @@ export async function deleteFY(req: AuthenticatedRequest, res: Response): Promis
       return;
     }
 
+    // Delete all transactional data for this financial year
+    await JournalEntry.deleteMany({
+      companyId: req.companyId,
+      date: { $gte: fy.startDate, $lte: fy.endDate }
+    });
+
+    await BankCashEntry.deleteMany({
+      companyId: req.companyId,
+      date: { $gte: fy.startDate, $lte: fy.endDate }
+    });
+
+    await ImportedTransaction.deleteMany({
+      companyId: req.companyId,
+      date: { $gte: fy.startDate, $lte: fy.endDate }
+    });
+
     await FinancialYear.deleteOne({ _id: id, companyId: req.companyId });
+
+    // Clean up all custom ledgers and custom bank/cash accounts if no financial years remain
+    const remainingYears = await FinancialYear.countDocuments({ companyId: req.companyId });
+    if (remainingYears === 0) {
+      await Ledger.deleteMany({
+        companyId: req.companyId,
+        ledgerName: { $nin: SYSTEM_LEDGER_NAMES.map(name => new RegExp(`^${escapeRegExp(name)}$`, "i")) }
+      });
+      await BankCashAccount.deleteMany({
+        companyId: req.companyId,
+        name: { $nin: SYSTEM_LEDGER_NAMES.map(name => new RegExp(`^${escapeRegExp(name)}$`, "i")) }
+      });
+    }
+
     ReportCacheService.invalidateCompany(req.companyId as string);
-    res.json({ message: "Financial year deleted successfully" });
+    res.json({ message: "Financial year and all its transactional data deleted successfully" });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to delete financial year" });
   }

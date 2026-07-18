@@ -77,7 +77,19 @@ export async function getAllAccounts(req: AuthenticatedRequest, res: Response): 
     if (needsRefetch) {
       accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
     }
-    
+
+    // Reverse sync: ensure every BankCashAccount has a corresponding Ledger
+    // (fixes orphaned accounts like auto-created "Cash Account" that have no Ledger entry)
+    for (const acc of accounts) {
+      const ledgerExists = await Ledger.exists({
+        ledgerName: { $regex: new RegExp(`^${acc.name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+        companyId: req.companyId
+      });
+      if (!ledgerExists) {
+        await syncLedgerFromBankCashAccount(acc);
+      }
+    }
+
     // Auto-create default Cash Account if none exists
     const hasCash = accounts.some(acc => acc.group === "Cash");
     if (!hasCash) {
@@ -88,6 +100,8 @@ export async function getAllAccounts(req: AuthenticatedRequest, res: Response): 
         companyId: req.companyId
       });
       await defaultCash.save();
+      // Also create the corresponding Ledger entry so it shows in Ledger Master
+      await syncLedgerFromBankCashAccount(defaultCash);
       // Re-fetch accounts
       accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
     }

@@ -100,7 +100,7 @@ export default function AdminLayout() {
           transition-all duration-300 ease-in-out
           ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
           ${sidebarCollapsed ? "lg:w-[72px]" : "lg:w-[240px]"}
-          w-[240px]
+          w-[240px] 
         `}
       >
         {/* Logo */}

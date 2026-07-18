@@ -128,6 +128,10 @@ export async function createCompany(req: AuthenticatedRequest, res: Response): P
 
     res.status(201).json(company);
   } catch (error: any) {
+    if (error.code === 11000) {
+      res.status(400).json({ message: "A company with this name already exists. Please choose a different name." });
+      return;
+    }
     res.status(500).json({ message: error.message || "Failed to create company" });
   }
 }
@@ -181,6 +185,10 @@ export async function updateCompany(req: AuthenticatedRequest, res: Response): P
     await company.save();
     res.json(company);
   } catch (error: any) {
+    if (error.code === 11000) {
+      res.status(400).json({ message: "A company with this name already exists. Please choose a different name." });
+      return;
+    }
     res.status(500).json({ message: error.message || "Failed to update company" });
   }
 }

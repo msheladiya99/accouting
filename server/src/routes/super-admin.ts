@@ -339,8 +339,11 @@ router.post(["/companies", "/firms"], authMiddleware as any, requireSuperAdmin a
         role: adminUser.role
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Super Admin Create Company Error:", error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "A firm with this name or subdomain already exists. Please choose a different name." });
+    }
     res.status(500).json({ message: "Internal server error" });
   }
 });

@@ -1055,8 +1055,16 @@ export default function LedgerMaster() {
     toast.success("Suggestion ignored");
   }, [ignoredGroups]);
 
-  // Compute duplicate groups dynamically (excluding ignored groups)
-  // OPTIMIZATION: Only run O(n^2) duplicate search when suggestions panel is expanded.
+  // Compute a cheap count always (to show the panel header / button even when collapsed)
+  const duplicateGroupsCount = useMemo(() => {
+    const allGroups = findDuplicateGroups(rows, similarityThreshold);
+    return allGroups.filter((group) => {
+      const key = group.map((l) => l._id).sort().join(",");
+      return !ignoredGroups.includes(key);
+    }).length;
+  }, [rows, similarityThreshold, ignoredGroups]);
+
+  // Compute full duplicate groups only when suggestions panel is expanded.
   const duplicateGroups = useMemo(() => {
     if (!suggestionsExpanded) return [];
     const allGroups = findDuplicateGroups(rows, similarityThreshold);
@@ -1090,8 +1098,16 @@ export default function LedgerMaster() {
     toast.success("Suggestion ignored");
   }, [ignoredGroupSuggestions]);
 
-  // Compute duplicate account groups dynamically (excluding ignored suggestions)
-  // OPTIMIZATION: Only run O(n^2) duplicate search when group suggestions panel is expanded.
+  // Compute a cheap count always (to show the panel header / button even when collapsed)
+  const duplicateAccountGroupsCount = useMemo(() => {
+    const clusters = findDuplicateAccountGroups(groups, groupSimilarityThreshold);
+    return clusters.filter((cluster) => {
+      const key = cluster.map((g) => g._id).sort().join(",");
+      return !ignoredGroupSuggestions.includes(key);
+    }).length;
+  }, [groups, groupSimilarityThreshold, ignoredGroupSuggestions]);
+
+  // Compute full duplicate account groups only when group suggestions panel is expanded.
   const duplicateAccountGroups = useMemo(() => {
     if (!groupSuggestionsExpanded) return [];
     const clusters = findDuplicateAccountGroups(groups, groupSimilarityThreshold);
@@ -1750,7 +1766,7 @@ export default function LedgerMaster() {
       {activeTab === "ledgers" ? (
         <>
           {/* Duplicate Suggestions Panel */}
-          {duplicateGroups.length > 0 && (
+          {duplicateGroupsCount > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
               <div className="flex items-center justify-between px-5 py-4 bg-amber-50/50 border-b border-amber-100 flex-wrap gap-3">
                 <div className="flex items-center gap-2.5">
@@ -1762,7 +1778,7 @@ export default function LedgerMaster() {
                       Potential Duplicate Ledgers Detected
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Found {duplicateGroups.length} group{duplicateGroups.length > 1 ? "s" : ""} of similar ledger names (match similarity &ge; {Math.round(similarityThreshold * 100)}%)
+                      Found {duplicateGroupsCount} group{duplicateGroupsCount > 1 ? "s" : ""} of similar ledger names (match similarity &ge; {Math.round(similarityThreshold * 100)}%)
                     </p>
                   </div>
                 </div>
@@ -1965,7 +1981,7 @@ export default function LedgerMaster() {
       ) : (
         <>
           {/* Duplicate Account Groups Suggestions Panel */}
-          {duplicateAccountGroups.length > 0 && (
+          {duplicateAccountGroupsCount > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-purple-200 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
               <div className="flex items-center justify-between px-5 py-4 bg-purple-50/30 border-b border-purple-100 flex-wrap gap-3">
                 <div className="flex items-center gap-2.5">
@@ -1977,7 +1993,7 @@ export default function LedgerMaster() {
                       Potential Duplicate Groups Detected
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Found {duplicateAccountGroups.length} group{duplicateAccountGroups.length > 1 ? "s" : ""} of similar group names (match similarity &ge; {Math.round(groupSimilarityThreshold * 100)}%)
+                      Found {duplicateAccountGroupsCount} group{duplicateAccountGroupsCount > 1 ? "s" : ""} of similar group names (match similarity &ge; {Math.round(groupSimilarityThreshold * 100)}%)
                     </p>
                   </div>
                 </div>

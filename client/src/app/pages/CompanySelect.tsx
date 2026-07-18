@@ -2,12 +2,12 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
 import {
   Calculator, Search, Plus, Building2, LogOut, Loader2,
-  ChevronRight, Calendar, Hash, CheckCircle2, X, AlertTriangle,
+  ChevronRight, Calendar, Hash, CheckCircle2, X, AlertTriangle, Trash2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
 import { useApp } from "../context/AppContext";
-import { getAllCompanies, createCompany, type Company } from "../api/companyApi";
+import { getAllCompanies, createCompany, deleteCompany, type Company } from "../api/companyApi";
 import UserManagement from "./UserManagement";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -152,6 +152,19 @@ export default function CompanySelect() {
     navigate("/", { replace: true });
   };
 
+  const handleDelete = async (c: Company) => {
+    if (!window.confirm(
+      `⚠️ WARNING: This will permanently delete the company "${c.companyName}" AND ALL of its associated data (ledgers, financial years, transaction entries, settings).\n\nThis action CANNOT be undone. Are you sure you want to delete this company?`
+    )) return;
+    try {
+      await deleteCompany(c._id);
+      toast.success(`Company "${c.companyName}" deleted successfully`);
+      setCompanies((prev) => prev.filter((item) => item._id !== c._id));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || "Failed to delete company");
+    }
+  };
+
   const handleLogout = async () => {
     await logout();
     navigate("/login", { replace: true });
@@ -288,16 +301,33 @@ export default function CompanySelect() {
                 {filtered.map((c) => {
                   const isSelecting = selecting === c._id;
                   return (
-                    <button
+                    <div
                       key={c._id}
-                      onClick={() => handleSelect(c)}
-                      disabled={!!selecting}
-                      className="group relative text-left bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all duration-200 overflow-hidden disabled:opacity-60"
+                      className="group relative bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all duration-200 overflow-hidden"
                     >
                       {/* Top color strip */}
                       <div className={`h-1.5 bg-gradient-to-r ${companyColor(c._id)} w-full`} />
 
-                      <div className="p-5 space-y-4">
+                      {/* Delete button (only for Admin users, hidden by default, shown on card hover) */}
+                      {user?.role === "Admin" && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(c);
+                          }}
+                          disabled={!!selecting}
+                          title="Delete Company"
+                          className="absolute top-3 right-3 p-1.5 rounded-lg bg-white/90 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-100 hover:border-rose-100 opacity-0 group-hover:opacity-100 transition-all shadow-sm z-10 cursor-pointer disabled:opacity-0"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+
+                      {/* Clickable Card Body */}
+                      <div
+                        onClick={() => !selecting && handleSelect(c)}
+                        className={`p-5 space-y-4 cursor-pointer ${selecting ? "opacity-60 pointer-events-none" : ""}`}
+                      >
                         {/* Avatar + name */}
                         <div className="flex items-start gap-4">
                           <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${companyColor(c._id)} flex items-center justify-center text-white text-lg font-bold flex-shrink-0 shadow-sm`}>
@@ -332,7 +362,7 @@ export default function CompanySelect() {
                             : <ChevronRight size={15} className="group-hover:translate-x-0.5 transition-transform" />}
                         </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>

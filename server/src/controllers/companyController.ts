@@ -202,8 +202,26 @@ export async function deleteCompany(req: AuthenticatedRequest, res: Response): P
       return;
     }
 
+    // Clean up all data associated with this company
+    const { Ledger } = await import("../models/Ledger");
+    const { AccountGroup } = await import("../models/AccountGroup");
+    const { FinancialYear } = await import("../models/FinancialYear");
+    const { JournalEntry } = await import("../models/JournalEntry");
+    const { BankCashEntry } = await import("../models/BankCashEntry");
+    const { BankCashAccount } = await import("../models/BankCashAccount");
+    const { ImportedTransaction } = await import("../models/ImportedTransaction");
+
+    await Ledger.deleteMany({ companyId: id });
+    await AccountGroup.deleteMany({ companyId: id });
+    await FinancialYear.deleteMany({ companyId: id });
+    await JournalEntry.deleteMany({ companyId: id });
+    await BankCashEntry.deleteMany({ companyId: id });
+    await BankCashAccount.deleteMany({ companyId: id });
+    await ImportedTransaction.deleteMany({ companyId: id });
+    ReportCacheService.invalidateCompany(id);
+
     await Company.findByIdAndDelete(id);
-    res.json({ message: "Company deleted successfully" });
+    res.json({ message: "Company and all associated data deleted successfully" });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to delete company" });
   }

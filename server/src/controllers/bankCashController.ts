@@ -236,13 +236,11 @@ export async function deleteAccount(req: AuthenticatedRequest, res: Response): P
       return;
     }
 
-    // Delete corresponding ledger (only for Bank accounts)
-    if (account.group === "Bank") {
-      await Ledger.deleteOne({
-        ledgerName: { $regex: new RegExp(`^${escapeRegExp(account.name.trim())}$`, "i") },
-        companyId: req.companyId
-      });
-    }
+    // Delete corresponding ledger
+    await Ledger.deleteOne({
+      ledgerName: { $regex: new RegExp(`^${escapeRegExp(account.name.trim())}$`, "i") },
+      companyId: req.companyId
+    });
 
     // Delete associated entries
     await BankCashEntry.deleteMany({ accountId: id, companyId: req.companyId });

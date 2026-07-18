@@ -106,6 +106,11 @@ const matchNumericFilter = (value: number, filterText: string): boolean => {
   return true;
 };
 
+const isDefaultCashAcc = (name: string) => {
+  const n = name.trim().toUpperCase();
+  return n === "CASH-IN-HAND" || n === "CASH ON HAND" || n === "CASH ACCOUNT";
+};
+
 const GROUP_COLORS: Record<AccountGroup, { bg: string; text: string; icon: React.ElementType; dot: string; badge: string }> = {
   Bank: { bg: "bg-blue-50",  text: "text-blue-700",  icon: Landmark, dot: "bg-blue-500",  badge: "bg-blue-100 text-blue-700"  },
   Cash: { bg: "bg-amber-50", text: "text-amber-700", icon: Wallet,   dot: "bg-amber-500", badge: "bg-amber-100 text-amber-700" },
@@ -1863,18 +1868,17 @@ export default function BankCashBook() {
         openingBalance: data.openingBalance || 0
       });
       toast.success(`Account "${newAcc.name}" created successfully!`);
-      const freshAccounts = await getAllAccounts();
-      setAccounts(freshAccounts);
       setAccountFilter(newAcc._id);
       setGroupTypeFilter("all");
       setShowCreateAccModal(false);
       invalidateAllReports();
+      await loadRows(newAcc._id, true);
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to create account");
     } finally {
       setCreatingAcc(false);
     }
-  }, []);
+  }, [loadRows]);
 
   const handleDelete = useCallback(async (row: BankCashRow) => {
     if (!window.confirm(`Delete entry: "${row.particulars.slice(0, 50)}"?`)) return;
@@ -1903,13 +1907,8 @@ export default function BankCashBook() {
       toast.success(`Deleted account "${acc.name}"`);
       setAccountFilter("all");
       setGroupTypeFilter("all");
-      const [entriesData, accountsData] = await Promise.all([
-        getAllEntries(),
-        getAllAccounts()
-      ]);
-      setRows(entriesData);
-      setAccounts(accountsData);
       invalidateAllReports();
+      await loadRows("all", true);
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to delete account");
     }
@@ -2257,32 +2256,42 @@ export default function BankCashBook() {
           {cashAccounts.length > 0 && (
             <>
               <span className="text-xs text-slate-400 px-1 flex items-center gap-1"><Wallet size={11} /> Cash</span>
-              {cashAccounts.map((acc) => (
-                <div key={acc._id} className="flex items-center gap-0.5">
-                  <button
-                    onClick={() => { setAccountFilter(acc._id); setGroupTypeFilter("all"); }}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-l-lg text-sm font-medium transition-all border ${
-                      accountFilter === acc._id ? "bg-amber-500 text-white border-amber-500" : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
-                    }`}
-                  >
-                    <Wallet size={13} /> {acc.name}
-                  </button>
-                  <button
-                    onClick={() => handleRefreshAccount(acc)}
-                    title={`Refresh data for ${acc.name}`}
-                    className="flex items-center px-2.5 py-2 border border-l-0 border-slate-200 bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-                  >
-                    <RefreshCw size={12} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteAccount(acc)}
-                    title={`Delete account "${acc.name}" and all entries`}
-                    className="flex items-center px-2 py-2 rounded-r-lg border border-l-0 border-red-200 bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
+              {cashAccounts.map((acc) => {
+                const isDefault = isDefaultCashAcc(acc.name);
+                const activeCls = isDefault
+                  ? "bg-emerald-600 text-white border-emerald-600 focus:ring-emerald-500"
+                  : "bg-amber-500 text-white border-amber-500 focus:ring-amber-400";
+                const inactiveCls = isDefault
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                  : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100";
+
+                return (
+                  <div key={acc._id} className="flex items-center gap-0.5">
+                    <button
+                      onClick={() => { setAccountFilter(acc._id); setGroupTypeFilter("all"); }}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-l-lg text-sm font-medium transition-all border ${
+                        accountFilter === acc._id ? activeCls : inactiveCls
+                      }`}
+                    >
+                      <Wallet size={13} /> {acc.name}
+                    </button>
+                    <button
+                      onClick={() => handleRefreshAccount(acc)}
+                      title={`Refresh data for ${acc.name}`}
+                      className="flex items-center px-2.5 py-2 border border-l-0 border-slate-200 bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                    >
+                      <RefreshCw size={12} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteAccount(acc)}
+                      title={`Delete account "${acc.name}" and all entries`}
+                      className="flex items-center px-2 py-2 rounded-r-lg border border-l-0 border-red-200 bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                );
+              })}
             </>
           )}
 

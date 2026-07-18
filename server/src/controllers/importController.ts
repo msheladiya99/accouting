@@ -69,6 +69,13 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
 
     const companyObjId = new Types.ObjectId(req.companyId as string);
 
+    // Find the default Cash account for this company to route all new cash mappings there
+    const defaultCashAccount = await BankCashAccount.findOne({
+      companyId: req.companyId,
+      group: "Cash"
+    }).sort({ createdAt: 1 });
+    const defaultCashName = defaultCashAccount ? defaultCashAccount.name.trim().toUpperCase() : "CASH ON HAND";
+
     // ── Helper: resolve or auto-create a BankCashAccount by name ────────────
     const accountCache = new Map<string, string>(); // name.upper -> _id string
 
@@ -132,8 +139,20 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
     const uniqueLedgers = new Map<string, string>();
     for (const r of rows) {
       if (r.aiAccountName?.trim() && r.aiAccountGroup?.trim()) {
+        let finalName = r.aiAccountName.trim().toUpperCase();
         const finalGroup = normalizeAndMapGroup(r.aiAccountGroup);
-        uniqueLedgers.set(r.aiAccountName.trim().toUpperCase(), finalGroup);
+        
+        // If it is classified as a Cash transaction, and the suggested ledger doesn't already exist,
+        // force map it to the default cash account/ledger name.
+        if (finalGroup === "CASH-IN-HAND") {
+          const exists = await Ledger.findOne({ ledgerName: finalName, companyId: req.companyId });
+          if (!exists) {
+            finalName = defaultCashName;
+            r.aiAccountName = defaultCashName;
+          }
+        }
+        
+        uniqueLedgers.set(finalName, finalGroup);
       }
     }
 
@@ -180,13 +199,21 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       if (cleanDate.length > 10) cleanDate = cleanDate.slice(0, 10);
 
       const finalGroup = normalizeAndMapGroup(r.aiAccountGroup);
+      let contraName = r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "";
+
+      if (finalGroup === "CASH-IN-HAND") {
+        const exists = await Ledger.findOne({ ledgerName: contraName, companyId: req.companyId });
+        if (!exists) {
+          contraName = defaultCashName;
+        }
+      }
 
       preparedImports.push({
         date: r.date,
         narration: r.narration,
         withdrawal: r.withdrawal || 0,
         deposit: r.deposit || 0,
-        accountName: r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "",
+        accountName: contraName,
         accountGroup: finalGroup,
         importedAt: now,
         companyId: companyObjId,
@@ -199,7 +226,7 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
         particulars: r.narration,
         withdrawal: r.withdrawal || 0,
         deposit: r.deposit || 0,
-        contraAccountName: r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "",
+        contraAccountName: contraName,
         contraAccountGroup: finalGroup,
       });
     }
@@ -468,6 +495,11 @@ function localEnrich(narrations: string[]): { accountName: string; accountGroup:
   return narrations.map((n) => {
     const text = (n || "").toLowerCase();
 
+    // Map all cash-related transactions to CASH ON HAND
+    if (/\b(cash|atm|wdl|withdrawal)\b/i.test(text)) {
+      return { accountName: "CASH ON HAND", accountGroup: "CASH-IN-HAND" };
+    }
+
     if (/swiggy|zomato|domino|starbucks|cafe|canteen|hotel|restaurant|diner|eats|food/i.test(text)) {
       return { accountName: "Food & Restaurant Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
@@ -528,6 +560,7 @@ Based on these bank transaction narrations, suggest the accounting ledger accoun
 Available Groups (use exactly one of these): DIRECT EXPENSES, INCOME (TRADING), PURCHASE ACCOUNT, SALES ACCOUNT, EXPENSE ACCOUNT, FINANCIAL EXPENSES, INCOME, INCOME (OTHER THEN SALES), INDIRECT EXPENSES, PARTNER INTEREST, PARTNER REMUNERATION, ADVANCES FROM CUSTOMERS, BANK ACCOUNTS (BANKS), BANK OCC A/C, CAPITAL ACCOUNT, CASH LEDGER A/C., CASH-IN-HAND, CURRENT CAPITAL ACCOUNT, CURRENT LIABILITIES, DEPOSITS (ASSET), DUTIES & TAXES, FIXED ASSETS, INVESTMENTS, LOANS & ADVANCES (ASSET), LOANS (LIABILITY), MISC. EXPENSES (ASSET), PROFIT & LOSS A/C, PROVISIONS, RESERVES & SURPLUS, SUB CAPITAL, SALARY EXPENSES PAYABLE, SECURED LOANS, SUNDRY CREDITORS, SUNDRY CREDITORS - MATERIAL, SUNDRY CREDITORS - SERVICES, SUNDRY DEBTORS, SUSPENSE ACCOUNT, UNSECURED LOANS
 
 Specific Mapping Guidelines (Critical!):
+- All cash-related transactions (cash withdrawals, ATM withdrawals, cash deposits, self-cash, etc.) must be mapped to account name "CASH ON HAND" and group "CASH-IN-HAND". Do NOT suggest names like "Cash Withdrawal", "ATM Cash", "Cash Deposit", "Cash On Hand", etc.
 - Payments to services like "Uber", "Ola", "Rapido", "Taxi", "Cab", etc. must be mapped to account name "Travel Expense" and group "EXPENSE ACCOUNT".
 - Payments to "Swiggy", "Zomato", "Dominos", "Starbucks", cafes, diners, hotels, or other food/restaurant businesses must be mapped to account name "Food & Restaurant Expense" and group "EXPENSE ACCOUNT".
 - Rent payments (e.g., "Rent", "Lease", "Prestige Estates") must be mapped to "Rent Expense" and group "EXPENSE ACCOUNT".

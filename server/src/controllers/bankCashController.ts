@@ -16,7 +16,7 @@ export async function syncLedgerFromBankCashAccount(account: any, oldName?: stri
   if (!name || !group) return;
 
   const isBank = group === "Bank";
-  const groupName = isBank ? "Bank Accounts (Banks)" : "Cash-in-hand";
+  const groupName = isBank ? "BANK ACCOUNTS (BANKS)" : "CASH-IN-HAND";
   const openingDr = openingBalance >= 0 ? openingBalance : 0;
   const openingCr = openingBalance < 0 ? Math.abs(openingBalance) : 0;
   const finalName = name.trim().toUpperCase();

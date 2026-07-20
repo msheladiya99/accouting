@@ -117,20 +117,43 @@ export async function getAllAccounts(req: AuthenticatedRequest, res: Response): 
       }
     }
 
-    // Auto-create default Cash Account if none exists
+    // Auto-create Cash BankCashAccount if none exists
+    // IMPORTANT: do NOT hardcode "Cash Account" — use the actual surviving Cash-in-hand ledger name
+    // (e.g. after merging "Cash Account" → "Cash on Hand", the surviving ledger is "Cash on Hand")
     const hasCash = accounts.some(acc => acc.group === "Cash");
     if (!hasCash) {
-      const defaultCash = new BankCashAccount({
-        name: "Cash Account",
-        group: "Cash",
-        openingBalance: 0,
+      // Find any existing Cash-in-hand Ledger to use as the name
+      const existingCashLedger = await Ledger.findOne({
+        companyId: req.companyId,
+        groupName: { $regex: /cash/i }
+      });
+
+      const cashName = existingCashLedger
+        ? existingCashLedger.ledgerName.trim()
+        : "Cash Account";
+      const cashOpeningBalance = existingCashLedger
+        ? ((existingCashLedger.openingDr || 0) - (existingCashLedger.openingCr || 0))
+        : 0;
+
+      // Check it doesn't already exist under a slightly different casing
+      const alreadyExists = await BankCashAccount.exists({
+        name: { $regex: new RegExp(`^${cashName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
         companyId: req.companyId
       });
-      await defaultCash.save();
-      // Also create the corresponding Ledger entry so it shows in Ledger Master
-      await syncLedgerFromBankCashAccount(defaultCash);
-      // Re-fetch accounts
-      accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
+
+      if (!alreadyExists) {
+        const defaultCash = new BankCashAccount({
+          name: cashName,
+          group: "Cash",
+          openingBalance: cashOpeningBalance,
+          companyId: req.companyId
+        });
+        await defaultCash.save();
+        // Also sync ledger entry (or update it if it already exists)
+        await syncLedgerFromBankCashAccount(defaultCash);
+        // Re-fetch accounts
+        accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
+      }
     }
 
     const initialBalancesMap = req.financialYear

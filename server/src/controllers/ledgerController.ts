@@ -933,10 +933,33 @@ export async function mergeLedgers(req: AuthenticatedRequest, res: Response): Pr
     });
     if (sourceAccounts.length > 0) {
       const sourceAccountIds = sourceAccounts.map((a) => a._id.toString());
-      const targetAccount = await BankCashAccount.findOne({
+      let targetAccount = await BankCashAccount.findOne({
         name: { $regex: new RegExp(`^${escapeRegExp(targetName.trim())}$`, "i") },
         companyId: req.companyId,
       });
+
+      // If target ledger is a Cash/Bank type but has no BankCashAccount, create one now
+      // This is the key fix: merging "Cash Account" → "Cash on Hand" where "Cash on Hand" has no BankCashAccount
+      let targetAccountIsNew = false;
+      if (!targetAccount) {
+        const isTargetCashOrBank =
+          /cash/i.test(targetGroup) || /bank/i.test(targetGroup);
+        if (isTargetCashOrBank) {
+          const sourceGroup = sourceAccounts[0]?.group || "Cash";
+          const totalSourceOpeningBalance = sourceAccounts.reduce(
+            (sum, acc) => sum + (acc.openingBalance || 0),
+            0
+          );
+          targetAccount = new BankCashAccount({
+            name: targetName.trim(),
+            group: sourceGroup,
+            openingBalance: (targetLedger.openingDr || 0) - (targetLedger.openingCr || 0) + totalSourceOpeningBalance,
+            companyId: req.companyId,
+          });
+          await (targetAccount as any).save();
+          targetAccountIsNew = true;
+        }
+      }
 
       if (targetAccount) {
         // Move entries to the target account
@@ -944,17 +967,19 @@ export async function mergeLedgers(req: AuthenticatedRequest, res: Response): Pr
           { accountId: { $in: sourceAccountIds }, companyId: companyIdFilter },
           { $set: { accountId: targetAccount._id.toString() } }
         );
-        // Update target account opening balance to include source account opening balances
-        const totalSourceOpeningBalance = sourceAccounts.reduce(
-          (sum, acc) => sum + (acc.openingBalance || 0),
-          0
-        );
-        await BankCashAccount.updateOne(
-          { _id: targetAccount._id },
-          { $inc: { openingBalance: totalSourceOpeningBalance } }
-        );
+        // Only add source opening balance to existing accounts; new accounts already include it
+        if (!targetAccountIsNew) {
+          const totalSourceOpeningBalance = sourceAccounts.reduce(
+            (sum, acc) => sum + (acc.openingBalance || 0),
+            0
+          );
+          await BankCashAccount.updateOne(
+            { _id: targetAccount._id },
+            { $inc: { openingBalance: totalSourceOpeningBalance } }
+          );
+        }
       } else {
-        // No target bank/cash account exists — just delete source entries
+        // No target bank/cash account exists and target is not a cash/bank type — delete source entries
         await BankCashEntry.deleteMany({ accountId: { $in: sourceAccountIds }, companyId: companyIdFilter });
       }
       await BankCashAccount.deleteMany({ _id: { $in: sourceAccounts.map((a) => a._id) } });

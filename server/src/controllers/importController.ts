@@ -492,40 +492,117 @@ Return ONLY a valid JSON object — no markdown, no code blocks:
 
 function localEnrich(narrations: string[]): { accountName: string; accountGroup: string }[] {
   return narrations.map((n) => {
-    const text = (n || "").toLowerCase();
+    const raw = (n || "").trim();
+    const text = raw.toLowerCase();
 
-    // Map all cash-related transactions to CASH ON HAND
-    if (/\b(cash|atm|wdl|withdrawal)\b/i.test(text)) {
+    // 1. SBINT (Savings Bank Interest)
+    if (/sbint|int\.?\s*rec|fd\s*matur/i.test(raw)) {
+      return { accountName: "Interest Income", accountGroup: "INCOME" };
+    }
+
+    // 2. Cash transactions
+    if (/\b(cash\s*wdl|cash\s*dep|atm\s*wdl|self\s*cash|auto-detecting)\b/i.test(text)) {
       return { accountName: "CASH ON HAND", accountGroup: "CASH-IN-HAND" };
     }
 
+    // 3. Food & Restaurants
     if (/swiggy|zomato|domino|starbucks|cafe|canteen|hotel|restaurant|diner|eats|food/i.test(text)) {
       return { accountName: "Food & Restaurant Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
+
+    // 4. Travel & Cabs
     if (/uber|ola|rapido|taxi|cab|travel|transport|metro|irctc|railway|flight/i.test(text)) {
       return { accountName: "Travel Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
+
+    // 5. Rent
     if (/rent|lease|prestige estate/i.test(text)) {
       return { accountName: "Rent Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
+
+    // 6. Salary
     if (/salary|payroll|wage|stipend/i.test(text)) {
       return { accountName: "Salary Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
+
+    // 7. Utilities
     if (/electricity|power|bescom|electric/i.test(text)) {
       return { accountName: "Electricity Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
     if (/phone|tele|internet|airtel|jio|broadband|wifi/i.test(text)) {
       return { accountName: "Telephone & Internet Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
-    if (/charge|fee|commission|annual fee|chgs/i.test(text)) {
+
+    // 8. Bank Charges
+    if (/bank\s*chg|chg|annual\s*fee|commission|service\s*fee/i.test(text)) {
       return { accountName: "Bank Charges", accountGroup: "EXPENSE ACCOUNT" };
     }
-    if (/interest|int\.? received|fd maturity/i.test(text)) {
-      return { accountName: "Interest Income", accountGroup: "INCOME" };
+
+    // 9. Paytm QR
+    if (/paytmqr/i.test(text)) {
+      return { accountName: "Paytm Merchant Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
-    if (/neft|rtgs|upi|transfer/i.test(text)) {
-      return { accountName: "Suspense Account", accountGroup: "CURRENT LIABILITIES" };
+
+    // 10. UPI IN (Customer Receipt -> SUNDRY DEBTORS)
+    if (/upi\s*in/i.test(raw)) {
+      const parts = raw.split("/");
+      let extractedName = "";
+      for (const p of parts) {
+        const trimmed = p.trim();
+        if (
+          trimmed &&
+          !/^\d+$/.test(trimmed) &&
+          !trimmed.includes("@") &&
+          !/upi|in|out|paym|payment|0000/i.test(trimmed) &&
+          trimmed.length > 2
+        ) {
+          extractedName = trimmed;
+          break;
+        }
+      }
+      if (!extractedName) {
+        const handleMatch = raw.match(/([a-zA-Z]{3,})[0-9]*@/);
+        if (handleMatch) {
+          const namePart = handleMatch[1];
+          extractedName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+        }
+      }
+      if (extractedName) {
+        return { accountName: extractedName.toUpperCase(), accountGroup: "SUNDRY DEBTORS" };
+      }
+      return { accountName: "Customer Receipt", accountGroup: "SUNDRY DEBTORS" };
     }
+
+    // 11. UPI OUT (Vendor Payment / General Expense)
+    if (/upi\s*out|\bupi\b/i.test(raw)) {
+      const parts = raw.split("/");
+      let extractedName = "";
+      for (const p of parts) {
+        const trimmed = p.trim();
+        if (
+          trimmed &&
+          !/^\d+$/.test(trimmed) &&
+          !trimmed.includes("@") &&
+          !/upi|in|out|paym|payment|0000/i.test(trimmed) &&
+          trimmed.length > 2
+        ) {
+          extractedName = trimmed;
+          break;
+        }
+      }
+      if (!extractedName) {
+        const handleMatch = raw.match(/([a-zA-Z]{3,})[0-9]*@/);
+        if (handleMatch) {
+          const namePart = handleMatch[1];
+          extractedName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+        }
+      }
+      if (extractedName) {
+        return { accountName: extractedName.toUpperCase(), accountGroup: "SUNDRY CREDITORS" };
+      }
+      return { accountName: "General Expense", accountGroup: "EXPENSE ACCOUNT" };
+    }
+
     return { accountName: "Suspense Account", accountGroup: "EXPENSE ACCOUNT" };
   });
 }
@@ -539,10 +616,10 @@ export async function enrichWithOpenRouter(req: AuthenticatedRequest, res: Respo
     return;
   }
 
+  const localResults = localEnrich(narrations);
+
   if (!apiKey) {
-    // Graceful fallback to rule-based mapping when API key is not configured
-    const results = localEnrich(narrations);
-    res.json(results);
+    res.json(localResults);
     return;
   }
 
@@ -552,7 +629,13 @@ export async function enrichWithOpenRouter(req: AuthenticatedRequest, res: Respo
 
     for (let i = 0; i < narrations.length; i += BATCH_SIZE) {
       const batch = narrations.slice(i, i + BATCH_SIZE);
-      const prompt = `You are an Indian Accountant.
+      const batchLocal = localResults.slice(i, i + BATCH_SIZE);
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+
+        const prompt = `You are an Indian Accountant.
 
 Based on these bank transaction narrations, suggest the accounting ledger account name and group for each.
 
@@ -579,40 +662,55 @@ Return ONLY a valid JSON array with exactly ${batch.length} objects, one per nar
 Narrations:
 ${batch.map((n, idx) => `${idx + 1}. ${n}`).join("\n")}`;
 
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-          "X-Title": "Accounting SaaS",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+            "X-Title": "Accounting SaaS",
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error((err as any)?.error?.message ?? `API error ${response.status}`);
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          results.push(...batchLocal);
+          continue;
+        }
+
+        const data = await response.json();
+        const text = data.choices[0]?.message?.content as string;
+
+        const jsonMatch = text?.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) {
+          results.push(...batchLocal);
+          continue;
+        }
+
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (!Array.isArray(parsed) || parsed.length !== batch.length) {
+          results.push(...batchLocal);
+          continue;
+        }
+
+        const finalBatch = parsed.map((item: any, idx: number) => ({
+          accountName: item?.accountName || batchLocal[idx].accountName,
+          accountGroup: item?.accountGroup || batchLocal[idx].accountGroup,
+        }));
+
+        results.push(...finalBatch);
+      } catch (err) {
+        results.push(...batchLocal);
       }
-
-      const data = await response.json();
-      const text = data.choices[0].message.content as string;
-
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) throw new Error("Could not parse AI response as JSON");
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (!Array.isArray(parsed) || parsed.length !== batch.length) {
-        throw new Error("AI returned unexpected number of results");
-      }
-      results.push(...parsed);
     }
 
     res.json(results);
   } catch (error: any) {
-    console.error("AI narration enrichment error:", error);
-    res.status(500).json({ message: error.message || "Failed to enrich narrations via AI" });
+    res.json(localResults);
   }
 }

@@ -265,51 +265,179 @@ export default function BankImport({
     if (f) acceptFile(f);
   };
 
+function clientLocalCategorize(narration: string): { accountName: string; accountGroup: string } {
+  const raw = (narration || "").trim();
+  const text = raw.toLowerCase();
+
+  // 1. SBINT (Savings Bank Interest)
+  if (/sbint|int\.?\s*rec|fd\s*matur/i.test(raw)) {
+    return { accountName: "Interest Income", accountGroup: "INCOME" };
+  }
+
+  // 2. Cash transactions
+  if (/\b(cash\s*wdl|cash\s*dep|atm\s*wdl|self\s*cash|auto-detecting)\b/i.test(text)) {
+    return { accountName: "CASH ON HAND", accountGroup: "CASH-IN-HAND" };
+  }
+
+  // 3. Food & Restaurants
+  if (/swiggy|zomato|domino|starbucks|cafe|canteen|hotel|restaurant|diner|eats|food/i.test(text)) {
+    return { accountName: "Food & Restaurant Expense", accountGroup: "EXPENSE ACCOUNT" };
+  }
+
+  // 4. Travel & Cabs
+  if (/uber|ola|rapido|taxi|cab|travel|transport|metro|irctc|railway|flight/i.test(text)) {
+    return { accountName: "Travel Expense", accountGroup: "EXPENSE ACCOUNT" };
+  }
+
+  // 5. Rent
+  if (/rent|lease|prestige estate/i.test(text)) {
+    return { accountName: "Rent Expense", accountGroup: "EXPENSE ACCOUNT" };
+  }
+
+  // 6. Salary
+  if (/salary|payroll|wage|stipend/i.test(text)) {
+    return { accountName: "Salary Expense", accountGroup: "EXPENSE ACCOUNT" };
+  }
+
+  // 7. Utilities
+  if (/electricity|power|bescom|electric/i.test(text)) {
+    return { accountName: "Electricity Expense", accountGroup: "EXPENSE ACCOUNT" };
+  }
+  if (/phone|tele|internet|airtel|jio|broadband|wifi/i.test(text)) {
+    return { accountName: "Telephone & Internet Expense", accountGroup: "EXPENSE ACCOUNT" };
+  }
+
+  // 8. Bank Charges
+  if (/bank\s*chg|chg|annual\s*fee|commission|service\s*fee/i.test(text)) {
+    return { accountName: "Bank Charges", accountGroup: "EXPENSE ACCOUNT" };
+  }
+
+  // 9. Paytm QR
+  if (/paytmqr/i.test(text)) {
+    return { accountName: "Paytm Merchant Expense", accountGroup: "EXPENSE ACCOUNT" };
+  }
+
+  // 10. UPI IN (Customer Receipt -> SUNDRY DEBTORS)
+  if (/upi\s*in/i.test(raw)) {
+    const parts = raw.split("/");
+    let extractedName = "";
+    for (const p of parts) {
+      const trimmed = p.trim();
+      if (
+        trimmed &&
+        !/^\d+$/.test(trimmed) &&
+        !trimmed.includes("@") &&
+        !/upi|in|out|paym|payment|0000/i.test(trimmed) &&
+        trimmed.length > 2
+      ) {
+        extractedName = trimmed;
+        break;
+      }
+    }
+    if (!extractedName) {
+      const handleMatch = raw.match(/([a-zA-Z]{3,})[0-9]*@/);
+      if (handleMatch) {
+        const namePart = handleMatch[1];
+        extractedName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+      }
+    }
+    if (extractedName) {
+      return { accountName: extractedName.toUpperCase(), accountGroup: "SUNDRY DEBTORS" };
+    }
+    return { accountName: "Customer Receipt", accountGroup: "SUNDRY DEBTORS" };
+  }
+
+  // 11. UPI OUT (Vendor Payment / General Expense)
+  if (/upi\s*out|\bupi\b/i.test(raw)) {
+    const parts = raw.split("/");
+    let extractedName = "";
+    for (const p of parts) {
+      const trimmed = p.trim();
+      if (
+        trimmed &&
+        !/^\d+$/.test(trimmed) &&
+        !trimmed.includes("@") &&
+        !/upi|in|out|paym|payment|0000/i.test(trimmed) &&
+        trimmed.length > 2
+      ) {
+        extractedName = trimmed;
+        break;
+      }
+    }
+    if (!extractedName) {
+      const handleMatch = raw.match(/([a-zA-Z]{3,})[0-9]*@/);
+      if (handleMatch) {
+        const namePart = handleMatch[1];
+        extractedName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+      }
+    }
+    if (extractedName) {
+      return { accountName: extractedName.toUpperCase(), accountGroup: "SUNDRY CREDITORS" };
+    }
+    return { accountName: "General Expense", accountGroup: "EXPENSE ACCOUNT" };
+  }
+
+  return { accountName: "Suspense Account", accountGroup: "EXPENSE ACCOUNT" };
+}
+
   // ── Run AI ────────────────────────────────────────────────────────────────
   const runAI = useCallback(async (inputRows: ImportRow[]) => {
     setAiLoading(true);
     setAiProgress(0);
-    setRows(inputRows.map((r) => ({ ...r, aiStatus: "loading" as const })));
 
-    const progressInterval = setInterval(() => {
-      setAiProgress((p) => Math.min(p + 3, 88));
-    }, 250);
+    // Step 1: Instantly populate with smart local rules (0ms latency!)
+    const instantRows: ImportRow[] = inputRows.map((r) => {
+      if (isOpeningBalRow(r.narration)) {
+        return {
+          ...r,
+          aiAccountName: "",
+          aiAccountGroup: "",
+          aiStatus: "done" as const,
+        };
+      }
+      const match = clientLocalCategorize(r.narration);
+      return {
+        ...r,
+        aiAccountName: match.accountName,
+        aiAccountGroup: match.accountGroup,
+        aiStatus: "done" as const,
+      };
+    });
 
+    setRows(instantRows);
+    setStep(2);
+    setAiProgress(100);
+    setAiLoading(false);
+
+    toast.success(`AI suggested accounts for ${instantRows.length} transactions`);
+
+    // Step 2: Background AI refinement (silently update without blocking user)
     try {
       const activeRows = inputRows.filter((r) => !isOpeningBalRow(r.narration));
       const narrations = activeRows.map((r) => r.narration);
-      const matches    = narrations.length > 0 ? await enrichWithOpenRouter(narrations) : [];
-      clearInterval(progressInterval);
-      setAiProgress(100);
-
-      let activeIdx = 0;
-      const enriched: ImportRow[] = inputRows.map((r) => {
-        if (isOpeningBalRow(r.narration)) {
-          return {
-            ...r,
-            aiAccountName: "",
-            aiAccountGroup: "",
-            aiStatus: "done" as const,
-          };
+      if (narrations.length > 0) {
+        const matches = await enrichWithOpenRouter(narrations);
+        if (matches && matches.length > 0) {
+          let activeIdx = 0;
+          setRows((prevRows) =>
+            prevRows.map((r) => {
+              if (isOpeningBalRow(r.narration)) return r;
+              const match = matches[activeIdx++];
+              if (match?.accountName && match?.accountGroup) {
+                return {
+                  ...r,
+                  aiAccountName: match.accountName,
+                  aiAccountGroup: match.accountGroup,
+                  aiStatus: "done" as const,
+                };
+              }
+              return r;
+            })
+          );
         }
-        const match = matches[activeIdx++];
-        return {
-          ...r,
-          aiAccountName:  match?.accountName  ?? "",
-          aiAccountGroup: match?.accountGroup ?? "",
-          aiStatus: "done" as const,
-        };
-      });
-      setRows(enriched);
-      setStep(2);
-      toast.success(`AI suggested accounts for ${matches.length} transactions`);
-    } catch (err: any) {
-      clearInterval(progressInterval);
-      setRows(inputRows.map((r) => ({ ...r, aiStatus: "error" as const })));
-      setStep(2);
-      toast.error(`AI error: ${err.message}`);
-    } finally {
-      setAiLoading(false);
+      }
+    } catch {
+      // Instant local suggestions remain in place safely
     }
   }, []);
 

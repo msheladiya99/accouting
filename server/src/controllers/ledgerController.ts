@@ -1007,7 +1007,15 @@ export async function updateBulkOpeningBalances(req: AuthenticatedRequest, res: 
     }
 
     const companyId = req.companyId;
-    const startDate = req.financialYear?.startDate;
+    let startDate = req.financialYear?.startDate;
+
+    if (!startDate && companyId) {
+      const { ensureDefaultFinancialYear } = require("./financialYearController");
+      const defaultFY = await ensureDefaultFinancialYear(companyId) || await FinancialYear.findOne({ companyId }).sort({ startDate: -1 });
+      if (defaultFY) {
+        startDate = defaultFY.startDate;
+      }
+    }
 
     // 1. Fetch prior financial year info once
     const priorFYExists = startDate ? await FinancialYear.exists({

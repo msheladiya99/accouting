@@ -33,9 +33,30 @@ function buildFY(baseYear: number, companyId = "default") {
   };
 }
 
+export async function ensureDefaultFinancialYear(companyId: any) {
+  if (!companyId) return null;
+  const count = await FinancialYear.countDocuments({ companyId });
+  if (count === 0) {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const baseYear = currentMonth >= 3 ? currentYear : currentYear - 1;
+
+    const fyData = buildFY(baseYear, companyId);
+    const defaultFY = new FinancialYear(fyData);
+    await defaultFY.save();
+    return defaultFY;
+  }
+  return null;
+}
+
 export async function getAllFYs(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
-    const fys = await FinancialYear.find({ companyId: req.companyId }).sort({ startDate: -1 });
+    let fys = await FinancialYear.find({ companyId: req.companyId }).sort({ startDate: -1 });
+    if (fys.length === 0 && req.companyId) {
+      await ensureDefaultFinancialYear(req.companyId);
+      fys = await FinancialYear.find({ companyId: req.companyId }).sort({ startDate: -1 });
+    }
     res.json(fys);
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to retrieve financial years" });
@@ -44,14 +65,15 @@ export async function getAllFYs(req: AuthenticatedRequest, res: Response): Promi
 
 export async function getCurrentFY(req: AuthenticatedRequest, res: Response): Promise<void> {
   try {
-    const current = await FinancialYear.findOne({ status: "current", companyId: req.companyId });
+    let current = await FinancialYear.findOne({ status: "current", companyId: req.companyId });
     if (!current) {
-      const anyFY = await FinancialYear.findOne({ companyId: req.companyId }).sort({ startDate: -1 });
-      if (!anyFY) {
-        res.status(404).json({ message: "No financial year configured" });
-        return;
+      current = await FinancialYear.findOne({ companyId: req.companyId }).sort({ startDate: -1 });
+      if (!current && req.companyId) {
+        current = await ensureDefaultFinancialYear(req.companyId);
       }
-      res.json(anyFY);
+    }
+    if (!current) {
+      res.status(404).json({ message: "No financial year configured" });
       return;
     }
     res.json(current);

@@ -64,6 +64,11 @@ export async function authMiddleware(
         if (!fyObj) {
           // Fallback 2: grab latest chronological FY
           fyObj = await FinancialYear.findOne({ companyId }).sort({ startDate: -1 });
+          if (!fyObj) {
+            // Fallback 3: auto-create default FY if company has 0 FYs
+            const { ensureDefaultFinancialYear } = require("../controllers/financialYearController");
+            fyObj = await ensureDefaultFinancialYear(companyId);
+          }
         }
       }
 

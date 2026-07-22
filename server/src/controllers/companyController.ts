@@ -117,6 +117,10 @@ export async function createCompany(req: AuthenticatedRequest, res: Response): P
     const { syncLedgerFromBankCashAccount } = await import("./bankCashController");
     await syncLedgerFromBankCashAccount(defaultCash);
 
+    // Automatically create default Financial Year
+    const { ensureDefaultFinancialYear } = await import("./financialYearController");
+    await ensureDefaultFinancialYear(company._id);
+
     res.status(201).json(company);
   } catch (error: any) {
     if (error.code === 11000) {

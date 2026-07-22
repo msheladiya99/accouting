@@ -626,16 +626,17 @@ function clientLocalCategorize(narration: string): { accountName: string; accoun
       }
     }
 
-    const incomplete = activeTxns.filter((r) => !r.aiAccountName.trim() || !r.aiAccountGroup.trim());
-    if (incomplete.length > 0) {
-      toast.error(`${incomplete.length} rows still need Account Name and Group`);
-      return;
-    }
+    // Auto-fill defaults for any rows where account name or group name was left blank by user/AI
+    const preparedTxns = activeTxns.map((r) => ({
+      ...r,
+      aiAccountName: r.aiAccountName.trim() || "Suspense Account",
+      aiAccountGroup: r.aiAccountGroup.trim() || "EXPENSE ACCOUNT",
+    }));
 
     if (!allRowsHaveBankName) {
       const selectedAccount = accounts.find((a) => a._id === selectedAccountId);
       const targetAccountName = (selectedAccount ? selectedAccount.name : detectedBankName || "").trim().toLowerCase();
-      const sameAccountRow = activeTxns.find((r) => r.aiAccountName.trim().toLowerCase() === targetAccountName);
+      const sameAccountRow = preparedTxns.find((r) => r.aiAccountName.trim().toLowerCase() === targetAccountName);
       if (sameAccountRow) {
         toast.error(`Contra account cannot be the same as the destination Bank/Cash account: "${sameAccountRow.aiAccountName}"`);
         return;
@@ -653,9 +654,9 @@ function clientLocalCategorize(narration: string): { accountName: string; accoun
       // knows to rely entirely on row.bankName for each entry
       const effectiveAccountId = allRowsHaveBankName ? "direct-import" : selectedAccountId;
 
-      await saveImportedTransactions(activeTxns, effectiveAccountId, detectedBankName, opBal);
+      await saveImportedTransactions(preparedTxns, effectiveAccountId, detectedBankName, opBal);
       setStep(3);
-      toast.success(`${activeTxns.length} transactions saved`);
+      toast.success(`${preparedTxns.length} transactions saved successfully`);
       window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (err: any) {
       toast.error(err?.message || "Failed to save transactions");

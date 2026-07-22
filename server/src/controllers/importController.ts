@@ -138,22 +138,20 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
     // ── Ensure contra ledgers exist ──────────────────────────────────────────
     const uniqueLedgers = new Map<string, string>();
     for (const r of rows) {
-      if (r.aiAccountName?.trim() && r.aiAccountGroup?.trim()) {
-        let finalName = r.aiAccountName.trim().toUpperCase();
-        const finalGroup = normalizeAndMapGroup(r.aiAccountGroup);
-        
-        // If it is classified as a Cash transaction, and the suggested ledger doesn't already exist,
-        // force map it to the default cash account/ledger name.
-        if (finalGroup === "CASH-IN-HAND") {
-          const exists = await Ledger.findOne({ ledgerName: finalName, companyId: req.companyId });
-          if (!exists) {
-            finalName = defaultCashName;
-            r.aiAccountName = defaultCashName;
-          }
+      let finalName = (r.aiAccountName?.trim() || "SUSPENSE ACCOUNT").toUpperCase();
+      const finalGroup = normalizeAndMapGroup(r.aiAccountGroup || "EXPENSE ACCOUNT");
+      
+      // If it is classified as a Cash transaction, and the suggested ledger doesn't already exist,
+      // force map it to the default cash account/ledger name.
+      if (finalGroup === "CASH-IN-HAND") {
+        const exists = await Ledger.findOne({ ledgerName: finalName, companyId: req.companyId });
+        if (!exists) {
+          finalName = defaultCashName;
+          r.aiAccountName = defaultCashName;
         }
-        
-        uniqueLedgers.set(finalName, finalGroup);
       }
+      
+      uniqueLedgers.set(finalName, finalGroup);
     }
 
     for (const [nameUpper, groupName] of uniqueLedgers.entries()) {
@@ -197,8 +195,8 @@ export async function saveImportedTransactions(req: AuthenticatedRequest, res: R
       let cleanDate = (r.date || "").toString().trim();
       if (cleanDate.length > 10) cleanDate = cleanDate.slice(0, 10);
 
-      const finalGroup = normalizeAndMapGroup(r.aiAccountGroup);
-      let contraName = r.aiAccountName ? r.aiAccountName.trim().toUpperCase() : "";
+      const finalGroup = normalizeAndMapGroup(r.aiAccountGroup || "EXPENSE ACCOUNT");
+      let contraName = (r.aiAccountName?.trim() || "SUSPENSE ACCOUNT").toUpperCase();
 
       if (finalGroup === "CASH-IN-HAND") {
         const exists = await Ledger.findOne({ ledgerName: contraName, companyId: req.companyId });

@@ -265,6 +265,14 @@ export default function BankImport({
     if (f) acceptFile(f);
   };
 
+function cleanAccountName(name: string): string {
+  if (!name) return "";
+  let cleaned = name.trim();
+  cleaned = cleaned.replace(/^(sundry\s+creditors|sundry\s+debtors)\s*[\-:]\s*/i, "");
+  cleaned = cleaned.replace(/^(sundry\s+creditors|sundry\s+debtors)\s+/i, "");
+  return cleaned.trim();
+}
+
 function clientLocalCategorize(narration: string): { accountName: string; accountGroup: string } {
   const raw = (narration || "").trim();
   const text = raw.toLowerCase();
@@ -342,7 +350,7 @@ function clientLocalCategorize(narration: string): { accountName: string; accoun
       }
     }
     if (extractedName) {
-      return { accountName: extractedName.toUpperCase(), accountGroup: "SUNDRY DEBTORS" };
+      return { accountName: cleanAccountName(extractedName).toUpperCase(), accountGroup: "SUNDRY DEBTORS" };
     }
     return { accountName: "Customer Receipt", accountGroup: "SUNDRY DEBTORS" };
   }
@@ -372,7 +380,7 @@ function clientLocalCategorize(narration: string): { accountName: string; accoun
       }
     }
     if (extractedName) {
-      return { accountName: extractedName.toUpperCase(), accountGroup: "SUNDRY CREDITORS" };
+      return { accountName: cleanAccountName(extractedName).toUpperCase(), accountGroup: "SUNDRY CREDITORS" };
     }
     return { accountName: "General Expense", accountGroup: "EXPENSE ACCOUNT" };
   }
@@ -398,7 +406,7 @@ function clientLocalCategorize(narration: string): { accountName: string; accoun
       const match = clientLocalCategorize(r.narration);
       return {
         ...r,
-        aiAccountName: match.accountName,
+        aiAccountName: cleanAccountName(match.accountName),
         aiAccountGroup: match.accountGroup,
         aiStatus: "done" as const,
       };
@@ -426,7 +434,7 @@ function clientLocalCategorize(narration: string): { accountName: string; accoun
               if (match?.accountName && match?.accountGroup) {
                 return {
                   ...r,
-                  aiAccountName: match.accountName,
+                  aiAccountName: cleanAccountName(match.accountName),
                   aiAccountGroup: match.accountGroup,
                   aiStatus: "done" as const,
                 };

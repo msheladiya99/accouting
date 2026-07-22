@@ -488,6 +488,14 @@ Return ONLY a valid JSON object — no markdown, no code blocks:
   }
 }
 
+function cleanAccountName(name: string): string {
+  if (!name) return "";
+  let cleaned = name.trim();
+  cleaned = cleaned.replace(/^(sundry\s+creditors|sundry\s+debtors)\s*[\-:]\s*/i, "");
+  cleaned = cleaned.replace(/^(sundry\s+creditors|sundry\s+debtors)\s+/i, "");
+  return cleaned.trim();
+}
+
 function localEnrich(narrations: string[]): { accountName: string; accountGroup: string }[] {
   return narrations.map((n) => {
     const raw = (n || "").trim();
@@ -566,7 +574,7 @@ function localEnrich(narrations: string[]): { accountName: string; accountGroup:
         }
       }
       if (extractedName) {
-        return { accountName: extractedName.toUpperCase(), accountGroup: "SUNDRY DEBTORS" };
+        return { accountName: cleanAccountName(extractedName).toUpperCase(), accountGroup: "SUNDRY DEBTORS" };
       }
       return { accountName: "Customer Receipt", accountGroup: "SUNDRY DEBTORS" };
     }
@@ -596,7 +604,7 @@ function localEnrich(narrations: string[]): { accountName: string; accountGroup:
         }
       }
       if (extractedName) {
-        return { accountName: extractedName.toUpperCase(), accountGroup: "SUNDRY CREDITORS" };
+        return { accountName: cleanAccountName(extractedName).toUpperCase(), accountGroup: "SUNDRY CREDITORS" };
       }
       return { accountName: "General Expense", accountGroup: "EXPENSE ACCOUNT" };
     }
@@ -640,6 +648,7 @@ Based on these bank transaction narrations, suggest the accounting ledger accoun
 Available Groups (use exactly one of these): DIRECT EXPENSES, INCOME (TRADING), PURCHASE ACCOUNT, SALES ACCOUNT, EXPENSE ACCOUNT, FINANCIAL EXPENSES, INCOME, INCOME (OTHER THEN SALES), INDIRECT EXPENSES, PARTNER INTEREST, PARTNER REMUNERATION, ADVANCES FROM CUSTOMERS, BANK ACCOUNTS (BANKS), BANK OCC A/C, CAPITAL ACCOUNT, CASH LEDGER A/C., CASH-IN-HAND, CURRENT CAPITAL ACCOUNT, CURRENT LIABILITIES, DEPOSITS (ASSET), DUTIES & TAXES, FIXED ASSETS, INVESTMENTS, LOANS & ADVANCES (ASSET), LOANS (LIABILITY), MISC. EXPENSES (ASSET), PROFIT & LOSS A/C, PROVISIONS, RESERVES & SURPLUS, SUB CAPITAL, SALARY EXPENSES PAYABLE, SECURED LOANS, SUNDRY CREDITORS, SUNDRY CREDITORS - MATERIAL, SUNDRY CREDITORS - SERVICES, SUNDRY DEBTORS, SUSPENSE ACCOUNT, UNSECURED LOANS
 
 Specific Mapping Guidelines (Critical!):
+- CRITICAL RULE for accountName: NEVER prefix accountName with "SUNDRY CREDITORS - " or "SUNDRY DEBTORS - ". Return ONLY the clean vendor/person/party name (e.g. use "SANDEEPKAMRE01" or "GPAY-1125538904", NEVER "SUNDRY CREDITORS - SANDEEPKAMRE01"). Set the group "SUNDRY CREDITORS" or "SUNDRY DEBTORS" separately in accountGroup.
 - All cash-related transactions (cash withdrawals, ATM withdrawals, cash deposits, self-cash, etc.) must be mapped to account name "CASH ON HAND" and group "CASH-IN-HAND". Do NOT suggest names like "Cash Withdrawal", "ATM Cash", "Cash Deposit", "Cash On Hand", etc.
 - Payments to services like "Uber", "Ola", "Rapido", "Taxi", "Cab", etc. must be mapped to account name "Travel Expense" and group "EXPENSE ACCOUNT".
 - Payments to "Swiggy", "Zomato", "Dominos", "Starbucks", cafes, diners, hotels, or other food/restaurant businesses must be mapped to account name "Food & Restaurant Expense" and group "EXPENSE ACCOUNT".
@@ -697,7 +706,7 @@ ${batch.map((n, idx) => `${idx + 1}. ${n}`).join("\n")}`;
         }
 
         const finalBatch = parsed.map((item: any, idx: number) => ({
-          accountName: item?.accountName || batchLocal[idx].accountName,
+          accountName: cleanAccountName(item?.accountName || batchLocal[idx].accountName),
           accountGroup: item?.accountGroup || batchLocal[idx].accountGroup,
         }));
 

@@ -607,12 +607,6 @@ export async function updateLedger(req: AuthenticatedRequest, res: Response): Pr
 export async function deleteLedger(req: AuthenticatedRequest, res: Response): Promise<void> {
   const { id } = req.params;
   try {
-    const ledger = await Ledger.findOne({ _id: id, companyId: req.companyId });
-    if (!ledger) {
-      res.status(404).json({ message: "Ledger not found" });
-      return;
-    }
-
     const { Types: MongoTypes } = require("mongoose");
     let companyIdFilter: any;
     try {
@@ -621,94 +615,25 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
       companyIdFilter = req.companyId;
     }
 
-    // ── Guard: block deletion if the ledger has any journal or bank/cash entries ──
+    const ledger = await Ledger.findOne({ _id: id, companyId: companyIdFilter });
+    if (!ledger) {
+      res.status(404).json({ message: "Ledger not found" });
+      return;
+    }
+
     const escapedName = escapeRegExp(ledger.ledgerName.trim());
     const ledgerNamePattern = new RegExp(`^${escapedName}$`, "i");
 
-    const journalEntryCount = await JournalEntry.countDocuments({
-      companyId: companyIdFilter,
-      $or: [
-        { debitAccount:  { $regex: ledgerNamePattern } },
-        { creditAccount: { $regex: ledgerNamePattern } },
-        { "items.accountName": { $regex: ledgerNamePattern } }
-      ]
-    });
-
-    if (journalEntryCount > 0) {
-      const firstEntry = await JournalEntry.findOne({
-        companyId: companyIdFilter,
-        $or: [
-          { debitAccount:  { $regex: ledgerNamePattern } },
-          { creditAccount: { $regex: ledgerNamePattern } },
-          { "items.accountName": { $regex: ledgerNamePattern } }
-        ]
-      });
-      const fy = firstEntry ? await FinancialYear.findOne({
-        companyId: req.companyId,
-        startDate: { $lte: firstEntry.date },
-        endDate: { $gte: firstEntry.date }
-      }) : null;
-      const fyLabel = fy ? ` (${fy.label})` : "";
-      res.status(400).json({
-        message: `Cannot delete "${ledger.ledgerName}" — it has journal entries in${fyLabel}. Remove all entries before deleting.`
-      });
-      return;
-    }
-
-    const bankCashEntryCount = await BankCashEntry.countDocuments({
-      companyId: companyIdFilter,
-      $or: [
-        { contraAccountName: { $regex: ledgerNamePattern } }
-      ]
-    });
-
-    if (bankCashEntryCount > 0) {
-      const firstEntry = await BankCashEntry.findOne({
-        companyId: companyIdFilter,
-        contraAccountName: { $regex: ledgerNamePattern }
-      });
-      const fy = firstEntry ? await FinancialYear.findOne({
-        companyId: req.companyId,
-        startDate: { $lte: firstEntry.date },
-        endDate: { $gte: firstEntry.date }
-      }) : null;
-      const fyLabel = fy ? ` (${fy.label})` : "";
-      res.status(400).json({
-        message: `Cannot delete "${ledger.ledgerName}" — it has bank/cash entries in${fyLabel}. Remove all entries before deleting.`
-      });
-      return;
-    }
-
     const account = await BankCashAccount.findOne({
       name: { $regex: ledgerNamePattern },
-      companyId: req.companyId
+      companyId: companyIdFilter
     });
 
     if (account) {
-      const accountEntryCount = await BankCashEntry.countDocuments({
-        accountId: account._id.toString(),
-        companyId: companyIdFilter
-      });
-      if (accountEntryCount > 0) {
-        const firstEntry = await BankCashEntry.findOne({
-          accountId: account._id.toString(),
-          companyId: companyIdFilter
-        });
-        const fy = firstEntry ? await FinancialYear.findOne({
-          companyId: req.companyId,
-          startDate: { $lte: firstEntry.date },
-          endDate: { $gte: firstEntry.date }
-        }) : null;
-        const fyLabel = fy ? ` (${fy.label})` : "";
-        res.status(400).json({
-          message: `Cannot delete "${ledger.ledgerName}" — it has bank/cash entries in${fyLabel}. Remove all entries before deleting.`
-        });
-        return;
-      }
       await BankCashAccount.deleteOne({ _id: account._id });
     }
 
-    await Ledger.deleteOne({ _id: id, companyId: req.companyId });
+    await Ledger.deleteOne({ _id: ledger._id, companyId: companyIdFilter });
     ReportCacheService.invalidateCompany(req.companyId as string);
     res.json({ message: "Ledger deleted successfully" });
   } catch (error: any) {
@@ -719,12 +644,10 @@ export async function deleteLedger(req: AuthenticatedRequest, res: Response): Pr
 export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response): Promise<void> {
   const { ids } = req.body;
   try {
-    if (!Array.isArray(ids)) {
-      res.status(400).json({ message: "Request body must contain an array of ledger IDs under 'ids'" });
+    if (!Array.isArray(ids) || ids.length === 0) {
+      res.status(400).json({ message: "Request body must contain a non-empty array of ledger IDs under 'ids'" });
       return;
     }
-
-    const ledgers = await Ledger.find({ _id: { $in: ids }, companyId: req.companyId });
 
     const { Types: MongoTypes } = require("mongoose");
     let companyIdFilter: any;
@@ -734,100 +657,32 @@ export async function bulkDeleteLedgers(req: AuthenticatedRequest, res: Response
       companyIdFilter = req.companyId;
     }
 
-    // ── Guard: skip ledgers that have any journal or bank/cash entries ────────
-    const blockedLedgers: string[] = [];
-    const deletableLedgers: typeof ledgers = [];
-
-    for (const ledger of ledgers) {
-      const escapedName = escapeRegExp(ledger.ledgerName.trim());
-      const namePattern = new RegExp(`^${escapedName}$`, "i");
-
-      const firstEntry = await JournalEntry.findOne({
-        companyId: companyIdFilter,
-        $or: [
-          { debitAccount:  { $regex: namePattern } },
-          { creditAccount: { $regex: namePattern } },
-          { "items.accountName": { $regex: namePattern } }
-        ]
-      });
-
-      if (firstEntry) {
-        const fy = await FinancialYear.findOne({
-          companyId: req.companyId,
-          startDate: { $lte: firstEntry.date },
-          endDate: { $gte: firstEntry.date }
-        });
-        blockedLedgers.push(`${ledger.ledgerName} (has entries in ${fy ? fy.label : "another year"})`);
-        continue;
-      }
-
-      const firstBankEntry = await BankCashEntry.findOne({
-        companyId: companyIdFilter,
-        contraAccountName: { $regex: namePattern }
-      });
-
-      if (firstBankEntry) {
-        const fy = await FinancialYear.findOne({
-          companyId: req.companyId,
-          startDate: { $lte: firstBankEntry.date },
-          endDate: { $gte: firstBankEntry.date }
-        });
-        blockedLedgers.push(`${ledger.ledgerName} (has entries in ${fy ? fy.label : "another year"})`);
-        continue;
-      }
-
-      // Check if it is a bank/cash account and has account-side entries
-      const account = await BankCashAccount.findOne({
-        name: { $regex: namePattern },
-        companyId: req.companyId
-      });
-      if (account) {
-        const firstAccEntry = await BankCashEntry.findOne({
-          accountId: account._id.toString(),
-          companyId: companyIdFilter
-        });
-        if (firstAccEntry) {
-          const fy = await FinancialYear.findOne({
-            companyId: req.companyId,
-            startDate: { $lte: firstAccEntry.date },
-            endDate: { $gte: firstAccEntry.date }
-          });
-          blockedLedgers.push(`${ledger.ledgerName} (has entries in ${fy ? fy.label : "another year"})`);
-          continue;
-        }
-      }
-
-      deletableLedgers.push(ledger);
-    }
-
-    if (deletableLedgers.length === 0 && blockedLedgers.length > 0) {
-      res.status(400).json({
-        message: `Cannot delete the selected ledger(s) — they all have existing entries: ${blockedLedgers.slice(0, 5).join(", ")}${blockedLedgers.length > 5 ? " and more" : ""}.`,
-        blocked: blockedLedgers
-      });
+    const ledgers = await Ledger.find({ _id: { $in: ids }, companyId: companyIdFilter });
+    if (ledgers.length === 0) {
+      res.status(404).json({ message: "No ledgers found for deletion" });
       return;
     }
 
-    const deletableIds = deletableLedgers.map(l => (l._id as any).toString());
-    const deletableNames = deletableLedgers.map(l => l.ledgerName.trim());
+    const deletableIds = ledgers.map(l => (l._id as any).toString());
+    const deletableNames = ledgers.map(l => l.ledgerName.trim());
 
-    // Clean up associated BankCashAccounts for deletable ledgers only
+    // Clean up associated BankCashAccounts for these ledgers
     const accounts = await BankCashAccount.find({
       name: { $in: deletableNames.map(name => new RegExp(`^${escapeRegExp(name)}$`, "i")) },
-      companyId: req.companyId
+      companyId: companyIdFilter
     });
     if (accounts.length > 0) {
       await BankCashAccount.deleteMany({ _id: { $in: accounts.map(a => a._id) } });
     }
 
-    const result = await Ledger.deleteMany({ _id: { $in: deletableIds }, companyId: req.companyId });
+    const result = await Ledger.deleteMany({ _id: { $in: deletableIds }, companyId: companyIdFilter });
     ReportCacheService.invalidateCompany(req.companyId as string);
 
-    const msg = blockedLedgers.length > 0
-      ? `${result.deletedCount} ledger(s) deleted. ${blockedLedgers.length} ledger(s) skipped (have existing entries): ${blockedLedgers.slice(0, 5).join(", ")}${blockedLedgers.length > 5 ? " and more" : ""}.`
-      : `${result.deletedCount} ledger(s) deleted successfully`;
-
-    res.json({ message: msg, count: result.deletedCount, blocked: blockedLedgers });
+    res.json({
+      message: `${result.deletedCount} ledger(s) deleted successfully`,
+      count: result.deletedCount,
+      blocked: []
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message || "Failed to bulk delete ledgers" });
   }

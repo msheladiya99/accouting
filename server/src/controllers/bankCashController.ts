@@ -78,43 +78,22 @@ export async function getAllAccounts(req: AuthenticatedRequest, res: Response): 
       accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
     }
 
-    // ── Cleanup: if a BankCashAccount name doesn't match any active Ledger,
-    //    and a ledger with that name was deleted (confirmed by absence from Ledger master),
-    //    delete the orphan BankCashAccount so it doesn't appear in Bank/Cash Book ──
+    // Cleanup: if a BankCashAccount name doesn't match any active Ledger,
+    // and a ledger with that name was deleted (confirmed by absence from Ledger master),
+    // delete the orphan BankCashAccount so it doesn't linger or recreate deleted ledgers!
     const allBankCashLedgerNames = new Set(
       bankCashLedgers.map((l) => l.ledgerName.trim().toLowerCase())
     );
     for (const acc of accounts) {
       const accNameLower = acc.name.trim().toLowerCase();
       if (!allBankCashLedgerNames.has(accNameLower)) {
-        // This BankCashAccount has no corresponding Ledger — it's an orphan
-        // Move its entries to a fallback account (or just delete if no fallback)
-        // For safety: only delete if there are no entries on this account
-        const hasEntries = await BankCashEntry.exists({
-          accountId: acc._id.toString(),
-          companyId: req.companyId
-        });
-        if (!hasEntries) {
-          await BankCashAccount.deleteOne({ _id: acc._id });
-          needsRefetch = true;
-        }
+        await BankCashAccount.deleteOne({ _id: acc._id });
+        needsRefetch = true;
       }
     }
 
     if (needsRefetch) {
       accounts = await BankCashAccount.find({ companyId: req.companyId }).sort({ name: 1 });
-    }
-
-    // Reverse sync: ensure every BankCashAccount has a corresponding Ledger
-    // (fixes orphaned accounts like auto-created "Cash Account" that have no Ledger entry)
-    for (const acc of accounts) {
-      const ledgerExists = await Ledger.exists({
-        ledgerName: { $regex: new RegExp(`^${acc.name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
-        companyId: req.companyId
-      });
-      if (!ledgerExists) {
-        await syncLedgerFromBankCashAccount(acc);
-      }
     }
 
     // Auto-create Cash BankCashAccount if none exists

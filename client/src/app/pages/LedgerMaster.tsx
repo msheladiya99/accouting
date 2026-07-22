@@ -1251,30 +1251,28 @@ export default function LedgerMaster() {
   const handleDelete = useCallback(async (ledger: Ledger) => {
     if (!window.confirm(`Delete "${ledger.ledgerName}"? This cannot be undone.`)) return;
     try {
-      await deleteLedger(ledger._id);
       setRows((p) => p.filter((r) => r._id !== ledger._id));
+      await deleteLedger(ledger._id);
       toast.success(`"${ledger.ledgerName}" deleted`);
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
+      invalidateAllReports();
+      await load();
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to delete ledger");
     }
-  }, []);
+  }, [load]);
 
   const handleBulkDelete = useCallback(async () => {
     if (selectedIds.length === 0) return;
     if (!window.confirm(`Delete the ${selectedIds.length} selected ledger(s)? This cannot be undone.`)) return;
     setLoading(true);
     try {
-      const result = await bulkDeleteLedgers(selectedIds);
-      if (result.blocked && result.blocked.length > 0) {
-        // Partial delete — some ledgers were blocked because they have entries
-        toast.success(result.message, { duration: 6000 });
-      } else {
-        toast.success(result.message || `${result.count} ledger(s) deleted`);
-      }
+      const idsToDelete = [...selectedIds];
+      setRows((prev) => prev.filter((r) => !idsToDelete.includes(r._id)));
       setSelectedIds([]);
+      const result = await bulkDeleteLedgers(idsToDelete);
+      toast.success(result.message || `${result.count || idsToDelete.length} ledger(s) deleted successfully`);
+      invalidateAllReports();
       await load();
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (e: any) {
       toast.error(e.response?.data?.message || e.message || "Failed to delete selected ledgers", { duration: 6000 });
     } finally {

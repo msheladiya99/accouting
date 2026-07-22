@@ -60,6 +60,8 @@ export function invalidateAllReports() {
   queryClient.invalidateQueries({ queryKey: ["bank-book"] });
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ledgers });
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ledgersRaw });
+  queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups });
+  queryClient.invalidateQueries({ queryKey: QUERY_KEYS.bankAccounts });
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.journalEntries });
   queryClient.invalidateQueries({ queryKey: QUERY_KEYS.bankEntries });
   // Notify manual fetchers (like BalanceSheetPanel) to update silently

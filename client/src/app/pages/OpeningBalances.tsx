@@ -584,8 +584,8 @@ export default function OpeningBalances() {
       await deleteLedger(id);
       toast.success(`Ledger "${row.ledgerName}" deleted successfully`);
       setRows((prev) => prev.filter((r) => r.id !== id));
+      invalidateAllReports();
       await load(true);
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (err: any) {
       toast.error(err.response?.data?.message || err.message || "Failed to delete ledger");
     } finally {
@@ -608,8 +608,8 @@ export default function OpeningBalances() {
       toast.success("Selected ledger(s) deleted successfully");
       setRows((prev) => prev.filter((r) => !selectedIds.includes(r.id)));
       setSelectedIds([]);
+      invalidateAllReports();
       await load(true);
-      window.dispatchEvent(new CustomEvent("accounting-data-updated"));
     } catch (err: any) {
       toast.error(err.response?.data?.message || err.message || "Failed to delete ledgers");
     } finally {
